@@ -75,20 +75,11 @@ async def _probe_rows(rows: list[tuple[int, int, str]], settings: Settings) -> l
 
 
 def _filter_safe_ping_updates(results: list[PingResult]) -> list[PingResult]:
-    valid_results = [result for result in results if result.probe_ok and result.reachable is not None]
-    skipped_project_ids: set[int] = set()
+    invalid_results = [result for result in results if not result.probe_ok]
+    for result in invalid_results[:5]:
+        logger.warning("Ping probe failed for ip_id=%s: %s", result.ip_id, result.error or "unknown error")
 
-    for project_id in {result.project_id for result in valid_results}:
-        project_results = [result for result in valid_results if result.project_id == project_id]
-        if len(project_results) >= 3 and not any(result.reachable for result in project_results):
-            skipped_project_ids.add(project_id)
-            logger.warning(
-                "Ping pass found zero reachable hosts for project_id=%s across %s valid probes; keeping previous statuses",
-                project_id,
-                len(project_results),
-            )
-
-    return [result for result in valid_results if result.project_id not in skipped_project_ids]
+    return [result for result in results if result.probe_ok and result.reachable is not None]
 
 
 def _apply_ping_results(results_to_update: list[PingResult], *, project_id: int | None = None) -> None:

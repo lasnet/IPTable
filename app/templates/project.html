@@ -134,7 +134,7 @@
           <td class="save-cell">
             <form id="row-{{ ip.id }}" class="asset-row-form" action="/projects/{{ project.id }}/addresses/{{ ip.id }}" method="post">
               <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
-              <button class="row-save" type="submit">OK</button>
+              <button class="row-save" type="submit">Save</button>
             </form>
           </td>
         </tr>
@@ -152,28 +152,5 @@
       </tbody>
     </table>
   </div>
-
-  <footer class="table-footer">
-    <div class="filter-state">
-      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M3 5h18l-7 8v5l-4 2v-7L3 5Z" />
-      </svg>
-      <div>
-        <strong>Скрыты пустые строки: <span>{{ 'включено' if hide_empty else 'выключено' }}</span></strong>
-        <p>Показаны только строки с заполненными данными.</p>
-      </div>
-    </div>
-    <div class="pagination">
-      <label>
-        Строк на странице:
-        <select>
-          <option>25</option>
-        </select>
-      </label>
-      <span>1–{{ shown_count }} из {{ shown_count }}</span>
-      <button class="pager" type="button" aria-label="Предыдущая страница">‹</button>
-      <button class="pager" type="button" aria-label="Следующая страница">›</button>
-    </div>
-  </footer>
 </section>
 {% endblock %}

@@ -33,7 +33,7 @@
   }
 
   function warnAboutDirtyRow() {
-    window.alert(`Есть несохраненные изменения в строке ${rowAddress(dirtyRow)}. Сначала нажмите OK для этой строки.`);
+    window.alert(`Есть несохраненные изменения в строке ${rowAddress(dirtyRow)}. Сначала нажмите Save для этой строки.`);
     focusDirtyRow();
   }
 

@@ -55,7 +55,7 @@
         {% for folder in folders %}
         <div class="folder-node">
           <div class="folder-line">
-            <details class="tree-folder">
+            <details class="tree-folder" {% if active_project and active_project.folder_id == folder.id %}open{% endif %}>
               <summary>
                 <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="m9 18 6-6-6-6" />

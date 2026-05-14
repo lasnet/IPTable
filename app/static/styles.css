@@ -107,7 +107,6 @@ textarea {
 .ghost-button,
 .soft-button,
 .icon-button,
-.pager,
 .row-save,
 button {
   border-radius: 8px;
@@ -540,10 +539,6 @@ select:disabled {
   font-weight: 800;
 }
 
-.asset-table tr:last-child td {
-  border-bottom: 0;
-}
-
 .asset-table th:last-child,
 .asset-table td:last-child {
   border-right: 0;
@@ -582,7 +577,7 @@ select:disabled {
 }
 
 .col-action {
-  width: 76px;
+  width: 92px;
 }
 
 .number-cell {
@@ -658,7 +653,7 @@ th.locked-col {
 
 .save-head,
 .save-cell {
-  width: 76px;
+  width: 92px;
   text-align: center;
 }
 
@@ -717,7 +712,7 @@ th.locked-col {
 }
 
 .row-save {
-  min-width: 34px;
+  min-width: 58px;
   min-height: 30px;
   border: 1px solid #cfd8e6;
   background: #ffffff;
@@ -760,61 +755,6 @@ th.locked-col {
   padding: 32px;
   color: var(--muted);
   text-align: center;
-}
-
-.table-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  min-height: 70px;
-  margin-top: 14px;
-  padding: 12px 18px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.filter-state {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: #344054;
-}
-
-.filter-state span {
-  color: var(--green);
-}
-
-.pagination,
-.pagination label {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: var(--text);
-}
-
-.pagination label {
-  color: #344054;
-}
-
-.pagination select {
-  width: 82px;
-  height: 40px;
-  padding: 0 12px;
-  border: 1px solid #cfd8e6;
-  border-radius: 8px;
-  background: #ffffff;
-}
-
-.pager {
-  width: 34px;
-  height: 34px;
-  border: 0;
-  background: transparent;
-  color: #98a2b3;
-  font-size: 28px;
-  cursor: pointer;
 }
 
 .empty-workspace {
@@ -943,14 +883,12 @@ th.locked-col {
     padding: 18px;
   }
 
-  .project-card-head,
-  .table-footer {
+  .project-card-head {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .project-actions,
-  .pagination {
+  .project-actions {
     flex-wrap: wrap;
   }
 }
