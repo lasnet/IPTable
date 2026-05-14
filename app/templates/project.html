@@ -86,6 +86,7 @@
         <col class="col-custom">
         {% endfor %}
         <col class="col-status">
+        <col class="col-action">
       </colgroup>
       <thead>
         <tr>
@@ -99,11 +100,12 @@
           <th>{{ field.name }}</th>
           {% endfor %}
           <th>Статус (Ping)</th>
+          <th class="save-head"></th>
         </tr>
       </thead>
       <tbody>
         {% for ip in ip_records %}
-        <tr id="ip-{{ ip.id }}">
+        <tr id="ip-{{ ip.id }}" data-row-address="{{ ip.address }}">
           <td class="number-cell">{{ ip.ordinal }}</td>
           <td class="ip-cell locked-col">{{ ip.address }}</td>
           <td><input form="row-{{ ip.id }}" name="hostname" value="{{ ip.hostname }}" maxlength="255"
@@ -121,22 +123,24 @@
           </td>
           {% endfor %}
           <td class="status-cell">
-            <form id="row-{{ ip.id }}" action="/projects/{{ project.id }}/addresses/{{ ip.id }}" method="post">
+            {% if ip.is_reachable is sameas true %}
+            <span class="status-pill online"><span></span>OK</span>
+            {% elif ip.is_reachable is sameas false %}
+            <span class="status-pill offline"><span></span>NO</span>
+            {% else %}
+            <span class="status-pill unknown"><span></span>NoTest</span>
+            {% endif %}
+          </td>
+          <td class="save-cell">
+            <form id="row-{{ ip.id }}" class="asset-row-form" action="/projects/{{ project.id }}/addresses/{{ ip.id }}" method="post">
               <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
-              {% if ip.is_reachable is sameas true %}
-              <span class="status-pill online"><span></span>Доступен</span>
-              {% elif ip.is_reachable is sameas false %}
-              <span class="status-pill offline"><span></span>Недоступен</span>
-              {% else %}
-              <span class="status-pill unknown"><span></span>Не проверялся</span>
-              {% endif %}
               <button class="row-save" type="submit">OK</button>
             </form>
           </td>
         </tr>
         {% else %}
         <tr>
-          <td class="empty-table" colspan="{{ 7 + custom_fields|length }}">
+          <td class="empty-table" colspan="{{ 8 + custom_fields|length }}">
             {% if hide_empty %}
             Пустые строки скрыты. Нажмите «Показать скрытые», чтобы заполнить новые IP-адреса.
             {% else %}

@@ -64,20 +64,17 @@ async def ping_address(ip_id: int, project_id: int, address: str, timeout_second
     return PingResult(ip_id, project_id, process.returncode == 0, latency, checked_at, True, error_output)
 
 
-async def run_ping_pass(settings: Settings) -> int:
-    started_at = datetime.utcnow()
-    with SessionLocal() as db:
-        db.query(Project).update({Project.last_ping_started_at: started_at})
-        rows = db.execute(select(IPAddress.id, IPAddress.project_id, IPAddress.address)).all()
-        db.commit()
-
+async def _probe_rows(rows: list[tuple[int, int, str]], settings: Settings) -> list[PingResult]:
     semaphore = asyncio.Semaphore(settings.ping_concurrency)
 
     async def guarded_ping(ip_id: int, project_id: int, address: str) -> PingResult:
         async with semaphore:
             return await ping_address(ip_id, project_id, address, settings.ping_timeout_seconds)
 
-    results = await asyncio.gather(*(guarded_ping(ip_id, project_id, address) for ip_id, project_id, address in rows))
+    return await asyncio.gather(*(guarded_ping(ip_id, project_id, address) for ip_id, project_id, address in rows))
+
+
+def _filter_safe_ping_updates(results: list[PingResult]) -> list[PingResult]:
     valid_results = [result for result in results if result.probe_ok and result.reachable is not None]
     skipped_project_ids: set[int] = set()
 
@@ -91,8 +88,10 @@ async def run_ping_pass(settings: Settings) -> int:
                 len(project_results),
             )
 
-    results_to_update = [result for result in valid_results if result.project_id not in skipped_project_ids]
+    return [result for result in valid_results if result.project_id not in skipped_project_ids]
 
+
+def _apply_ping_results(results_to_update: list[PingResult], *, project_id: int | None = None) -> None:
     with SessionLocal() as db:
         for result in results_to_update:
             values = {
@@ -104,9 +103,38 @@ async def run_ping_pass(settings: Settings) -> int:
                 values[IPAddress.last_seen_at] = result.checked_at
             db.query(IPAddress).filter(IPAddress.id == result.ip_id).update(values)
 
-        db.query(Project).update({Project.last_ping_finished_at: datetime.utcnow()})
+        project_query = db.query(Project)
+        if project_id is not None:
+            project_query = project_query.filter(Project.id == project_id)
+        project_query.update({Project.last_ping_finished_at: datetime.utcnow()})
         db.commit()
 
+
+async def run_ping_project(project_id: int, settings: Settings) -> int:
+    started_at = datetime.utcnow()
+    with SessionLocal() as db:
+        db.query(Project).filter(Project.id == project_id).update({Project.last_ping_started_at: started_at})
+        rows = db.execute(
+            select(IPAddress.id, IPAddress.project_id, IPAddress.address).where(IPAddress.project_id == project_id)
+        ).all()
+        db.commit()
+
+    results = await _probe_rows(list(rows), settings)
+    results_to_update = _filter_safe_ping_updates(results)
+    _apply_ping_results(results_to_update, project_id=project_id)
+    return len(results_to_update)
+
+
+async def run_ping_pass(settings: Settings) -> int:
+    started_at = datetime.utcnow()
+    with SessionLocal() as db:
+        db.query(Project).update({Project.last_ping_started_at: started_at})
+        rows = db.execute(select(IPAddress.id, IPAddress.project_id, IPAddress.address)).all()
+        db.commit()
+
+    results = await _probe_rows(list(rows), settings)
+    results_to_update = _filter_safe_ping_updates(results)
+    _apply_ping_results(results_to_update)
     return len(results_to_update)
 
 

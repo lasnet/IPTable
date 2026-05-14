@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 from urllib.parse import urlencode
 
@@ -13,8 +14,10 @@ from app.models import CustomField, Folder, IPAddress, Project, User
 from app.services.auth import authenticate_user
 from app.services.inventory import create_custom_field, create_project_with_addresses, is_ip_record_empty
 from app.services.network import NetworkValidationError
+from app.services.ping import run_ping_project
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _templates(request: Request):
@@ -142,7 +145,7 @@ def create_folder(
 
 
 @router.post("/projects")
-def create_project(
+async def create_project(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
@@ -177,7 +180,11 @@ def create_project(
         db.rollback()
         return _redirect_error("/", "Не удалось создать проект: проверьте уникальность имени")
 
-    return _redirect(f"/projects/{project.id}")
+    try:
+        await run_ping_project(project.id, settings)
+    except Exception:
+        logger.exception("Initial ping scan failed for project_id=%s", project.id)
+    return _redirect(f"/projects/{project.id}?hide_empty=false")
 
 
 @router.get("/projects/{project_id}", response_class=HTMLResponse)
