@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}{{ project.name }} - IPtable{% endblock %}
+
+{% block content %}
+<section class="project-header">
+  <div>
+    <a class="back-link" href="/">Назад к папкам</a>
+    <p class="eyebrow">{{ project.folder.name }}</p>
+    <h1>{{ project.name }}</h1>
+    <p class="muted">{{ project.cidr }}{% if project.description %} - {{ project.description }}{% endif %}</p>
+  </div>
+  <div class="stats">
+    <div><strong>{{ total_count }}</strong><span>IP всего</span></div>
+    <div><strong>{{ filled_count }}</strong><span>заполнено в текущем виде</span></div>
+    <div><strong>{{ online_count }}</strong><span>online</span></div>
+  </div>
+</section>
+
+<section class="toolbar">
+  <a class="button secondary" href="/projects/{{ project.id }}{% if not hide_empty %}?hide_empty=true{% endif %}">
+    {% if hide_empty %}Показать все{% else %}Скрыть пустые{% endif %}
+  </a>
+  <form class="inline-form" action="/projects/{{ project.id }}/fields" method="post">
+    <input name="name" maxlength="120" required placeholder="Новый столбец">
+    <select name="field_type">
+      <option value="text">Текст</option>
+      <option value="number">Число</option>
+      <option value="date">Дата</option>
+    </select>
+    <button type="submit">Добавить столбец</button>
+  </form>
+</section>
+
+<section class="table-wrap">
+  <table class="ip-table">
+    <thead>
+      <tr>
+        <th class="num">#</th>
+        <th>IP адрес</th>
+        <th>Hostname</th>
+        <th>OS</th>
+        <th>Type</th>
+        <th>Comment</th>
+        {% for field in custom_fields %}
+          <th>{{ field.name }}</th>
+        {% endfor %}
+        <th>Status</th>
+        <th class="action">Save</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ip in ip_records %}
+        <tr id="ip-{{ ip.id }}">
+          <td class="num">{{ ip.ordinal }}</td>
+          <td class="ip-address">{{ ip.address }}</td>
+          <td><input form="row-{{ ip.id }}" name="hostname" value="{{ ip.hostname }}" maxlength="255"></td>
+          <td><input form="row-{{ ip.id }}" name="os" value="{{ ip.os }}" maxlength="120"></td>
+          <td><input form="row-{{ ip.id }}" name="asset_type" value="{{ ip.asset_type }}" maxlength="120"></td>
+          <td><textarea form="row-{{ ip.id }}" name="comment" maxlength="4000" rows="1">{{ ip.comment }}</textarea></td>
+          {% for field in custom_fields %}
+            <td>
+              <input
+                form="row-{{ ip.id }}"
+                name="custom__{{ field.key }}"
+                value="{{ (ip.custom_values or {}).get(field.key, '') }}"
+                maxlength="1000"
+                {% if field.field_type in ['number', 'date'] %}type="{{ field.field_type }}"{% endif %}
+              >
+            </td>
+          {% endfor %}
+          <td>
+            {% if ip.is_reachable is sameas true %}
+              <span class="status online">online</span>
+              {% if ip.ping_latency_ms is not none %}<small>{{ "%.1f"|format(ip.ping_latency_ms) }} ms</small>{% endif %}
+            {% elif ip.is_reachable is sameas false %}
+              <span class="status offline">offline</span>
+            {% else %}
+              <span class="status unknown">unknown</span>
+            {% endif %}
+          </td>
+          <td class="action">
+            <form id="row-{{ ip.id }}" action="/projects/{{ project.id }}/addresses/{{ ip.id }}" method="post">
+              <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
+              <button type="submit">OK</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="{{ 8 + custom_fields|length }}" class="empty-state">Нет записей для отображения.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

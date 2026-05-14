@@ -1,0 +1,22 @@
+from functools import lru_cache
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    app_name: str = "IPtable"
+    app_env: str = "local"
+    database_url: str = "sqlite:///./data/iptable.sqlite3"
+    ping_interval_seconds: int = Field(default=3600, ge=60)
+    ping_timeout_seconds: int = Field(default=2, ge=1)
+    ping_concurrency: int = Field(default=64, ge=1, le=512)
+    max_project_addresses: int = Field(default=4096, ge=1)
+    enable_ping_worker: bool = True
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

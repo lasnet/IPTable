@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}IPtable{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">IPtable</a>
+      <form class="search-form" action="/search" method="get">
+        <input type="search" name="q" value="{{ q | default('') }}" placeholder="Поиск по всем папкам и проектам">
+        <button type="submit">Найти</button>
+      </form>
+    </header>
+
+    <main class="page">
+      {% if error %}
+        <div class="notice error">{{ error }}</div>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </body>
+</html>

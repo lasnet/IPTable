@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}IPtable - проекты{% endblock %}
+
+{% block content %}
+<section class="page-heading">
+  <div>
+    <p class="eyebrow">Учет IP-адресов</p>
+    <h1>Папки и подсети</h1>
+  </div>
+</section>
+
+<section class="split-layout">
+  <div class="panel">
+    <h2>Новая папка</h2>
+    <form class="stacked-form" action="/folders" method="post">
+      <label>
+        Название
+        <input name="name" maxlength="120" required placeholder="Например: Office">
+      </label>
+      <button type="submit">Создать папку</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h2>Новый проект</h2>
+    <form class="stacked-form" action="/projects" method="post">
+      <label>
+        Папка
+        <select name="folder_id" required>
+          {% for folder in folders %}
+            <option value="{{ folder.id }}">{{ folder.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Название проекта
+        <input name="name" maxlength="160" required placeholder="Например: VLAN 16">
+      </label>
+      <label>
+        Подсеть
+        <input name="cidr" maxlength="64" required placeholder="172.16.16.0/24">
+      </label>
+      <label>
+        Описание
+        <textarea name="description" maxlength="2000" rows="3"></textarea>
+      </label>
+      <button type="submit" {% if not folders %}disabled{% endif %}>Создать проект</button>
+    </form>
+    {% if not folders %}
+      <p class="muted">Сначала создайте хотя бы одну папку.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="section">
+  <h2>Текущая структура</h2>
+  {% if folders %}
+    <div class="folder-list">
+      {% for folder in folders %}
+        <article class="folder-row">
+          <div class="folder-title">
+            <strong>{{ folder.name }}</strong>
+            <span>{{ folder.projects | length }} проектов</span>
+          </div>
+          {% if folder.projects %}
+            <div class="project-links">
+              {% for project in folder.projects %}
+                <a href="/projects/{{ project.id }}">
+                  <span>{{ project.name }}</span>
+                  <small>{{ project.cidr }}</small>
+                </a>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p class="muted">В этой папке пока нет проектов.</p>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="empty-state">Папок пока нет. Создайте первую папку, а затем добавьте в нее подсеть.</p>
+  {% endif %}
+</section>
+{% endblock %}
