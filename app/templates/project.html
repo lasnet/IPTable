@@ -40,6 +40,7 @@
         {% endif %}
       </a>
 
+      {% if current_user.can_manage_project_columns %}
       <details class="field-details">
         <summary class="soft-button">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -58,7 +59,34 @@
           <button type="submit">Добавить</button>
         </form>
       </details>
+      {% endif %}
 
+      {% if current_user.can_edit_inventory or current_user.can_delete_inventory %}
+      <details class="field-details">
+        <summary class="icon-button" aria-label="Настройки проекта">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 12h.01" />
+            <path d="M12 5h.01" />
+            <path d="M12 19h.01" />
+          </svg>
+        </summary>
+        <div class="floating-form project-settings">
+          {% if current_user.can_edit_inventory %}
+          <form class="stack-form" action="/projects/{{ project.id }}/update" method="post">
+            <input name="name" maxlength="160" required value="{{ project.name }}">
+            <textarea name="description" maxlength="2000" rows="4" placeholder="Описание">{{ project.description }}</textarea>
+            <button type="submit">Сохранить</button>
+          </form>
+          {% endif %}
+          {% if current_user.can_delete_inventory %}
+          <form action="/projects/{{ project.id }}/delete" method="post" onsubmit="return confirm('Удалить подсеть и все IP-записи?')">
+            <button class="danger-button" type="submit">Удалить проект</button>
+          </form>
+          {% endif %}
+        </div>
+      </details>
+      {% endif %}
+      {% if not (current_user.can_edit_inventory or current_user.can_delete_inventory) %}
       <button class="icon-button" type="button" aria-label="Меню проекта">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 12h.01" />
@@ -66,6 +94,7 @@
           <path d="M12 19h.01" />
         </svg>
       </button>
+      {% endif %}
     </div>
   </div>
 

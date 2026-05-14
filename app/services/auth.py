@@ -2,7 +2,7 @@ import hashlib
 import secrets
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -60,9 +60,66 @@ def bootstrap_initial_admin(db: Session, settings: Settings) -> None:
         return
 
     username = settings.initial_admin_username.strip()
+    db.execute(
+        update(User)
+        .where(func.lower(User.username) != username.lower(), User.is_admin.is_(True))
+        .values(
+            is_admin=False,
+            can_create=False,
+            can_edit=False,
+            can_delete=False,
+            can_manage_columns=False,
+        )
+    )
     existing = db.scalar(select(User).where(func.lower(User.username) == username.lower()))
     if existing is not None:
+        existing.is_admin = True
+        existing.can_create = True
+        existing.can_edit = True
+        existing.can_delete = True
+        existing.can_manage_columns = True
+        db.commit()
         return
 
-    db.add(User(username=username, password_hash=hash_password(settings.initial_admin_password)))
+    db.add(
+        User(
+            username=username,
+            password_hash=hash_password(settings.initial_admin_password),
+            is_admin=True,
+            can_create=True,
+            can_edit=True,
+            can_delete=True,
+            can_manage_columns=True,
+        )
+    )
     db.commit()
+
+
+def create_user(
+    db: Session,
+    *,
+    username: str,
+    password: str,
+    first_name: str,
+    last_name: str,
+    description: str,
+    can_create: bool = False,
+    can_edit: bool = False,
+    can_delete: bool = False,
+    can_manage_columns: bool = False,
+) -> User:
+    user = User(
+        username=username.strip(),
+        password_hash=hash_password(password),
+        first_name=first_name.strip(),
+        last_name=last_name.strip(),
+        description=description.strip(),
+        can_create=can_create,
+        can_edit=can_edit,
+        can_delete=can_delete,
+        can_manage_columns=can_manage_columns,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user

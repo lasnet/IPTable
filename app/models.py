@@ -37,8 +37,32 @@ class User(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    first_name: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    last_name: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    can_create: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_edit: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_delete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_manage_columns: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    @property
+    def can_create_inventory(self) -> bool:
+        return bool(self.is_admin or self.can_create)
+
+    @property
+    def can_edit_inventory(self) -> bool:
+        return bool(self.is_admin or self.can_edit)
+
+    @property
+    def can_delete_inventory(self) -> bool:
+        return bool(self.is_admin or self.can_delete)
+
+    @property
+    def can_manage_project_columns(self) -> bool:
+        return bool(self.is_admin or self.can_manage_columns)
 
 
 class Project(TimestampMixin, Base):

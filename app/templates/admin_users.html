@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Админ-панель - IPtable{% endblock %}
+
+{% block content %}
+<section class="project-card admin-card">
+  <div class="project-card-head">
+    <div class="project-title">
+      <div class="title-icon">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      </div>
+      <div>
+        <h2>Админ-панель</h2>
+        <p class="subtle">Создание пользователей и назначение прав доступа.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="admin-layout">
+    <section class="admin-section">
+      <h3>Новый пользователь</h3>
+      <form class="admin-form" action="/admin/users" method="post">
+        <div class="form-grid">
+          <label>
+            Логин
+            <input name="username" minlength="3" maxlength="80" required>
+          </label>
+          <label>
+            Пароль
+            <input name="password" type="password" minlength="8" maxlength="200" required>
+          </label>
+          <label>
+            Имя
+            <input name="first_name" maxlength="120">
+          </label>
+          <label>
+            Фамилия
+            <input name="last_name" maxlength="120">
+          </label>
+        </div>
+        <label>
+          Описание
+          <textarea name="description" maxlength="2000" rows="3"></textarea>
+        </label>
+        <div class="permission-grid">
+          <label><input type="checkbox" name="can_create"> Разрешить создание</label>
+          <label><input type="checkbox" name="can_edit"> Разрешить редактирование</label>
+          <label><input type="checkbox" name="can_delete"> Разрешить удаление</label>
+          <label><input type="checkbox" name="can_manage_columns"> Редактирование столбцов</label>
+        </div>
+        <button type="submit">Создать пользователя</button>
+      </form>
+    </section>
+
+    <section class="admin-section">
+      <h3>Пользователи</h3>
+      <div class="users-list">
+        {% for user in users %}
+        <article class="user-row">
+          <div>
+            <strong>{{ user.username }}</strong>
+            {% if user.is_admin %}<span class="role-badge">admin</span>{% endif %}
+            {% if user.first_name or user.last_name %}
+            <p>{{ user.first_name }} {{ user.last_name }}</p>
+            {% endif %}
+            {% if user.description %}<small>{{ user.description }}</small>{% endif %}
+          </div>
+          <div class="user-permissions">
+            <span class="{{ 'enabled' if user.can_create_inventory else '' }}">создание</span>
+            <span class="{{ 'enabled' if user.can_edit_inventory else '' }}">редактирование</span>
+            <span class="{{ 'enabled' if user.can_delete_inventory else '' }}">удаление</span>
+            <span class="{{ 'enabled' if user.can_manage_project_columns else '' }}">столбцы</span>
+          </div>
+        </article>
+        {% else %}
+        <div class="empty-table">Пользователей пока нет.</div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+</section>
+{% endblock %}

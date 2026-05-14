@@ -18,16 +18,21 @@
       </svg>
       <input type="search" name="q" value="{{ q | default('') }}" placeholder="Поиск по всем проектам и папкам">
     </form>
-    <form action="/logout" method="post">
-      <button class="ghost-button" type="submit">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-          <path d="M16 17l5-5-5-5" />
-          <path d="M21 12H9" />
-        </svg>
-        Выход
-      </button>
-    </form>
+    <div class="top-actions">
+      {% if current_user.is_admin %}
+      <a class="ghost-button" href="/admin/users">Админ</a>
+      {% endif %}
+      <form action="/logout" method="post">
+        <button class="ghost-button" type="submit">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <path d="M16 17l5-5-5-5" />
+            <path d="M21 12H9" />
+          </svg>
+          Выход
+        </button>
+      </form>
+    </div>
   </header>
 
   <main class="app-shell">
@@ -35,6 +40,7 @@
 
       <div class="folders-title">
         <span>Папки</span>
+        {% if current_user.can_create_inventory %}
         <a class="add-link" href="{{ request.url.path }}?new_folder=true" title="Добавить папку"
           aria-label="Добавить папку">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -42,9 +48,10 @@
             <path d="M5 12h14" />
           </svg>
         </a>
+        {% endif %}
       </div>
 
-      {% if request.query_params.get('new_folder') == 'true' %}
+      {% if current_user.can_create_inventory and request.query_params.get('new_folder') == 'true' %}
       <form class="sidebar-form compact-form" action="/folders" method="post">
         <input name="name" maxlength="120" required placeholder="Название папки">
         <button type="submit">Создать</button>
@@ -84,6 +91,8 @@
                 {% endfor %}
               </div>
             </details>
+            <div class="folder-tools">
+              {% if current_user.can_create_inventory %}
             <a class="add-link folder-add" href="{{ request.url.path }}?new_project_folder={{ folder.id }}"
               title="Добавить проект" aria-label="Добавить проект">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -91,8 +100,19 @@
                 <path d="M5 12h14" />
               </svg>
             </a>
+              {% endif %}
+              {% if current_user.can_edit_inventory or current_user.can_delete_inventory %}
+              <a class="add-link folder-add" href="{{ request.url.path }}?edit_folder={{ folder.id }}"
+                title="Редактировать папку" aria-label="Редактировать папку">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+              </a>
+              {% endif %}
+            </div>
           </div>
-          {% if request.query_params.get('new_project_folder') == folder.id|string %}
+          {% if current_user.can_create_inventory and request.query_params.get('new_project_folder') == folder.id|string %}
           <form class="sidebar-form compact-form project-form" action="/projects" method="post">
             <input type="hidden" name="folder_id" value="{{ folder.id }}">
             <input name="name" maxlength="160" required placeholder="Название проекта">
@@ -100,6 +120,21 @@
             <textarea name="description" maxlength="2000" rows="3" placeholder="Комментарий"></textarea>
             <button type="submit">Создать</button>
           </form>
+          {% endif %}
+          {% if (current_user.can_edit_inventory or current_user.can_delete_inventory) and request.query_params.get('edit_folder') == folder.id|string %}
+          <div class="sidebar-form compact-form">
+            {% if current_user.can_edit_inventory %}
+            <form class="stack-form" action="/folders/{{ folder.id }}/update" method="post">
+              <input name="name" maxlength="120" required value="{{ folder.name }}">
+              <button type="submit">Сохранить</button>
+            </form>
+            {% endif %}
+            {% if current_user.can_delete_inventory %}
+            <form action="/folders/{{ folder.id }}/delete" method="post" onsubmit="return confirm('Удалить папку и все проекты внутри?')">
+              <button class="danger-button" type="submit">Удалить папку</button>
+            </form>
+            {% endif %}
+          </div>
           {% endif %}
         </div>
         {% else %}

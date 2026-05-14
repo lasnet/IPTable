@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.models import CustomField, Folder, IPAddress, Project, User
-from app.services.auth import authenticate_user
+from app.services.auth import authenticate_user, create_user
 from app.services.inventory import create_custom_field, create_project_with_addresses, is_ip_record_empty
 from app.services.network import NetworkValidationError
 from app.services.ping import run_ping_project
@@ -55,6 +55,16 @@ def require_user(request: Request, db: Annotated[Session, Depends(get_db)]) -> U
         request.session.clear()
         raise HTTPException(status_code=303, headers={"Location": "/login"})
     return user
+
+
+def require_admin(current_user: Annotated[User, Depends(require_user)]) -> User:
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
+def _checked(value: str | None) -> bool:
+    return value == "on"
 
 
 @router.get("/health")
@@ -130,7 +140,13 @@ def create_folder(
     current_user: Annotated[User, Depends(require_user)],
     name: Annotated[str, Form(min_length=1, max_length=120)],
 ) -> RedirectResponse:
+    if not current_user.can_create_inventory:
+        return _redirect_error("/", "Недостаточно прав для создания папок")
+
     clean_name = _clean_text(name, 120)
+    if not clean_name:
+        return _redirect_error("/", "Название папки не может быть пустым")
+
     existing = db.scalar(select(Folder).where(func.lower(Folder.name) == clean_name.lower()))
     if existing:
         return _redirect_error("/", "Папка с таким именем уже существует")
@@ -144,6 +160,51 @@ def create_folder(
     return _redirect("/")
 
 
+@router.post("/folders/{folder_id}/update")
+def update_folder(
+    folder_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+    name: Annotated[str, Form(min_length=1, max_length=120)],
+) -> RedirectResponse:
+    if not current_user.can_edit_inventory:
+        return _redirect_error("/", "Недостаточно прав для редактирования папок")
+
+    folder = db.get(Folder, folder_id)
+    if folder is None:
+        return _redirect_error("/", "Папка не найдена")
+
+    clean_name = _clean_text(name, 120)
+    if not clean_name:
+        return _redirect_error("/", "Название папки не может быть пустым")
+
+    folder.name = clean_name
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return _redirect_error("/", "Папка с таким именем уже существует")
+    return _redirect("/")
+
+
+@router.post("/folders/{folder_id}/delete")
+def delete_folder(
+    folder_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    if not current_user.can_delete_inventory:
+        return _redirect_error("/", "Недостаточно прав для удаления папок")
+
+    folder = db.get(Folder, folder_id)
+    if folder is None:
+        return _redirect_error("/", "Папка не найдена")
+
+    db.delete(folder)
+    db.commit()
+    return _redirect("/")
+
+
 @router.post("/projects")
 async def create_project(
     db: Annotated[Session, Depends(get_db)],
@@ -154,11 +215,17 @@ async def create_project(
     cidr: Annotated[str, Form(min_length=1, max_length=64)],
     description: Annotated[str, Form(max_length=2000)] = "",
 ) -> RedirectResponse:
+    if not current_user.can_create_inventory:
+        return _redirect_error("/", "Недостаточно прав для создания проектов")
+
     folder = db.get(Folder, folder_id)
     if folder is None:
         return _redirect_error("/", "Папка не найдена")
 
     clean_name = _clean_text(name, 160)
+    if not clean_name:
+        return _redirect_error("/", "Название проекта не может быть пустым")
+
     existing = db.scalar(
         select(Project).where(Project.folder_id == folder.id, func.lower(Project.name) == clean_name.lower())
     )
@@ -185,6 +252,53 @@ async def create_project(
     except Exception:
         logger.exception("Initial ping scan failed for project_id=%s", project.id)
     return _redirect(f"/projects/{project.id}?hide_empty=false")
+
+
+@router.post("/projects/{project_id}/update")
+def update_project(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+    name: Annotated[str, Form(min_length=1, max_length=160)],
+    description: Annotated[str, Form(max_length=2000)] = "",
+) -> RedirectResponse:
+    if not current_user.can_edit_inventory:
+        return _redirect_error(f"/projects/{project_id}", "Недостаточно прав для редактирования проектов")
+
+    project = db.get(Project, project_id)
+    if project is None:
+        return _redirect_error("/", "Проект не найден")
+
+    clean_name = _clean_text(name, 160)
+    if not clean_name:
+        return _redirect_error(f"/projects/{project_id}", "Название проекта не может быть пустым")
+
+    project.name = clean_name
+    project.description = _clean_text(description, 2000)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return _redirect_error(f"/projects/{project_id}", "Проект с таким именем уже существует в выбранной папке")
+    return _redirect(f"/projects/{project_id}")
+
+
+@router.post("/projects/{project_id}/delete")
+def delete_project(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    if not current_user.can_delete_inventory:
+        return _redirect_error(f"/projects/{project_id}", "Недостаточно прав для удаления проектов")
+
+    project = db.get(Project, project_id)
+    if project is None:
+        return _redirect_error("/", "Проект не найден")
+
+    db.delete(project)
+    db.commit()
+    return _redirect("/")
 
 
 @router.get("/projects/{project_id}", response_class=HTMLResponse)
@@ -243,6 +357,70 @@ def project_detail(
     )
 
 
+@router.get("/admin/users", response_class=HTMLResponse)
+def admin_users(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    error: Annotated[str | None, Query(max_length=240)] = None,
+) -> HTMLResponse:
+    users = db.scalars(select(User).order_by(User.username.asc())).all()
+    return _templates(request).TemplateResponse(
+        request,
+        "admin_users.html",
+        {
+            "request": request,
+            "folders": _load_sidebar_folders(db),
+            "active_project": None,
+            "current_user": current_user,
+            "users": users,
+            "error": error,
+        },
+    )
+
+
+@router.post("/admin/users")
+def admin_create_user(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    username: Annotated[str, Form(min_length=3, max_length=80)],
+    password: Annotated[str, Form(min_length=8, max_length=200)],
+    first_name: Annotated[str, Form(max_length=120)] = "",
+    last_name: Annotated[str, Form(max_length=120)] = "",
+    description: Annotated[str, Form(max_length=2000)] = "",
+    can_create: Annotated[str | None, Form()] = None,
+    can_edit: Annotated[str | None, Form()] = None,
+    can_delete: Annotated[str | None, Form()] = None,
+    can_manage_columns: Annotated[str | None, Form()] = None,
+) -> RedirectResponse:
+    clean_username = _clean_text(username, 80)
+    if not clean_username:
+        return _redirect_error("/admin/users", "Логин не может быть пустым")
+
+    existing = db.scalar(select(User).where(func.lower(User.username) == clean_username.lower()))
+    if existing:
+        return _redirect_error("/admin/users", "Пользователь с таким логином уже существует")
+
+    try:
+        create_user(
+            db,
+            username=clean_username,
+            password=password,
+            first_name=_clean_text(first_name, 120),
+            last_name=_clean_text(last_name, 120),
+            description=_clean_text(description, 2000),
+            can_create=_checked(can_create),
+            can_edit=_checked(can_edit),
+            can_delete=_checked(can_delete),
+            can_manage_columns=_checked(can_manage_columns),
+        )
+    except IntegrityError:
+        db.rollback()
+        return _redirect_error("/admin/users", "Не удалось создать пользователя: логин должен быть уникальным")
+
+    return _redirect("/admin/users")
+
+
 @router.post("/projects/{project_id}/fields")
 def add_custom_field(
     project_id: int,
@@ -251,12 +429,19 @@ def add_custom_field(
     name: Annotated[str, Form(min_length=1, max_length=120)],
     field_type: Annotated[str, Form()] = "text",
 ) -> RedirectResponse:
+    if not current_user.can_manage_project_columns:
+        return _redirect_error(f"/projects/{project_id}", "Недостаточно прав для редактирования столбцов")
+
     if db.get(Project, project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    clean_name = _clean_text(name, 120)
+    if not clean_name:
+        return _redirect_error(f"/projects/{project_id}", "Название столбца не может быть пустым")
+
     allowed_types = {"text", "number", "date"}
     clean_type = field_type if field_type in allowed_types else "text"
-    create_custom_field(db, project_id=project_id, name=_clean_text(name, 120), field_type=clean_type)
+    create_custom_field(db, project_id=project_id, name=clean_name, field_type=clean_type)
     return _redirect(f"/projects/{project_id}?hide_empty=false")
 
 
