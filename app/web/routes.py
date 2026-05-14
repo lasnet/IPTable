@@ -185,7 +185,6 @@ def project_detail(
     project_id: int,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
-    settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
     hide_empty: bool = True,
     error: Annotated[str | None, Query(max_length=240)] = None,
@@ -207,11 +206,7 @@ def project_detail(
     ip_records = list(all_ip_records)
 
     if hide_empty:
-        ip_records = [
-            ip_record
-            for ip_record in ip_records
-            if not is_ip_record_empty(ip_record) or ip_record.is_reachable is not None
-        ]
+        ip_records = [ip_record for ip_record in ip_records if not is_ip_record_empty(ip_record)]
 
     total_count = db.scalar(select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id)) or 0
     filled_total = sum(1 for ip_record in all_ip_records if not is_ip_record_empty(ip_record))
@@ -237,7 +232,6 @@ def project_detail(
             "filled_count": filled_total,
             "online_count": online_count,
             "shown_count": len(ip_records),
-            "ping_interval_minutes": settings.ping_interval_seconds // 60,
         },
     )
 

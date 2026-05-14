@@ -1,4 +1,4 @@
-from ipaddress import IPv4Network, ip_network
+from ipaddress import IPv4Address, IPv4Network, ip_address, ip_network
 from typing import Iterator
 
 
@@ -28,5 +28,20 @@ def iter_project_addresses(cidr: str) -> Iterator[tuple[int, str]]:
     if not isinstance(network, IPv4Network):
         raise NetworkValidationError("Сейчас поддерживаются только IPv4-подсети")
 
-    for ordinal, address in enumerate(network, start=1):
+    for ordinal, address in enumerate(network.hosts(), start=1):
         yield ordinal, str(address)
+
+
+def reserved_project_addresses(cidr: str) -> set[str]:
+    network = ip_network(cidr, strict=False)
+    if not isinstance(network, IPv4Network) or network.prefixlen >= 31:
+        return set()
+
+    return {str(network.network_address), str(network.broadcast_address)}
+
+
+def address_sort_key(address: str) -> IPv4Address:
+    parsed = ip_address(address)
+    if not isinstance(parsed, IPv4Address):
+        raise NetworkValidationError("Сейчас поддерживаются только IPv4-адреса")
+    return parsed

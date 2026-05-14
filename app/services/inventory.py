@@ -1,9 +1,9 @@
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models import CustomField, IPAddress, Project
 from app.services.custom_fields import make_custom_field_key, next_available_key
-from app.services.network import iter_project_addresses, normalize_cidr
+from app.services.network import address_sort_key, iter_project_addresses, normalize_cidr, reserved_project_addresses
 
 
 def create_project_with_addresses(
@@ -35,6 +35,44 @@ def is_ip_record_empty(ip_record: IPAddress) -> bool:
     return not any(value.strip() for value in base_values) and not any(
         str(value).strip() for value in custom_values.values()
     )
+
+
+def normalize_project_address_rows(db: Session) -> None:
+    projects = db.scalars(select(Project).options(selectinload(Project.ip_addresses))).all()
+    changed = False
+
+    for project in projects:
+        reserved = reserved_project_addresses(project.cidr)
+        for ip_record in list(project.ip_addresses):
+            if ip_record.address in reserved:
+                db.delete(ip_record)
+                changed = True
+
+        if changed:
+            db.flush()
+
+        usable_records = [
+            ip_record
+            for ip_record in project.ip_addresses
+            if ip_record.address not in reserved and ip_record not in db.deleted
+        ]
+        ordered_records = sorted(usable_records, key=lambda item: address_sort_key(item.address))
+
+        for index, ip_record in enumerate(ordered_records, start=1):
+            if ip_record.ordinal != index:
+                ip_record.ordinal = -index
+                changed = True
+
+        if changed:
+            db.flush()
+
+        for index, ip_record in enumerate(ordered_records, start=1):
+            if ip_record.ordinal != index:
+                ip_record.ordinal = index
+                changed = True
+
+    if changed:
+        db.commit()
 
 
 def create_custom_field(db: Session, *, project_id: int, name: str, field_type: str) -> CustomField:

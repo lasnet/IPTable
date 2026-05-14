@@ -10,6 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.core.config import get_settings
 from app.core.database import SessionLocal, init_db
 from app.services.auth import bootstrap_initial_admin
+from app.services.inventory import normalize_project_address_rows
 from app.services.ping import run_ping_scheduler
 from app.web.routes import router
 
@@ -20,6 +21,7 @@ async def lifespan(app: FastAPI):
     init_db()
     with SessionLocal() as db:
         bootstrap_initial_admin(db, settings)
+        normalize_project_address_rows(db)
 
     ping_task: asyncio.Task | None = None
     if settings.enable_ping_worker:

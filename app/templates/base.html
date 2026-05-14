@@ -24,69 +24,62 @@
       <main class="app-shell">
         <aside class="sidebar">
           <div class="sidebar-head">
-            <h1>Папки и проекты</h1>
+            <h1>Проекты</h1>
           </div>
 
-          <details class="action-details">
-            <summary class="outline-action">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h5l2 2h9v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"/><path d="M12 13h6"/><path d="M15 10v6"/></svg>
-              Новая папка
-            </summary>
-            <form class="sidebar-form" action="/folders" method="post">
+          <div class="folders-title">
+            <span>Папки</span>
+            <a class="add-link" href="{{ request.url.path }}?new_folder=true" title="Добавить папку" aria-label="Добавить папку">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+            </a>
+          </div>
+
+          {% if request.query_params.get('new_folder') == 'true' %}
+            <form class="sidebar-form compact-form" action="/folders" method="post">
               <input name="name" maxlength="120" required placeholder="Название папки">
               <button type="submit">Создать</button>
             </form>
-          </details>
-
-          <details class="action-details">
-            <summary class="outline-action">
-              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v5"/><path d="M5 21v-3a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v3"/><path d="M8 8h8v5H8z"/><path d="M3 21h18"/><path d="M7 21v-3"/><path d="M17 21v-3"/></svg>
-              Новый проект
-            </summary>
-            <form class="sidebar-form" action="/projects" method="post">
-              <select name="folder_id" required {% if not folders %}disabled{% endif %}>
-                {% for folder in folders %}
-                  <option value="{{ folder.id }}">{{ folder.name }}</option>
-                {% endfor %}
-              </select>
-              <input name="name" maxlength="160" required placeholder="Название проекта">
-              <input name="cidr" maxlength="64" required placeholder="172.16.16.0/24">
-              <textarea name="description" maxlength="2000" rows="3" placeholder="Комментарий"></textarea>
-              <button type="submit" {% if not folders %}disabled{% endif %}>Создать</button>
-            </form>
-          </details>
+          {% endif %}
 
           <nav class="tree">
             {% for folder in folders %}
-              <details class="tree-folder" open>
-                <summary>
-                  <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
-                  <svg class="folder-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h5l2 2h9v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"/></svg>
-                  <span>{{ folder.name }}</span>
-                </summary>
-                <div class="tree-projects">
-                  {% for item in folder.projects %}
-                    <a class="tree-project {% if active_project and active_project.id == item.id %}active{% endif %}" href="/projects/{{ item.id }}">
-                      <svg class="network-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v5"/><path d="M5 21v-3a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v3"/><path d="M8 8h8v5H8z"/><path d="M3 21h18"/><path d="M7 21v-3"/><path d="M17 21v-3"/></svg>
-                      <span>{{ item.cidr }}</span>
-                    </a>
-                  {% else %}
-                    <span class="tree-empty">Нет проектов</span>
-                  {% endfor %}
+              <div class="folder-node">
+                <div class="folder-line">
+                  <details class="tree-folder" open>
+                    <summary>
+                      <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+                      <svg class="folder-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h5l2 2h9v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"/></svg>
+                      <span>{{ folder.name }}</span>
+                    </summary>
+                    <div class="tree-projects">
+                      {% for item in folder.projects %}
+                        <a class="tree-project {% if active_project and active_project.id == item.id %}active{% endif %}" href="/projects/{{ item.id }}">
+                          <svg class="network-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v5"/><path d="M5 21v-3a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v3"/><path d="M8 8h8v5H8z"/><path d="M3 21h18"/><path d="M7 21v-3"/><path d="M17 21v-3"/></svg>
+                          <span>{{ item.cidr }}</span>
+                        </a>
+                      {% else %}
+                        <span class="tree-empty">Нет проектов</span>
+                      {% endfor %}
+                    </div>
+                  </details>
+                  <a class="add-link folder-add" href="{{ request.url.path }}?new_project_folder={{ folder.id }}" title="Добавить проект" aria-label="Добавить проект">
+                    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                  </a>
                 </div>
-              </details>
+                {% if request.query_params.get('new_project_folder') == folder.id|string %}
+                  <form class="sidebar-form compact-form project-form" action="/projects" method="post">
+                    <input type="hidden" name="folder_id" value="{{ folder.id }}">
+                    <input name="name" maxlength="160" required placeholder="Название проекта">
+                    <input name="cidr" maxlength="64" required placeholder="172.16.16.0/24">
+                    <textarea name="description" maxlength="2000" rows="3" placeholder="Комментарий"></textarea>
+                    <button type="submit">Создать</button>
+                  </form>
+                {% endif %}
+              </div>
             {% else %}
               <div class="tree-empty-state">Создайте первую папку.</div>
             {% endfor %}
           </nav>
-
-          <div class="excel-card">
-            <div class="excel-icon">X</div>
-            <div>
-              <strong>Альтернатива Excel</strong>
-              <p>Учет и контроль активов в ваших локальных сетях в одном месте.</p>
-            </div>
-          </div>
         </aside>
 
         <section class="workspace">

@@ -11,10 +11,6 @@
       </div>
       <div>
         <h2>Проект: {{ project.cidr }}</h2>
-        <div class="ping-badge">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5l3 2"/><path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
-          Проверка доступности ICMP каждые {{ ping_interval_minutes }} минут
-        </div>
       </div>
     </div>
 
@@ -138,7 +134,7 @@
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v5l-4 2v-7L3 5Z"/></svg>
       <div>
         <strong>Скрыты пустые строки: <span>{{ 'включено' if hide_empty else 'выключено' }}</span></strong>
-        <p>Показаны строки с данными и статусом.</p>
+        <p>Показаны только строки с заполненными данными.</p>
       </div>
     </div>
     <div class="pagination">
