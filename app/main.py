@@ -1,12 +1,15 @@
 import asyncio
 from contextlib import asynccontextmanager
+import secrets
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.core.config import get_settings
-from app.core.database import init_db
+from app.core.database import SessionLocal, init_db
+from app.services.auth import bootstrap_initial_admin
 from app.services.ping import run_ping_scheduler
 from app.web.routes import router
 
@@ -15,6 +18,8 @@ from app.web.routes import router
 async def lifespan(app: FastAPI):
     settings = get_settings()
     init_db()
+    with SessionLocal() as db:
+        bootstrap_initial_admin(db, settings)
 
     ping_task: asyncio.Task | None = None
     if settings.enable_ping_worker:
@@ -33,6 +38,13 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
+    session_secret = settings.secret_key or secrets.token_urlsafe(32)
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=session_secret,
+        same_site="lax",
+        https_only=settings.app_env == "production",
+    )
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
     app.state.templates = Jinja2Templates(directory="app/templates")
     app.include_router(router)

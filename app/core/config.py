@@ -7,6 +7,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "IPtable"
     app_env: str = "local"
+    secret_key: str = Field(default="", min_length=0)
+    initial_admin_username: str = Field(default="admin", min_length=3, max_length=80)
+    initial_admin_password: str = Field(default="", min_length=0)
     database_url: str = "sqlite:///./data/iptable.sqlite3"
     ping_interval_seconds: int = Field(default=3600, ge=60)
     ping_timeout_seconds: int = Field(default=2, ge=1)

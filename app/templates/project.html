@@ -1,97 +1,157 @@
 {% extends "base.html" %}
 
-{% block title %}{{ project.name }} - IPtable{% endblock %}
+{% block title %}Проект {{ project.cidr }} - IPtable{% endblock %}
 
 {% block content %}
-<section class="project-header">
-  <div>
-    <a class="back-link" href="/">Назад к папкам</a>
-    <p class="eyebrow">{{ project.folder.name }}</p>
-    <h1>{{ project.name }}</h1>
-    <p class="muted">{{ project.cidr }}{% if project.description %} - {{ project.description }}{% endif %}</p>
-  </div>
-  <div class="stats">
-    <div><strong>{{ total_count }}</strong><span>IP всего</span></div>
-    <div><strong>{{ filled_count }}</strong><span>заполнено в текущем виде</span></div>
-    <div><strong>{{ online_count }}</strong><span>online</span></div>
-  </div>
-</section>
+<section class="project-card">
+  <div class="project-card-head">
+    <div class="project-title">
+      <div class="title-icon">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v5"/><path d="M5 21v-3a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v3"/><path d="M8 8h8v5H8z"/><path d="M3 21h18"/><path d="M7 21v-3"/><path d="M17 21v-3"/></svg>
+      </div>
+      <div>
+        <h2>Проект: {{ project.cidr }}</h2>
+        <div class="ping-badge">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v5l3 2"/><path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+          Проверка доступности ICMP каждые {{ ping_interval_minutes }} минут
+        </div>
+      </div>
+    </div>
 
-<section class="toolbar">
-  <a class="button secondary" href="/projects/{{ project.id }}{% if not hide_empty %}?hide_empty=true{% endif %}">
-    {% if hide_empty %}Показать все{% else %}Скрыть пустые{% endif %}
-  </a>
-  <form class="inline-form" action="/projects/{{ project.id }}/fields" method="post">
-    <input name="name" maxlength="120" required placeholder="Новый столбец">
-    <select name="field_type">
-      <option value="text">Текст</option>
-      <option value="number">Число</option>
-      <option value="date">Дата</option>
-    </select>
-    <button type="submit">Добавить столбец</button>
-  </form>
-</section>
+    <div class="project-actions">
+      <a class="soft-button" href="/projects/{{ project.id }}?hide_empty={{ 'false' if hide_empty else 'true' }}">
+        {% if hide_empty %}
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M17.94 17.94A10.9 10.9 0 0 1 12 20C7 20 2.73 16.89 1 12a12.2 12.2 0 0 1 5.06-5.94"/><path d="M10.58 10.58a2 2 0 0 0 2.83 2.83"/><path d="M9.9 4.24A10.8 10.8 0 0 1 12 4c5 0 9.27 3.11 11 8a12.3 12.3 0 0 1-2.16 3.19"/><path d="M3 3l18 18"/></svg>
+          Показать скрытые
+        {% else %}
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/></svg>
+          Скрыть пустые
+        {% endif %}
+      </a>
 
-<section class="table-wrap">
-  <table class="ip-table">
-    <thead>
-      <tr>
-        <th class="num">#</th>
-        <th>IP адрес</th>
-        <th>Hostname</th>
-        <th>OS</th>
-        <th>Type</th>
-        <th>Comment</th>
+      <details class="field-details">
+        <summary class="soft-button">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          Столбец
+        </summary>
+        <form class="floating-form" action="/projects/{{ project.id }}/fields" method="post">
+          <input name="name" maxlength="120" required placeholder="Название столбца">
+          <select name="field_type">
+            <option value="text">Текст</option>
+            <option value="number">Число</option>
+            <option value="date">Дата</option>
+          </select>
+          <button type="submit">Добавить</button>
+        </form>
+      </details>
+
+      <button class="icon-button" type="button" aria-label="Меню проекта">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12h.01"/><path d="M12 5h.01"/><path d="M12 19h.01"/></svg>
+      </button>
+    </div>
+  </div>
+
+  {% if project.description %}
+    <p class="project-description">{{ project.description }}</p>
+  {% endif %}
+
+  <div class="asset-table-wrap">
+    <table class="asset-table">
+      <colgroup>
+        <col class="col-number">
+        <col class="col-ip">
+        <col class="col-hostname">
+        <col class="col-os">
+        <col class="col-type">
+        <col class="col-comment">
         {% for field in custom_fields %}
-          <th>{{ field.name }}</th>
+          <col class="col-custom">
         {% endfor %}
-        <th>Status</th>
-        <th class="action">Save</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for ip in ip_records %}
-        <tr id="ip-{{ ip.id }}">
-          <td class="num">{{ ip.ordinal }}</td>
-          <td class="ip-address">{{ ip.address }}</td>
-          <td><input form="row-{{ ip.id }}" name="hostname" value="{{ ip.hostname }}" maxlength="255"></td>
-          <td><input form="row-{{ ip.id }}" name="os" value="{{ ip.os }}" maxlength="120"></td>
-          <td><input form="row-{{ ip.id }}" name="asset_type" value="{{ ip.asset_type }}" maxlength="120"></td>
-          <td><textarea form="row-{{ ip.id }}" name="comment" maxlength="4000" rows="1">{{ ip.comment }}</textarea></td>
-          {% for field in custom_fields %}
-            <td>
-              <input
-                form="row-{{ ip.id }}"
-                name="custom__{{ field.key }}"
-                value="{{ (ip.custom_values or {}).get(field.key, '') }}"
-                maxlength="1000"
-                {% if field.field_type in ['number', 'date'] %}type="{{ field.field_type }}"{% endif %}
-              >
-            </td>
-          {% endfor %}
-          <td>
-            {% if ip.is_reachable is sameas true %}
-              <span class="status online">online</span>
-              {% if ip.ping_latency_ms is not none %}<small>{{ "%.1f"|format(ip.ping_latency_ms) }} ms</small>{% endif %}
-            {% elif ip.is_reachable is sameas false %}
-              <span class="status offline">offline</span>
-            {% else %}
-              <span class="status unknown">unknown</span>
-            {% endif %}
-          </td>
-          <td class="action">
-            <form id="row-{{ ip.id }}" action="/projects/{{ project.id }}/addresses/{{ ip.id }}" method="post">
-              <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
-              <button type="submit">OK</button>
-            </form>
-          </td>
-        </tr>
-      {% else %}
+        <col class="col-status">
+      </colgroup>
+      <thead>
         <tr>
-          <td colspan="{{ 8 + custom_fields|length }}" class="empty-state">Нет записей для отображения.</td>
+          <th>№</th>
+          <th class="locked-col">IP адрес</th>
+          <th>Hostname</th>
+          <th>OS</th>
+          <th>Type</th>
+          <th>Comment</th>
+          {% for field in custom_fields %}
+            <th>{{ field.name }}</th>
+          {% endfor %}
+          <th>Статус (Ping)</th>
         </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {% for ip in ip_records %}
+          <tr id="ip-{{ ip.id }}">
+            <td class="number-cell">{{ ip.ordinal }}</td>
+            <td class="ip-cell locked-col">{{ ip.address }}</td>
+            <td><input form="row-{{ ip.id }}" name="hostname" value="{{ ip.hostname }}" maxlength="255" placeholder="пусто"></td>
+            <td><input form="row-{{ ip.id }}" name="os" value="{{ ip.os }}" maxlength="120" placeholder="пусто"></td>
+            <td><input form="row-{{ ip.id }}" name="asset_type" value="{{ ip.asset_type }}" maxlength="120" placeholder="пусто"></td>
+            <td><textarea form="row-{{ ip.id }}" name="comment" maxlength="4000" rows="1" placeholder="пусто">{{ ip.comment }}</textarea></td>
+            {% for field in custom_fields %}
+              <td>
+                <input
+                  form="row-{{ ip.id }}"
+                  name="custom__{{ field.key }}"
+                  value="{{ (ip.custom_values or {}).get(field.key, '') }}"
+                  maxlength="1000"
+                  placeholder="пусто"
+                  {% if field.field_type in ['number', 'date'] %}type="{{ field.field_type }}"{% endif %}
+                >
+              </td>
+            {% endfor %}
+            <td class="status-cell">
+              <form id="row-{{ ip.id }}" action="/projects/{{ project.id }}/addresses/{{ ip.id }}" method="post">
+                <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
+                {% if ip.is_reachable is sameas true %}
+                  <span class="status-pill online"><span></span>Доступен</span>
+                {% elif ip.is_reachable is sameas false %}
+                  <span class="status-pill offline"><span></span>Недоступен</span>
+                {% else %}
+                  <span class="status-pill unknown"><span></span>Не проверялся</span>
+                {% endif %}
+                <button class="row-save" type="submit">OK</button>
+              </form>
+            </td>
+          </tr>
+        {% else %}
+          <tr>
+            <td class="empty-table" colspan="{{ 7 + custom_fields|length }}">
+              {% if hide_empty %}
+                Пустые строки скрыты. Нажмите «Показать скрытые», чтобы заполнить новые IP-адреса.
+              {% else %}
+                Нет записей для отображения.
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <footer class="table-footer">
+    <div class="filter-state">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v5l-4 2v-7L3 5Z"/></svg>
+      <div>
+        <strong>Скрыты пустые строки: <span>{{ 'включено' if hide_empty else 'выключено' }}</span></strong>
+        <p>Показаны строки с данными и статусом.</p>
+      </div>
+    </div>
+    <div class="pagination">
+      <label>
+        Строк на странице:
+        <select>
+          <option>25</option>
+        </select>
+      </label>
+      <span>1–{{ shown_count }} из {{ shown_count }}</span>
+      <button class="pager" type="button" aria-label="Предыдущая страница">‹</button>
+      <button class="pager" type="button" aria-label="Следующая страница">›</button>
+    </div>
+  </footer>
 </section>
 {% endblock %}

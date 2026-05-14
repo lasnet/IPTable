@@ -19,6 +19,10 @@ services:
       - path: .env
         required: false
     environment:
+      APP_ENV: ${APP_ENV:-local}
+      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:?Set INITIAL_ADMIN_PASSWORD in .env}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     ports:
       - "${APP_PORT:-8000}:8000"

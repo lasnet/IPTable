@@ -31,6 +31,16 @@ class Folder(TimestampMixin, Base):
     projects: Mapped[list["Project"]] = relationship(back_populates="folder", cascade="all, delete-orphan")
 
 
+class User(TimestampMixin, Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class Project(TimestampMixin, Base):
     __tablename__ = "projects"
     __table_args__ = (UniqueConstraint("folder_id", "name", name="uq_project_folder_name"),)

@@ -2,14 +2,15 @@ from typing import Annotated
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
-from app.models import CustomField, Folder, IPAddress, Project
+from app.models import CustomField, Folder, IPAddress, Project, User
+from app.services.auth import authenticate_user
 from app.services.inventory import create_custom_field, create_project_with_addresses, is_ip_record_empty
 from app.services.network import NetworkValidationError
 
@@ -33,32 +34,97 @@ def _redirect_error(path: str, message: str) -> RedirectResponse:
     return _redirect(f"{path}{separator}{urlencode({'error': message})}")
 
 
+def _load_sidebar_folders(db: Session) -> list[Folder]:
+    return db.scalars(
+        select(Folder)
+        .options(selectinload(Folder.projects))
+        .order_by(Folder.name.asc())
+    ).all()
+
+
+def require_user(request: Request, db: Annotated[Session, Depends(get_db)]) -> User:
+    user_id = request.session.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=303, headers={"Location": "/login"})
+
+    user = db.get(User, int(user_id))
+    if user is None or not user.is_active:
+        request.session.clear()
+        raise HTTPException(status_code=303, headers={"Location": "/login"})
+    return user
+
+
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/login", response_class=HTMLResponse)
+def login_page(
+    request: Request,
+    error: Annotated[str | None, Query(max_length=240)] = None,
+) -> Response:
+    if request.session.get("user_id"):
+        return _redirect("/")
+
+    return _templates(request).TemplateResponse(
+        request,
+        "login.html",
+        {"request": request, "error": error},
+    )
+
+
+@router.post("/login")
+def login(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    username: Annotated[str, Form(min_length=1, max_length=80)],
+    password: Annotated[str, Form(min_length=1, max_length=200)],
+) -> RedirectResponse:
+    user = authenticate_user(db, username, password)
+    if user is None:
+        return _redirect_error("/login", "Неверный логин или пароль")
+
+    request.session.clear()
+    request.session["user_id"] = user.id
+    return _redirect("/")
+
+
+@router.post("/logout")
+def logout(request: Request) -> RedirectResponse:
+    request.session.clear()
+    return _redirect("/login")
 
 
 @router.get("/", response_class=HTMLResponse)
 def index(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
     error: Annotated[str | None, Query(max_length=240)] = None,
-) -> HTMLResponse:
-    folders = db.scalars(
-        select(Folder)
-        .options(selectinload(Folder.projects))
-        .order_by(Folder.name.asc())
-    ).all()
+) -> Response:
+    folders = _load_sidebar_folders(db)
+    first_project = next((project for folder in folders for project in folder.projects), None)
+    if first_project is not None and error is None:
+        return _redirect(f"/projects/{first_project.id}")
+
     return _templates(request).TemplateResponse(
         request,
         "index.html",
-        {"request": request, "folders": folders, "error": error},
+        {
+            "request": request,
+            "folders": folders,
+            "active_project": first_project,
+            "current_user": current_user,
+            "error": error,
+        },
     )
 
 
 @router.post("/folders")
 def create_folder(
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
     name: Annotated[str, Form(min_length=1, max_length=120)],
 ) -> RedirectResponse:
     clean_name = _clean_text(name, 120)
@@ -79,6 +145,7 @@ def create_folder(
 def create_project(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_user)],
     folder_id: Annotated[int, Form()],
     name: Annotated[str, Form(min_length=1, max_length=160)],
     cidr: Annotated[str, Form(min_length=1, max_length=64)],
@@ -118,7 +185,9 @@ def project_detail(
     project_id: int,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
-    hide_empty: bool = False,
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_user)],
+    hide_empty: bool = True,
     error: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
     project = db.scalar(
@@ -132,18 +201,24 @@ def project_detail(
     custom_fields = db.scalars(
         select(CustomField).where(CustomField.project_id == project.id).order_by(CustomField.position.asc())
     ).all()
-    ip_records = db.scalars(
+    all_ip_records = db.scalars(
         select(IPAddress).where(IPAddress.project_id == project.id).order_by(IPAddress.ordinal.asc())
     ).all()
+    ip_records = list(all_ip_records)
 
     if hide_empty:
-        ip_records = [ip_record for ip_record in ip_records if not is_ip_record_empty(ip_record)]
+        ip_records = [
+            ip_record
+            for ip_record in ip_records
+            if not is_ip_record_empty(ip_record) or ip_record.is_reachable is not None
+        ]
 
     total_count = db.scalar(select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id)) or 0
-    filled_count = sum(1 for ip_record in ip_records if not is_ip_record_empty(ip_record))
+    filled_total = sum(1 for ip_record in all_ip_records if not is_ip_record_empty(ip_record))
     online_count = db.scalar(
         select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, IPAddress.is_reachable.is_(True))
     ) or 0
+    folders = _load_sidebar_folders(db)
 
     return _templates(request).TemplateResponse(
         request,
@@ -151,13 +226,18 @@ def project_detail(
         {
             "request": request,
             "project": project,
+            "folders": folders,
+            "active_project": project,
+            "current_user": current_user,
             "custom_fields": custom_fields,
             "ip_records": ip_records,
             "hide_empty": hide_empty,
             "error": error,
             "total_count": total_count,
-            "filled_count": filled_count,
+            "filled_count": filled_total,
             "online_count": online_count,
+            "shown_count": len(ip_records),
+            "ping_interval_minutes": settings.ping_interval_seconds // 60,
         },
     )
 
@@ -166,6 +246,7 @@ def project_detail(
 def add_custom_field(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
     name: Annotated[str, Form(min_length=1, max_length=120)],
     field_type: Annotated[str, Form()] = "text",
 ) -> RedirectResponse:
@@ -175,7 +256,7 @@ def add_custom_field(
     allowed_types = {"text", "number", "date"}
     clean_type = field_type if field_type in allowed_types else "text"
     create_custom_field(db, project_id=project_id, name=_clean_text(name, 120), field_type=clean_type)
-    return _redirect(f"/projects/{project_id}")
+    return _redirect(f"/projects/{project_id}?hide_empty=false")
 
 
 @router.post("/projects/{project_id}/addresses/{ip_id}")
@@ -184,6 +265,7 @@ async def update_ip_address(
     ip_id: int,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
     ip_record = db.scalar(select(IPAddress).where(IPAddress.id == ip_id, IPAddress.project_id == project_id))
     if ip_record is None:
@@ -212,16 +294,17 @@ async def update_ip_address(
 def search(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
     q: Annotated[str, Query(max_length=120)] = "",
 ) -> HTMLResponse:
     query = q.strip()
     pattern = f"%{query}%"
-    folders: list[Folder] = []
+    found_folders: list[Folder] = []
     projects: list[Project] = []
     ip_records: list[IPAddress] = []
 
     if query:
-        folders = db.scalars(
+        found_folders = db.scalars(
             select(Folder).where(Folder.name.ilike(pattern)).order_by(Folder.name.asc()).limit(25)
         ).all()
         projects = db.scalars(
@@ -255,7 +338,10 @@ def search(
         {
             "request": request,
             "q": query,
-            "folders": folders,
+            "folders": _load_sidebar_folders(db),
+            "active_project": None,
+            "current_user": current_user,
+            "found_folders": found_folders,
             "projects": projects,
             "ip_records": ip_records,
         },
