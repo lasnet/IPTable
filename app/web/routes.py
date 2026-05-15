@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
-from app.models import CustomField, Folder, IPAddress, PingSchedule, Project, User
+from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, User
 from app.services.auth import authenticate_user, create_user, hash_password
 from app.services.csv_io import (
     CSVImportError,
@@ -21,6 +21,7 @@ from app.services.csv_io import (
     safe_export_name,
 )
 from app.services.inventory import create_custom_field, create_project_with_addresses, is_ip_record_empty
+from app.services.history import FieldChange, build_field_change, record_ip_address_history
 from app.services.network import NetworkValidationError
 from app.services.ping import (
     PING_SCHEDULE_FOLDER,
@@ -858,22 +859,81 @@ async def update_ip_address(
         raise HTTPException(status_code=404, detail="IP address not found")
 
     form = await request.form()
-    ip_record.hostname = _clean_text(str(form.get("hostname", "")), 255)
-    ip_record.os = _clean_text(str(form.get("os", "")), 120)
-    ip_record.asset_type = _clean_text(str(form.get("asset_type", "")), 120)
-    ip_record.comment = _clean_text(str(form.get("comment", "")), 4000)
+    new_hostname = _clean_text(str(form.get("hostname", "")), 255)
+    new_os = _clean_text(str(form.get("os", "")), 120)
+    new_asset_type = _clean_text(str(form.get("asset_type", "")), 120)
+    new_comment = _clean_text(str(form.get("comment", "")), 4000)
+
+    changes: list[FieldChange] = []
+    for change in [
+        build_field_change("hostname", "Hostname", ip_record.hostname, new_hostname),
+        build_field_change("os", "OS", ip_record.os, new_os),
+        build_field_change("asset_type", "Type", ip_record.asset_type, new_asset_type),
+        build_field_change("comment", "Comment", ip_record.comment, new_comment),
+    ]:
+        if change is not None:
+            changes.append(change)
+
+    ip_record.hostname = new_hostname
+    ip_record.os = new_os
+    ip_record.asset_type = new_asset_type
+    ip_record.comment = new_comment
 
     custom_fields = db.scalars(
         select(CustomField).where(CustomField.project_id == project_id).order_by(CustomField.position.asc())
     ).all()
     custom_values = dict(ip_record.custom_values or {})
     for field in custom_fields:
-        custom_values[field.key] = _clean_text(str(form.get(f"custom__{field.key}", "")), 1000)
+        old_value = custom_values.get(field.key, "")
+        new_value = _clean_text(str(form.get(f"custom__{field.key}", "")), 1000)
+        change = build_field_change(f"custom.{field.key}", field.name, old_value, new_value)
+        if change is not None:
+            changes.append(change)
+        custom_values[field.key] = new_value
     ip_record.custom_values = custom_values
+    record_ip_address_history(db, ip_record=ip_record, user=current_user, changes=changes)
 
     db.commit()
     suffix = "?hide_empty=true" if form.get("hide_empty") == "true" else ""
     return _redirect(f"/projects/{project_id}{suffix}#ip-{ip_id}")
+
+
+@router.get("/projects/{project_id}/history", response_class=HTMLResponse)
+def project_history(
+    project_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> HTMLResponse:
+    project = db.scalar(
+        select(Project)
+        .where(Project.id == project_id)
+        .options(selectinload(Project.folder))
+    )
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    history_items = db.scalars(
+        select(IPAddressHistory)
+        .where(IPAddressHistory.project_id == project.id)
+        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
+        .limit(200)
+    ).all()
+
+    return _templates(request).TemplateResponse(
+        request,
+        "history.html",
+        {
+            "request": request,
+            "project": project,
+            "history_items": history_items,
+            "folders": _load_sidebar_folders(db),
+            "folder_schedules": _load_folder_schedules(db),
+            "default_ping_interval_minutes": _default_ping_interval_minutes(),
+            "active_project": project,
+            "current_user": current_user,
+        },
+    )
 
 
 @router.get("/search", response_class=HTMLResponse)

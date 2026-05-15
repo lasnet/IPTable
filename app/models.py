@@ -82,6 +82,7 @@ class Project(TimestampMixin, Base):
     custom_fields: Mapped[list["CustomField"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     ping_jobs: Mapped[list["PingJob"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     ping_schedules: Mapped[list["PingSchedule"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    ip_history: Mapped[list["IPAddressHistory"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
 class IPAddress(TimestampMixin, Base):
@@ -107,6 +108,34 @@ class IPAddress(TimestampMixin, Base):
     ping_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="ip_addresses")
+    history: Mapped[list["IPAddressHistory"]] = relationship(back_populates="ip_address", cascade="all, delete-orphan")
+
+
+class IPAddressHistory(TimestampMixin, Base):
+    __tablename__ = "ip_address_history"
+    __table_args__ = (
+        Index("ix_ip_history_project_created", "project_id", "created_at"),
+        Index("ix_ip_history_ip_created", "ip_address_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    ip_address_id: Mapped[int] = mapped_column(
+        ForeignKey("ip_addresses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    username: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    address: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    field_name: Mapped[str] = mapped_column(String(180), nullable=False)
+    field_label: Mapped[str] = mapped_column(String(180), nullable=False)
+    old_value: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    new_value: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+    project: Mapped[Project] = relationship(back_populates="ip_history")
+    ip_address: Mapped[IPAddress] = relationship(back_populates="history")
+    user: Mapped[User | None] = relationship()
 
 
 class CustomField(TimestampMixin, Base):

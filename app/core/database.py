@@ -42,6 +42,7 @@ REQUIRED_TABLES = {
     "users",
     "projects",
     "ip_addresses",
+    "ip_address_history",
     "custom_fields",
     "ping_schedules",
     "ping_jobs",

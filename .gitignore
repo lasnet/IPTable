@@ -20,6 +20,7 @@ build/
 
 *.log
 logs/
+backups/
 tmp/
 temp/
 .cache/

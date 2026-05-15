@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}История {{ project.cidr }} - IPtable{% endblock %}
+
+{% block content %}
+<section class="project-card history-card">
+  <div class="project-card-head">
+    <div class="project-title">
+      <div class="title-icon">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 3v5h5" />
+          <path d="M3.05 13A9 9 0 1 0 5.6 6.6L3 8" />
+          <path d="M12 7v5l3 2" />
+        </svg>
+      </div>
+      <div>
+        <h2>История изменений</h2>
+        <p class="subtle">{{ project.cidr }}</p>
+      </div>
+    </div>
+
+    <div class="project-actions">
+      <a class="soft-button" href="/projects/{{ project.id }}">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M15 18l-6-6 6-6" />
+        </svg>
+        К таблице
+      </a>
+    </div>
+  </div>
+
+  <div class="history-list">
+    {% for item in history_items %}
+    <article class="history-item">
+      <div class="history-meta">
+        <strong>{{ item.address }}</strong>
+        <span>{{ item.field_label }}</span>
+      </div>
+      <div class="history-change">
+        <div>
+          <small>Было</small>
+          <p>{{ item.old_value if item.old_value else 'пусто' }}</p>
+        </div>
+        <div>
+          <small>Стало</small>
+          <p>{{ item.new_value if item.new_value else 'пусто' }}</p>
+        </div>
+      </div>
+      <div class="history-footer">
+        <span>{{ item.username if item.username else 'пользователь удален' }}</span>
+        <span>{{ item.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+      </div>
+    </article>
+    {% else %}
+    <div class="empty-table">История изменений пока пустая.</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

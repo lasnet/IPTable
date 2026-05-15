@@ -22,6 +22,15 @@
     </div>
 
     <div class="project-actions">
+      <a class="soft-button" href="/projects/{{ project.id }}/history">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 3v5h5" />
+          <path d="M3.05 13A9 9 0 1 0 5.6 6.6L3 8" />
+          <path d="M12 7v5l3 2" />
+        </svg>
+        История
+      </a>
+
       <a class="soft-button" href="/projects/{{ project.id }}?hide_empty={{ 'false' if hide_empty else 'true' }}">
         {% if hide_empty %}
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">

@@ -660,7 +660,7 @@ select:disabled {
 }
 
 .col-number {
-  width: 74px;
+  width: 0;
 }
 
 .col-ip {
@@ -734,10 +734,10 @@ th.locked-col {
 /*
   Столбец "№" сейчас скрыт по просьбе пользователя.
   Если он снова понадобится:
-  1. Закомментируйте блок ниже до строки ".locked-col { left: 0; }".
-  2. Верните в основном правиле ".locked-col" значение left: 74px.
+  1. Верните ".col-number" ширину 74px.
+  2. Закомментируйте display: none для ".number-head, .number-cell".
+  3. Верните в основном правиле ".locked-col" значение left: 74px.
 */
-.col-number,
 .number-head,
 .number-cell {
   display: none;
@@ -896,9 +896,75 @@ th.locked-col {
 }
 
 .empty-table {
+  width: 100%;
   padding: 32px;
   color: var(--muted);
   text-align: center;
+}
+
+.asset-table .empty-table {
+  position: static;
+  height: 72px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.history-item {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.history-meta,
+.history-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.history-meta strong {
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 15px;
+}
+
+.history-change {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.history-change div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.history-change small {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.history-change p {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .empty-workspace {

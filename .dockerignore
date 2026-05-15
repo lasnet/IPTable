@@ -8,6 +8,7 @@ __pycache__
 .env
 data
 logs
+backups
 *.sqlite
 *.sqlite3
 *.db
