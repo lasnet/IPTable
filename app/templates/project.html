@@ -61,6 +61,27 @@
       </details>
       {% endif %}
 
+      {% if current_user.is_admin %}
+      <details class="field-details">
+        <summary class="soft-button">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v12" />
+            <path d="m7 10 5 5 5-5" />
+            <path d="M5 21h14" />
+          </svg>
+          Экспорт
+        </summary>
+        <form class="floating-form export-form" action="/projects/{{ project.id }}/export" method="post">
+          <label class="checkbox-line">
+            <input type="checkbox" name="use_password" checked data-password-toggle>
+            Поставить пароль
+          </label>
+          <input type="password" name="password" maxlength="200" placeholder="Пароль архива" data-password-input>
+          <button type="submit">Экспорт проекта</button>
+        </form>
+      </details>
+      {% endif %}
+
       {% if current_user.can_edit_inventory or current_user.can_delete_inventory %}
       <details class="field-details">
         <summary class="icon-button" aria-label="Настройки проекта">
@@ -170,16 +191,17 @@
         {% else %}
         <tr>
           <td class="empty-table" colspan="{{ 8 + custom_fields|length }}">
-            {% if hide_empty %}
-            Пустые строки скрыты. Нажмите «Показать скрытые», чтобы заполнить новые IP-адреса.
-            {% else %}
             Нет записей для отображения.
-            {% endif %}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% if hide_empty %}
+  <div class="hidden-rows-note">
+    Пустые строки скрыты. Нажмите «Показать скрытые», чтобы заполнить новые IP-адреса.
+  </div>
+  {% endif %}
 </section>
 {% endblock %}

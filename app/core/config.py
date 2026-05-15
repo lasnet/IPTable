@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     app_name: str = "IPtable"
     app_env: str = "local"
     secret_key: str = Field(default="", min_length=0)
+    session_idle_timeout_seconds: int = Field(default=86400, ge=60)
     initial_admin_username: str = Field(default="admin", min_length=3, max_length=80)
     initial_admin_password: str = Field(default="", min_length=0)
     database_url: str = "sqlite:///./data/iptable.sqlite3"
@@ -15,6 +16,7 @@ class Settings(BaseSettings):
     ping_timeout_seconds: int = Field(default=2, ge=1)
     ping_concurrency: int = Field(default=64, ge=1, le=512)
     max_project_addresses: int = Field(default=4096, ge=1)
+    csv_import_max_bytes: int = Field(default=2_097_152, ge=1024)
     enable_ping_worker: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

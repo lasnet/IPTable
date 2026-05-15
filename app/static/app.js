@@ -107,3 +107,25 @@
     }
   });
 })();
+
+(function () {
+  const forms = document.querySelectorAll(".export-form");
+  forms.forEach((form) => {
+    const toggle = form.querySelector("[data-password-toggle]");
+    const input = form.querySelector("[data-password-input]");
+    if (!toggle || !input) {
+      return;
+    }
+
+    function syncPasswordInput() {
+      input.disabled = !toggle.checked;
+      input.required = toggle.checked;
+      if (!toggle.checked) {
+        input.value = "";
+      }
+    }
+
+    toggle.addEventListener("change", syncPasswordInput);
+    syncPasswordInput();
+  });
+})();

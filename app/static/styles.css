@@ -430,6 +430,12 @@ select:disabled {
   color: var(--danger);
 }
 
+.notice.success {
+  color: var(--green);
+  background: var(--green-bg);
+  border-color: #b7f0ca;
+}
+
 .project-card {
   display: flex;
   flex-direction: column;
@@ -505,6 +511,12 @@ select:disabled {
   padding: 0 16px;
 }
 
+.compact-action {
+  min-height: 38px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
 .icon-button {
   width: 46px;
   padding: 0;
@@ -536,6 +548,70 @@ select:disabled {
 .project-description {
   margin-top: -14px;
   margin-bottom: 18px;
+}
+
+.form-hint,
+.hidden-rows-note {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.form-hint {
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.hidden-rows-note {
+  flex: 0 0 auto;
+  margin-top: 10px;
+  padding: 11px 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.import-details {
+  display: grid;
+  gap: 10px;
+}
+
+.import-details > summary {
+  list-style: none;
+}
+
+.import-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.import-details[open] {
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.import-details[open] > summary {
+  margin-bottom: 10px;
+}
+
+.checkbox-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #344054;
+  font-weight: 750;
+}
+
+.checkbox-line input {
+  width: 16px;
+  min-height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--accent);
 }
 
 .asset-table-wrap {
@@ -1025,6 +1101,36 @@ th.locked-col {
 .user-permissions span.enabled {
   background: var(--green-bg);
   color: var(--green);
+}
+
+.user-editor {
+  grid-column: 1 / -1;
+}
+
+.user-editor > summary {
+  width: fit-content;
+  list-style: none;
+}
+
+.user-editor > summary::-webkit-details-marker {
+  display: none;
+}
+
+.user-editor[open] {
+  display: grid;
+  gap: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.delete-user-form {
+  display: grid;
+  justify-items: start;
+}
+
+.delete-user-form .danger-button {
+  width: auto;
+  padding: 0 14px;
 }
 
 @media (max-width: 1180px) {

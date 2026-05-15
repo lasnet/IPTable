@@ -46,6 +46,7 @@ def create_app() -> FastAPI:
         secret_key=session_secret,
         same_site="lax",
         https_only=settings.app_env == "production",
+        max_age=settings.session_idle_timeout_seconds,
     )
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
     app.state.templates = Jinja2Templates(directory="app/templates")

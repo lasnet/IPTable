@@ -1,8 +1,9 @@
 import logging
+import time
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -11,13 +12,22 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.models import CustomField, Folder, IPAddress, Project, User
-from app.services.auth import authenticate_user, create_user
+from app.services.auth import authenticate_user, create_user, hash_password
+from app.services.csv_io import (
+    CSVImportError,
+    build_zip_archive,
+    csv_bytes,
+    parse_assets_csv,
+    render_project_csv,
+    safe_export_name,
+)
 from app.services.inventory import create_custom_field, create_project_with_addresses, is_ip_record_empty
 from app.services.network import NetworkValidationError
 from app.services.ping import run_ping_project
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+SESSION_LAST_ACTIVITY_KEY = "last_activity_at"
 
 
 def _templates(request: Request):
@@ -37,6 +47,11 @@ def _redirect_error(path: str, message: str) -> RedirectResponse:
     return _redirect(f"{path}{separator}{urlencode({'error': message})}")
 
 
+def _redirect_message(path: str, message: str) -> RedirectResponse:
+    separator = "&" if "?" in path else "?"
+    return _redirect(f"{path}{separator}{urlencode({'message': message})}")
+
+
 def _load_sidebar_folders(db: Session) -> list[Folder]:
     return db.scalars(
         select(Folder)
@@ -45,15 +60,45 @@ def _load_sidebar_folders(db: Session) -> list[Folder]:
     ).all()
 
 
-def require_user(request: Request, db: Annotated[Session, Depends(get_db)]) -> User:
+def _login_redirect(message: str | None = None) -> HTTPException:
+    location = "/login"
+    if message:
+        location = f"{location}?{urlencode({'error': message})}"
+    return HTTPException(status_code=303, headers={"Location": location})
+
+
+def require_user(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> User:
     user_id = request.session.get("user_id")
     if not user_id:
-        raise HTTPException(status_code=303, headers={"Location": "/login"})
+        raise _login_redirect()
 
-    user = db.get(User, int(user_id))
+    now = int(time.time())
+    last_activity = request.session.get(SESSION_LAST_ACTIVITY_KEY)
+    try:
+        last_activity_at = int(last_activity)
+    except (TypeError, ValueError):
+        last_activity_at = now
+
+    if now - last_activity_at > settings.session_idle_timeout_seconds:
+        request.session.clear()
+        raise _login_redirect("Сессия истекла из-за бездействия. Войдите снова.")
+
+    try:
+        user_pk = int(user_id)
+    except (TypeError, ValueError):
+        request.session.clear()
+        raise _login_redirect()
+
+    user = db.get(User, user_pk)
     if user is None or not user.is_active:
         request.session.clear()
-        raise HTTPException(status_code=303, headers={"Location": "/login"})
+        raise _login_redirect()
+
+    request.session[SESSION_LAST_ACTIVITY_KEY] = now
     return user
 
 
@@ -65,6 +110,26 @@ def require_admin(current_user: Annotated[User, Depends(require_user)]) -> User:
 
 def _checked(value: str | None) -> bool:
     return value == "on"
+
+
+def _can_import_csv(user: User) -> bool:
+    return user.is_admin or (user.can_create and user.can_edit)
+
+
+def _csv_response(filename: str, content: bytes) -> Response:
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _zip_response(filename: str, content: bytes) -> Response:
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/health")
@@ -100,6 +165,7 @@ def login(
 
     request.session.clear()
     request.session["user_id"] = user.id
+    request.session[SESSION_LAST_ACTIVITY_KEY] = int(time.time())
     return _redirect("/")
 
 
@@ -115,6 +181,7 @@ def index(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_user)],
     error: Annotated[str | None, Query(max_length=240)] = None,
+    message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> Response:
     folders = _load_sidebar_folders(db)
     first_project = next((project for folder in folders for project in folder.projects), None)
@@ -130,6 +197,7 @@ def index(
             "active_project": first_project,
             "current_user": current_user,
             "error": error,
+            "message": message,
         },
     )
 
@@ -212,7 +280,7 @@ async def create_project(
     current_user: Annotated[User, Depends(require_user)],
     folder_id: Annotated[int, Form()],
     name: Annotated[str, Form(min_length=1, max_length=160)],
-    cidr: Annotated[str, Form(min_length=1, max_length=64)],
+    cidr: Annotated[str, Form(max_length=64)] = "",
     description: Annotated[str, Form(max_length=2000)] = "",
 ) -> RedirectResponse:
     if not current_user.can_create_inventory:
@@ -226,6 +294,10 @@ async def create_project(
     if not clean_name:
         return _redirect_error("/", "Название проекта не может быть пустым")
 
+    clean_cidr = _clean_text(cidr, 64)
+    if not clean_cidr:
+        return _redirect_error("/", "CIDR подсети обязателен для ручного создания проекта")
+
     existing = db.scalar(
         select(Project).where(Project.folder_id == folder.id, func.lower(Project.name) == clean_name.lower())
     )
@@ -237,7 +309,7 @@ async def create_project(
             db,
             folder_id=folder.id,
             name=clean_name,
-            cidr=cidr,
+            cidr=clean_cidr,
             description=description,
             max_addresses=settings.max_project_addresses,
         )
@@ -252,6 +324,85 @@ async def create_project(
     except Exception:
         logger.exception("Initial ping scan failed for project_id=%s", project.id)
     return _redirect(f"/projects/{project.id}?hide_empty=false")
+
+
+@router.post("/folders/{folder_id}/projects/import")
+async def import_project_csv(
+    folder_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_user)],
+    name: Annotated[str, Form(min_length=1, max_length=160)],
+    description: Annotated[str, Form(max_length=2000)] = "",
+    csv_file: UploadFile = File(...),
+) -> RedirectResponse:
+    error_path = f"/?new_project_folder={folder_id}"
+    if not _can_import_csv(current_user):
+        return _redirect_error(error_path, "Импорт CSV доступен только администратору или пользователю с правами создания и редактирования")
+
+    folder = db.get(Folder, folder_id)
+    if folder is None:
+        return _redirect_error("/", "Папка не найдена")
+
+    clean_name = _clean_text(name, 160)
+    if not clean_name:
+        return _redirect_error(error_path, "Название проекта обязательно для импорта")
+
+    if not csv_file.filename:
+        return _redirect_error(error_path, "Выберите CSV-файл для импорта")
+
+    content = await csv_file.read(settings.csv_import_max_bytes + 1)
+    if len(content) > settings.csv_import_max_bytes:
+        return _redirect_error(error_path, f"CSV-файл слишком большой. Лимит: {settings.csv_import_max_bytes} байт")
+
+    existing = db.scalar(
+        select(Project).where(Project.folder_id == folder.id, func.lower(Project.name) == clean_name.lower())
+    )
+    if existing:
+        return _redirect_error(error_path, "Проект с таким именем уже существует в выбранной папке")
+
+    try:
+        import_result = parse_assets_csv(content, max_addresses=settings.max_project_addresses)
+        project = create_project_with_addresses(
+            db,
+            folder_id=folder.id,
+            name=clean_name,
+            cidr=import_result.cidr,
+            description=description,
+            max_addresses=settings.max_project_addresses,
+        )
+        records_by_address = {
+            ip_record.address: ip_record
+            for ip_record in db.scalars(select(IPAddress).where(IPAddress.project_id == project.id)).all()
+        }
+        for row in import_result.rows:
+            ip_record = records_by_address.get(row.address)
+            if ip_record is None:
+                raise CSVImportError(f"IP {row.address} не входит в рассчитанную подсеть {import_result.cidr}")
+            ip_record.hostname = row.hostname
+            ip_record.os = row.os
+            ip_record.asset_type = row.asset_type
+            ip_record.comment = row.comment
+        db.commit()
+    except CSVImportError as exc:
+        db.rollback()
+        return _redirect_error(error_path, str(exc))
+    except NetworkValidationError as exc:
+        db.rollback()
+        return _redirect_error(error_path, str(exc))
+    except IntegrityError:
+        db.rollback()
+        return _redirect_error(error_path, "Не удалось импортировать CSV: проверьте уникальность проекта")
+
+    try:
+        await run_ping_project(project.id, settings)
+    except Exception:
+        logger.exception("Initial ping scan failed for imported project_id=%s", project.id)
+
+    return _redirect_message(
+        f"/projects/{project.id}?hide_empty=true",
+        f"CSV импортирован: {len(import_result.rows)} строк, рассчитанная подсеть {project.cidr}",
+    )
 
 
 @router.post("/projects/{project_id}/update")
@@ -309,6 +460,7 @@ def project_detail(
     current_user: Annotated[User, Depends(require_user)],
     hide_empty: bool = True,
     error: Annotated[str | None, Query(max_length=240)] = None,
+    message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
     project = db.scalar(
         select(Project)
@@ -349,6 +501,7 @@ def project_detail(
             "ip_records": ip_records,
             "hide_empty": hide_empty,
             "error": error,
+            "message": message,
             "total_count": total_count,
             "filled_count": filled_total,
             "online_count": online_count,
@@ -363,6 +516,7 @@ def admin_users(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
     error: Annotated[str | None, Query(max_length=240)] = None,
+    message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
     users = db.scalars(select(User).order_by(User.username.asc())).all()
     return _templates(request).TemplateResponse(
@@ -375,6 +529,7 @@ def admin_users(
             "current_user": current_user,
             "users": users,
             "error": error,
+            "message": message,
         },
     )
 
@@ -419,6 +574,155 @@ def admin_create_user(
         return _redirect_error("/admin/users", "Не удалось создать пользователя: логин должен быть уникальным")
 
     return _redirect("/admin/users")
+
+
+@router.post("/admin/users/{user_id}/update")
+def admin_update_user(
+    user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    username: Annotated[str, Form(min_length=3, max_length=80)],
+    first_name: Annotated[str, Form(max_length=120)] = "",
+    last_name: Annotated[str, Form(max_length=120)] = "",
+    description: Annotated[str, Form(max_length=2000)] = "",
+    password: Annotated[str, Form(max_length=200)] = "",
+    can_create: Annotated[str | None, Form()] = None,
+    can_edit: Annotated[str | None, Form()] = None,
+    can_delete: Annotated[str | None, Form()] = None,
+    can_manage_columns: Annotated[str | None, Form()] = None,
+) -> RedirectResponse:
+    user = db.get(User, user_id)
+    if user is None:
+        return _redirect_error("/admin/users", "Пользователь не найден")
+
+    clean_username = _clean_text(username, 80)
+    if not clean_username:
+        return _redirect_error("/admin/users", "Логин не может быть пустым")
+    if user.is_admin and clean_username.lower() != user.username.lower():
+        return _redirect_error("/admin/users", "Логин администратора задается через .env")
+
+    existing = db.scalar(
+        select(User).where(func.lower(User.username) == clean_username.lower(), User.id != user.id)
+    )
+    if existing:
+        return _redirect_error("/admin/users", "Пользователь с таким логином уже существует")
+
+    clean_password = password.strip()
+    if clean_password and len(clean_password) < 8:
+        return _redirect_error("/admin/users", "Новый пароль должен быть не короче 8 символов")
+
+    user.username = clean_username
+    user.first_name = _clean_text(first_name, 120)
+    user.last_name = _clean_text(last_name, 120)
+    user.description = _clean_text(description, 2000)
+    if user.is_admin:
+        user.can_create = True
+        user.can_edit = True
+        user.can_delete = True
+        user.can_manage_columns = True
+    else:
+        user.can_create = _checked(can_create)
+        user.can_edit = _checked(can_edit)
+        user.can_delete = _checked(can_delete)
+        user.can_manage_columns = _checked(can_manage_columns)
+    if clean_password:
+        user.password_hash = hash_password(clean_password)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return _redirect_error("/admin/users", "Не удалось обновить пользователя: логин должен быть уникальным")
+
+    return _redirect_message("/admin/users", "Пользователь обновлен")
+
+
+@router.post("/admin/users/{user_id}/delete")
+def admin_delete_user(
+    user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+) -> RedirectResponse:
+    user = db.get(User, user_id)
+    if user is None:
+        return _redirect_error("/admin/users", "Пользователь не найден")
+    if user.is_admin:
+        return _redirect_error("/admin/users", "Администратора нельзя удалить")
+    if user.id == current_user.id:
+        return _redirect_error("/admin/users", "Нельзя удалить текущую учетную запись")
+
+    db.delete(user)
+    db.commit()
+    return _redirect_message("/admin/users", "Пользователь удален")
+
+
+@router.post("/projects/{project_id}/export")
+def export_project(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    use_password: Annotated[str | None, Form()] = None,
+    password: Annotated[str, Form(max_length=200)] = "",
+) -> Response:
+    project = db.get(Project, project_id)
+    if project is None:
+        return _redirect_error("/", "Проект не найден")
+
+    ip_records = db.scalars(
+        select(IPAddress).where(IPAddress.project_id == project.id).order_by(IPAddress.ordinal.asc())
+    ).all()
+    csv_content = csv_bytes(render_project_csv(project, list(ip_records)))
+    csv_filename = safe_export_name(project.cidr.replace("/", "_"), suffix=".csv")
+
+    if not _checked(use_password):
+        return _csv_response(csv_filename, csv_content)
+
+    clean_password = password.strip()
+    if not clean_password:
+        return _redirect_error(f"/projects/{project.id}", "Введите пароль для защищенного экспорта")
+
+    try:
+        archive = build_zip_archive({csv_filename: csv_content}, password=clean_password)
+    except RuntimeError as exc:
+        return _redirect_error(f"/projects/{project.id}", str(exc))
+
+    return _zip_response(safe_export_name(project.cidr.replace("/", "_"), suffix=".zip"), archive)
+
+
+@router.post("/folders/{folder_id}/export")
+def export_folder(
+    folder_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    use_password: Annotated[str | None, Form()] = None,
+    password: Annotated[str, Form(max_length=200)] = "",
+) -> Response:
+    folder = db.scalar(
+        select(Folder)
+        .where(Folder.id == folder_id)
+        .options(selectinload(Folder.projects).selectinload(Project.ip_addresses))
+    )
+    if folder is None:
+        return _redirect_error("/", "Папка не найдена")
+    if not folder.projects:
+        return _redirect_error("/", "В папке нет проектов для экспорта")
+
+    files: dict[str, bytes] = {}
+    for project in sorted(folder.projects, key=lambda item: item.name.lower()):
+        ordered_records = sorted(project.ip_addresses, key=lambda item: item.ordinal)
+        filename = safe_export_name(project.cidr.replace("/", "_"), suffix=".csv")
+        files[filename] = csv_bytes(render_project_csv(project, ordered_records))
+
+    clean_password = password.strip() if _checked(use_password) else ""
+    if _checked(use_password) and not clean_password:
+        return _redirect_error("/", "Введите пароль для защищенного экспорта папки")
+
+    try:
+        archive = build_zip_archive(files, password=clean_password or None)
+    except RuntimeError as exc:
+        return _redirect_error("/", str(exc))
+
+    return _zip_response(safe_export_name(folder.name, suffix=".zip"), archive)
 
 
 @router.post("/projects/{project_id}/fields")

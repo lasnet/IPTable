@@ -110,16 +110,52 @@
                 </svg>
               </a>
               {% endif %}
+              {% if current_user.is_admin %}
+              <a class="add-link folder-add" href="{{ request.url.path }}?export_folder={{ folder.id }}"
+                title="Экспорт папки" aria-label="Экспорт папки">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3v12" />
+                  <path d="m7 10 5 5 5-5" />
+                  <path d="M5 21h14" />
+                </svg>
+              </a>
+              {% endif %}
             </div>
           </div>
           {% if current_user.can_create_inventory and request.query_params.get('new_project_folder') == folder.id|string %}
-          <form class="sidebar-form compact-form project-form" action="/projects" method="post">
+          <form class="sidebar-form compact-form project-form" action="/projects" method="post" enctype="multipart/form-data">
             <input type="hidden" name="folder_id" value="{{ folder.id }}">
             <input name="name" maxlength="160" required placeholder="Название проекта">
-            <input name="cidr" maxlength="64" required placeholder="172.16.16.0/24">
+            <input name="cidr" maxlength="64" placeholder="172.16.16.0/24">
             <textarea name="description" maxlength="2000" rows="3" placeholder="Комментарий"></textarea>
+            {% if current_user.is_admin or (current_user.can_create and current_user.can_edit) %}
+            <details class="import-details">
+              <summary class="soft-button compact-action">Импортировать из CSV</summary>
+              <div class="form-hint">
+                Формат файла: <strong>ip;hostname;os;type;comment</strong>. Разделитель - точка с запятой.
+                IP-адреса должны быть IPv4, без дублей, без network/broadcast адресов. Подсеть будет рассчитана автоматически.
+              </div>
+              <input type="file" name="csv_file" accept=".csv,text/csv">
+              <button type="submit" formaction="/folders/{{ folder.id }}/projects/import">Загрузить CSV и создать</button>
+            </details>
+            {% endif %}
             <button type="submit">Создать</button>
           </form>
+          {% endif %}
+          {% if current_user.is_admin and request.query_params.get('export_folder') == folder.id|string %}
+          <div class="sidebar-form compact-form">
+            <div class="form-hint">
+              Экспортирует все проекты папки в ZIP-архив с отдельным CSV-файлом для каждой подсети.
+            </div>
+            <form class="stack-form export-form" action="/folders/{{ folder.id }}/export" method="post">
+              <label class="checkbox-line">
+                <input type="checkbox" name="use_password" checked data-password-toggle>
+                Поставить пароль
+              </label>
+              <input type="password" name="password" maxlength="200" placeholder="Пароль архива" data-password-input>
+              <button type="submit">Экспорт папки</button>
+            </form>
+          </div>
           {% endif %}
           {% if (current_user.can_edit_inventory or current_user.can_delete_inventory) and request.query_params.get('edit_folder') == folder.id|string %}
           <div class="sidebar-form compact-form">
@@ -144,6 +180,9 @@
     </aside>
 
     <section class="workspace">
+      {% if message %}
+      <div class="notice success">{{ message }}</div>
+      {% endif %}
       {% if error %}
       <div class="notice error">{{ error }}</div>
       {% endif %}
