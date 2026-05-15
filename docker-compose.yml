@@ -14,11 +14,7 @@ services:
       retries: 5
 
   web:
-    build:
-      context: .
-      args:
-        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-}
+    build: .
     env_file:
       - path: .env
         required: false

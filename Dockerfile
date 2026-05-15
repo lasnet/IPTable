@@ -1,13 +1,7 @@
 FROM python:3.12-slim
 
-ARG PIP_INDEX_URL=https://pypi.org/simple
-ARG PIP_TRUSTED_HOST=
-
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV PIP_INDEX_URL=${PIP_INDEX_URL}
-ENV PIP_DEFAULT_TIMEOUT=120
-ENV PIP_RETRIES=8
 
 WORKDIR /app
 
@@ -17,11 +11,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN if [ -n "$PIP_TRUSTED_HOST" ]; then \
-      pip install --no-cache-dir --trusted-host "$PIP_TRUSTED_HOST" -r requirements.txt; \
-    else \
-      pip install --no-cache-dir -r requirements.txt; \
-    fi
+RUN pip install --no-cache-dir -r requirements.txt
 
 RUN addgroup --system app && adduser --system --ingroup app app
 
