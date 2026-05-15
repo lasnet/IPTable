@@ -1,4 +1,3 @@
-import logging
 import time
 from typing import Annotated
 from urllib.parse import urlencode
@@ -11,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
-from app.models import CustomField, Folder, IPAddress, Project, User
+from app.models import CustomField, Folder, IPAddress, PingSchedule, Project, User
 from app.services.auth import authenticate_user, create_user, hash_password
 from app.services.csv_io import (
     CSVImportError,
@@ -23,10 +22,16 @@ from app.services.csv_io import (
 )
 from app.services.inventory import create_custom_field, create_project_with_addresses, is_ip_record_empty
 from app.services.network import NetworkValidationError
-from app.services.ping import run_ping_project
+from app.services.ping import (
+    PING_SCHEDULE_FOLDER,
+    PING_SCHEDULE_PROJECT,
+    enqueue_project_ping,
+    ensure_project_ping_schedule,
+    set_folder_ping_schedule,
+    set_project_ping_schedule,
+)
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 SESSION_LAST_ACTIVITY_KEY = "last_activity_at"
 
 
@@ -58,6 +63,25 @@ def _load_sidebar_folders(db: Session) -> list[Folder]:
         .options(selectinload(Folder.projects))
         .order_by(Folder.name.asc())
     ).all()
+
+
+def _load_folder_schedules(db: Session) -> dict[int, PingSchedule]:
+    schedules = db.scalars(
+        select(PingSchedule).where(
+            PingSchedule.scope == PING_SCHEDULE_FOLDER,
+            PingSchedule.folder_id.is_not(None),
+        )
+    ).all()
+    return {schedule.folder_id: schedule for schedule in schedules if schedule.folder_id is not None}
+
+
+def _schedule_interval_minutes(schedule: PingSchedule | None, settings: Settings) -> int:
+    interval_seconds = schedule.interval_seconds if schedule is not None else settings.ping_interval_seconds
+    return max(1, round(interval_seconds / 60))
+
+
+def _default_ping_interval_minutes() -> int:
+    return _schedule_interval_minutes(None, get_settings())
 
 
 def _login_redirect(message: str | None = None) -> HTTPException:
@@ -194,6 +218,8 @@ def index(
         {
             "request": request,
             "folders": folders,
+            "folder_schedules": _load_folder_schedules(db),
+            "default_ping_interval_minutes": _default_ping_interval_minutes(),
             "active_project": first_project,
             "current_user": current_user,
             "error": error,
@@ -319,10 +345,8 @@ async def create_project(
         db.rollback()
         return _redirect_error("/", "Не удалось создать проект: проверьте уникальность имени")
 
-    try:
-        await run_ping_project(project.id, settings)
-    except Exception:
-        logger.exception("Initial ping scan failed for project_id=%s", project.id)
+    ensure_project_ping_schedule(db, project.id, settings)
+    enqueue_project_ping(db, project.id, reason="project-created")
     return _redirect(f"/projects/{project.id}?hide_empty=false")
 
 
@@ -394,14 +418,12 @@ async def import_project_csv(
         db.rollback()
         return _redirect_error(error_path, "Не удалось импортировать CSV: проверьте уникальность проекта")
 
-    try:
-        await run_ping_project(project.id, settings)
-    except Exception:
-        logger.exception("Initial ping scan failed for imported project_id=%s", project.id)
+    ensure_project_ping_schedule(db, project.id, settings)
+    enqueue_project_ping(db, project.id, reason="project-imported")
 
     return _redirect_message(
         f"/projects/{project.id}?hide_empty=true",
-        f"CSV импортирован: {len(import_result.rows)} строк, рассчитанная подсеть {project.cidr}",
+        f"CSV импортирован: {len(import_result.rows)} строк, рассчитанная подсеть {project.cidr}. Ping-проверка поставлена в очередь",
     )
 
 
@@ -452,6 +474,63 @@ def delete_project(
     return _redirect("/")
 
 
+@router.post("/projects/{project_id}/schedule")
+def update_project_ping_schedule(
+    project_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    interval_minutes: Annotated[int, Form(ge=5, le=10080)],
+    enabled: Annotated[str | None, Form()] = None,
+    run_now: Annotated[str | None, Form()] = None,
+) -> RedirectResponse:
+    project = db.get(Project, project_id)
+    if project is None:
+        return _redirect_error("/", "Проект не найден")
+
+    set_project_ping_schedule(
+        db,
+        project.id,
+        enabled=_checked(enabled),
+        interval_seconds=interval_minutes * 60,
+    )
+    if _checked(run_now):
+        enqueue_project_ping(db, project.id, reason="manual")
+        return _redirect_message(f"/projects/{project.id}", "Расписание сохранено, ping-проверка поставлена в очередь")
+
+    return _redirect_message(f"/projects/{project.id}", "Расписание ping-проверки сохранено")
+
+
+@router.post("/folders/{folder_id}/schedule")
+def update_folder_ping_schedule(
+    folder_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    interval_minutes: Annotated[int, Form(ge=5, le=10080)],
+    enabled: Annotated[str | None, Form()] = None,
+    run_now: Annotated[str | None, Form()] = None,
+) -> RedirectResponse:
+    folder = db.get(Folder, folder_id)
+    if folder is None:
+        return _redirect_error("/", "Папка не найдена")
+
+    set_folder_ping_schedule(
+        db,
+        folder.id,
+        enabled=_checked(enabled),
+        interval_seconds=interval_minutes * 60,
+    )
+    if _checked(run_now):
+        project_ids = db.scalars(
+            select(Project.id).where(Project.folder_id == folder.id).order_by(Project.id.asc())
+        ).all()
+        for project_id in project_ids:
+            enqueue_project_ping(db, project_id, reason="manual-folder", commit=False)
+        db.commit()
+        return _redirect_message("/", "Расписание папки сохранено, проекты поставлены в очередь ping")
+
+    return _redirect_message("/", "Расписание ping-проверки папки сохранено")
+
+
 @router.get("/projects/{project_id}", response_class=HTMLResponse)
 def project_detail(
     project_id: int,
@@ -487,6 +566,12 @@ def project_detail(
         select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, IPAddress.is_reachable.is_(True))
     ) or 0
     folders = _load_sidebar_folders(db)
+    project_schedule = db.scalar(
+        select(PingSchedule).where(
+            PingSchedule.scope == PING_SCHEDULE_PROJECT,
+            PingSchedule.project_id == project.id,
+        )
+    )
 
     return _templates(request).TemplateResponse(
         request,
@@ -495,9 +580,13 @@ def project_detail(
             "request": request,
             "project": project,
             "folders": folders,
+            "folder_schedules": _load_folder_schedules(db),
+            "default_ping_interval_minutes": _default_ping_interval_minutes(),
             "active_project": project,
             "current_user": current_user,
             "custom_fields": custom_fields,
+            "project_schedule": project_schedule,
+            "project_schedule_minutes": _schedule_interval_minutes(project_schedule, get_settings()),
             "ip_records": ip_records,
             "hide_empty": hide_empty,
             "error": error,
@@ -525,6 +614,8 @@ def admin_users(
         {
             "request": request,
             "folders": _load_sidebar_folders(db),
+            "folder_schedules": _load_folder_schedules(db),
+            "default_ping_interval_minutes": _default_ping_interval_minutes(),
             "active_project": None,
             "current_user": current_user,
             "users": users,
@@ -547,6 +638,7 @@ def admin_create_user(
     can_edit: Annotated[str | None, Form()] = None,
     can_delete: Annotated[str | None, Form()] = None,
     can_manage_columns: Annotated[str | None, Form()] = None,
+    is_active: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
     clean_username = _clean_text(username, 80)
     if not clean_username:
@@ -568,6 +660,7 @@ def admin_create_user(
             can_edit=_checked(can_edit),
             can_delete=_checked(can_delete),
             can_manage_columns=_checked(can_manage_columns),
+            is_active=_checked(is_active),
         )
     except IntegrityError:
         db.rollback()
@@ -590,6 +683,7 @@ def admin_update_user(
     can_edit: Annotated[str | None, Form()] = None,
     can_delete: Annotated[str | None, Form()] = None,
     can_manage_columns: Annotated[str | None, Form()] = None,
+    is_active: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
     user = db.get(User, user_id)
     if user is None:
@@ -616,11 +710,13 @@ def admin_update_user(
     user.last_name = _clean_text(last_name, 120)
     user.description = _clean_text(description, 2000)
     if user.is_admin:
+        user.is_active = True
         user.can_create = True
         user.can_edit = True
         user.can_delete = True
         user.can_manage_columns = True
     else:
+        user.is_active = _checked(is_active)
         user.can_create = _checked(can_create)
         user.can_edit = _checked(can_edit)
         user.can_delete = _checked(can_delete)
@@ -829,6 +925,8 @@ def search(
             "request": request,
             "q": query,
             "folders": _load_sidebar_folders(db),
+            "folder_schedules": _load_folder_schedules(db),
+            "default_ping_interval_minutes": _default_ping_interval_minutes(),
             "active_project": None,
             "current_user": current_user,
             "found_folders": found_folders,

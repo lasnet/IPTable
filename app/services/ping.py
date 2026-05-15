@@ -3,15 +3,21 @@ import logging
 import platform
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
 from app.core.config import Settings
 from app.core.database import SessionLocal
-from app.models import IPAddress, Project
+from app.models import Folder, IPAddress, PingJob, PingSchedule, Project
 
 logger = logging.getLogger(__name__)
+PING_JOB_QUEUED = "queued"
+PING_JOB_RUNNING = "running"
+PING_JOB_DONE = "done"
+PING_JOB_FAILED = "failed"
+PING_SCHEDULE_PROJECT = "project"
+PING_SCHEDULE_FOLDER = "folder"
 
 
 @dataclass(slots=True)
@@ -129,6 +135,219 @@ async def run_ping_project(project_id: int, settings: Settings) -> int:
     return len(results_to_update)
 
 
+def _next_run(interval_seconds: int) -> datetime:
+    return datetime.utcnow() + timedelta(seconds=interval_seconds)
+
+
+def _has_active_ping_job(db, project_id: int) -> bool:
+    existing = db.scalar(
+        select(PingJob.id)
+        .where(
+            PingJob.project_id == project_id,
+            PingJob.status.in_([PING_JOB_QUEUED, PING_JOB_RUNNING]),
+        )
+        .limit(1)
+    )
+    return existing is not None
+
+
+def enqueue_project_ping(
+    db,
+    project_id: int,
+    *,
+    reason: str = "manual",
+    run_after: datetime | None = None,
+    commit: bool = True,
+) -> PingJob | None:
+    if _has_active_ping_job(db, project_id):
+        return None
+
+    job = PingJob(
+        project_id=project_id,
+        status=PING_JOB_QUEUED,
+        reason=reason[:40],
+        run_after=run_after or datetime.utcnow(),
+    )
+    db.add(job)
+    if commit:
+        db.commit()
+        db.refresh(job)
+    return job
+
+
+def ensure_project_ping_schedule(db, project_id: int, settings: Settings) -> PingSchedule:
+    schedule = db.scalar(
+        select(PingSchedule).where(
+            PingSchedule.scope == PING_SCHEDULE_PROJECT,
+            PingSchedule.project_id == project_id,
+        )
+    )
+    if schedule is not None:
+        return schedule
+
+    schedule = PingSchedule(
+        scope=PING_SCHEDULE_PROJECT,
+        project_id=project_id,
+        enabled=True,
+        interval_seconds=settings.ping_interval_seconds,
+        next_run_at=_next_run(settings.ping_interval_seconds),
+    )
+    db.add(schedule)
+    db.commit()
+    db.refresh(schedule)
+    return schedule
+
+
+def ensure_default_project_schedules(db, settings: Settings) -> int:
+    project_ids = db.scalars(select(Project.id).order_by(Project.id.asc())).all()
+    created_count = 0
+    for project_id in project_ids:
+        schedule = db.scalar(
+            select(PingSchedule.id).where(
+                PingSchedule.scope == PING_SCHEDULE_PROJECT,
+                PingSchedule.project_id == project_id,
+            )
+        )
+        if schedule is None:
+            db.add(
+                PingSchedule(
+                    scope=PING_SCHEDULE_PROJECT,
+                    project_id=project_id,
+                    enabled=True,
+                    interval_seconds=settings.ping_interval_seconds,
+                    next_run_at=_next_run(settings.ping_interval_seconds),
+                )
+            )
+            created_count += 1
+
+    if created_count:
+        db.commit()
+    return created_count
+
+
+def set_project_ping_schedule(
+    db,
+    project_id: int,
+    *,
+    enabled: bool,
+    interval_seconds: int,
+) -> PingSchedule:
+    schedule = db.scalar(
+        select(PingSchedule).where(
+            PingSchedule.scope == PING_SCHEDULE_PROJECT,
+            PingSchedule.project_id == project_id,
+        )
+    )
+    if schedule is None:
+        schedule = PingSchedule(scope=PING_SCHEDULE_PROJECT, project_id=project_id)
+        db.add(schedule)
+
+    schedule.enabled = enabled
+    schedule.interval_seconds = interval_seconds
+    schedule.next_run_at = _next_run(interval_seconds) if enabled else None
+    db.commit()
+    db.refresh(schedule)
+    return schedule
+
+
+def set_folder_ping_schedule(
+    db,
+    folder_id: int,
+    *,
+    enabled: bool,
+    interval_seconds: int,
+) -> PingSchedule:
+    schedule = db.scalar(
+        select(PingSchedule).where(
+            PingSchedule.scope == PING_SCHEDULE_FOLDER,
+            PingSchedule.folder_id == folder_id,
+        )
+    )
+    if schedule is None:
+        schedule = PingSchedule(scope=PING_SCHEDULE_FOLDER, folder_id=folder_id)
+        db.add(schedule)
+
+    schedule.enabled = enabled
+    schedule.interval_seconds = interval_seconds
+    schedule.next_run_at = _next_run(interval_seconds) if enabled else None
+    db.commit()
+    db.refresh(schedule)
+    return schedule
+
+
+def enqueue_due_ping_schedules(db, settings: Settings) -> int:
+    now = datetime.utcnow()
+    schedules = db.scalars(
+        select(PingSchedule)
+        .where(PingSchedule.enabled.is_(True), PingSchedule.next_run_at.is_not(None), PingSchedule.next_run_at <= now)
+        .order_by(PingSchedule.next_run_at.asc(), PingSchedule.id.asc())
+    ).all()
+    enqueued_count = 0
+
+    for schedule in schedules:
+        project_ids: list[int] = []
+        if schedule.scope == PING_SCHEDULE_PROJECT and schedule.project_id is not None:
+            project_ids = [schedule.project_id]
+        elif schedule.scope == PING_SCHEDULE_FOLDER and schedule.folder_id is not None:
+            if db.get(Folder, schedule.folder_id) is not None:
+                project_ids = db.scalars(
+                    select(Project.id).where(Project.folder_id == schedule.folder_id).order_by(Project.id.asc())
+                ).all()
+
+        for project_id in project_ids:
+            if enqueue_project_ping(db, project_id, reason=f"{schedule.scope}-schedule", commit=False) is not None:
+                enqueued_count += 1
+
+        schedule.last_run_at = now
+        schedule.next_run_at = now + timedelta(seconds=schedule.interval_seconds)
+
+    if schedules or enqueued_count:
+        db.commit()
+    return enqueued_count
+
+
+async def run_next_ping_job(settings: Settings) -> bool:
+    now = datetime.utcnow()
+    with SessionLocal() as db:
+        job = db.scalar(
+            select(PingJob)
+            .where(PingJob.status == PING_JOB_QUEUED, PingJob.run_after <= now)
+            .order_by(PingJob.run_after.asc(), PingJob.id.asc())
+            .limit(1)
+        )
+        if job is None:
+            return False
+
+        job.status = PING_JOB_RUNNING
+        job.started_at = now
+        job.error = ""
+        job_id = job.id
+        project_id = job.project_id
+        db.commit()
+
+    try:
+        await run_ping_project(project_id, settings)
+    except Exception as exc:
+        logger.exception("Ping job failed for project_id=%s", project_id)
+        with SessionLocal() as db:
+            failed_job = db.get(PingJob, job_id)
+            if failed_job is not None:
+                failed_job.status = PING_JOB_FAILED
+                failed_job.finished_at = datetime.utcnow()
+                failed_job.error = str(exc)[:4000]
+                db.commit()
+        return True
+
+    with SessionLocal() as db:
+        finished_job = db.get(PingJob, job_id)
+        if finished_job is not None:
+            finished_job.status = PING_JOB_DONE
+            finished_job.finished_at = datetime.utcnow()
+            finished_job.error = ""
+            db.commit()
+    return True
+
+
 async def run_ping_pass(settings: Settings) -> int:
     with SessionLocal() as db:
         project_ids = db.scalars(select(Project.id).order_by(Project.id.asc())).all()
@@ -145,13 +364,18 @@ async def run_ping_pass(settings: Settings) -> int:
 async def run_ping_scheduler(settings: Settings) -> None:
     await asyncio.sleep(5)
     while True:
-        pass_started_at = asyncio.get_running_loop().time()
         try:
-            await run_ping_pass(settings)
+            with SessionLocal() as db:
+                ensure_default_project_schedules(db, settings)
+                enqueue_due_ping_schedules(db, settings)
+
+            processed = await run_next_ping_job(settings)
+            if processed and settings.ping_project_pause_seconds:
+                await asyncio.sleep(settings.ping_project_pause_seconds)
+                continue
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Ping scheduler pass failed")
+            logger.exception("Ping worker iteration failed")
 
-        elapsed = asyncio.get_running_loop().time() - pass_started_at
-        await asyncio.sleep(max(0, settings.ping_interval_seconds - elapsed))
+        await asyncio.sleep(settings.ping_queue_poll_seconds)

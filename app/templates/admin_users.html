@@ -48,6 +48,7 @@
           <textarea name="description" maxlength="2000" rows="3"></textarea>
         </label>
         <div class="permission-grid">
+          <label><input type="checkbox" name="is_active" checked> Пользователь активен</label>
           <label><input type="checkbox" name="can_create"> Разрешить создание</label>
           <label><input type="checkbox" name="can_edit"> Разрешить редактирование</label>
           <label><input type="checkbox" name="can_delete"> Разрешить удаление</label>
@@ -65,6 +66,7 @@
           <div>
             <strong>{{ user.username }}</strong>
             {% if user.is_admin %}<span class="role-badge">admin</span>{% endif %}
+            {% if not user.is_active %}<span class="status-badge inactive">отключен</span>{% endif %}
             {% if user.first_name or user.last_name %}
             <p>{{ user.first_name }} {{ user.last_name }}</p>
             {% endif %}
@@ -105,6 +107,9 @@
                 Описание
                 <textarea name="description" maxlength="2000" rows="3">{{ user.description }}</textarea>
               </label>
+              <div class="permission-grid">
+                <label><input type="checkbox" checked disabled> Администратор активен</label>
+              </div>
               <button type="submit">Сохранить администратора</button>
             </form>
             {% else %}
@@ -132,6 +137,7 @@
                 <textarea name="description" maxlength="2000" rows="3">{{ user.description }}</textarea>
               </label>
               <div class="permission-grid">
+                <label><input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %}> Пользователь активен</label>
                 <label><input type="checkbox" name="can_create" {% if user.can_create %}checked{% endif %}> Разрешить создание</label>
                 <label><input type="checkbox" name="can_edit" {% if user.can_edit %}checked{% endif %}> Разрешить редактирование</label>
                 <label><input type="checkbox" name="can_delete" {% if user.can_delete %}checked{% endif %}> Разрешить удаление</label>

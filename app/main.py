@@ -11,7 +11,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal, init_db
 from app.services.auth import bootstrap_initial_admin
 from app.services.inventory import normalize_project_address_rows
-from app.services.ping import run_ping_scheduler
+from app.services.ping import ensure_default_project_schedules, run_ping_scheduler
 from app.web.routes import router
 
 
@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI):
     with SessionLocal() as db:
         bootstrap_initial_admin(db, settings)
         normalize_project_address_rows(db)
+        ensure_default_project_schedules(db, settings)
 
     ping_task: asyncio.Task | None = None
     if settings.enable_ping_worker:

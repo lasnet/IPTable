@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import Settings
 from app.models import Base, User
-from app.services.auth import bootstrap_initial_admin, hash_password, verify_password
+from app.services.auth import authenticate_user, bootstrap_initial_admin, hash_password, verify_password
 
 
 class AuthServiceTest(unittest.TestCase):
@@ -66,6 +66,23 @@ class AuthServiceTest(unittest.TestCase):
         self.assertFalse(old_admin.can_create)
         self.assertTrue(env_admin.is_admin)
         self.assertTrue(env_admin.can_create_inventory)
+
+    def test_inactive_user_cannot_authenticate(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine)
+
+        with session_factory() as db:
+            db.add(
+                User(
+                    username="disabled",
+                    password_hash=hash_password("valid-password"),
+                    is_active=False,
+                )
+            )
+            db.commit()
+
+            self.assertIsNone(authenticate_user(db, "disabled", "valid-password"))
 
 
 if __name__ == "__main__":

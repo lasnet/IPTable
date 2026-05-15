@@ -80,6 +80,8 @@ class Project(TimestampMixin, Base):
     folder: Mapped[Folder] = relationship(back_populates="projects")
     ip_addresses: Mapped[list["IPAddress"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     custom_fields: Mapped[list["CustomField"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    ping_jobs: Mapped[list["PingJob"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    ping_schedules: Mapped[list["PingSchedule"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
 class IPAddress(TimestampMixin, Base):
@@ -119,3 +121,43 @@ class CustomField(TimestampMixin, Base):
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     project: Mapped[Project] = relationship(back_populates="custom_fields")
+
+
+class PingSchedule(TimestampMixin, Base):
+    __tablename__ = "ping_schedules"
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_ping_schedule_project"),
+        UniqueConstraint("folder_id", name="uq_ping_schedule_folder"),
+        Index("ix_ping_schedules_due", "enabled", "next_run_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=True)
+    folder_id: Mapped[int | None] = mapped_column(ForeignKey("folders.id", ondelete="CASCADE"), nullable=True)
+    scope: Mapped[str] = mapped_column(String(20), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    interval_seconds: Mapped[int] = mapped_column(Integer, default=3600, nullable=False)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    project: Mapped[Project | None] = relationship(back_populates="ping_schedules")
+    folder: Mapped[Folder | None] = relationship()
+
+
+class PingJob(TimestampMixin, Base):
+    __tablename__ = "ping_jobs"
+    __table_args__ = (
+        Index("ix_ping_jobs_queue", "status", "run_after", "id"),
+        Index("ix_ping_jobs_project_status", "project_id", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued", nullable=False)
+    reason: Mapped[str] = mapped_column(String(40), default="manual", nullable=False)
+    run_after: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+    project: Mapped[Project] = relationship(back_populates="ping_jobs")

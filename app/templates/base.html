@@ -111,6 +111,13 @@
               </a>
               {% endif %}
               {% if current_user.is_admin %}
+              <a class="add-link folder-add" href="{{ request.url.path }}?schedule_folder={{ folder.id }}"
+                title="Расписание ping" aria-label="Расписание ping">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 8v5l3 2" />
+                  <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+              </a>
               <a class="add-link folder-add" href="{{ request.url.path }}?export_folder={{ folder.id }}"
                 title="Экспорт папки" aria-label="Экспорт папки">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -122,6 +129,28 @@
               {% endif %}
             </div>
           </div>
+          {% if current_user.is_admin and request.query_params.get('schedule_folder') == folder.id|string %}
+          {% set folder_schedule = folder_schedules.get(folder.id) if folder_schedules is defined else none %}
+          <div class="sidebar-form compact-form">
+            <div class="form-hint">
+              Расписание папки ставит ping-задачи для всех проектов внутри нее. Worker выполнит их последовательно.
+            </div>
+            <form class="stack-form" action="/folders/{{ folder.id }}/schedule" method="post">
+              <label class="checkbox-line">
+                <input type="checkbox" name="enabled" {% if not folder_schedule or folder_schedule.enabled %}checked{% endif %}>
+                Расписание включено
+              </label>
+              <input type="number" name="interval_minutes" min="5" max="10080"
+                value="{{ ((folder_schedule.interval_seconds if folder_schedule else default_ping_interval_minutes * 60) / 60) | round | int }}"
+                required>
+              <label class="checkbox-line">
+                <input type="checkbox" name="run_now">
+                Запустить сейчас
+              </label>
+              <button type="submit">Сохранить расписание</button>
+            </form>
+          </div>
+          {% endif %}
           {% if current_user.can_create_inventory and request.query_params.get('new_project_folder') == folder.id|string %}
           <form class="sidebar-form compact-form project-form" action="/projects" method="post" enctype="multipart/form-data">
             <input type="hidden" name="folder_id" value="{{ folder.id }}">

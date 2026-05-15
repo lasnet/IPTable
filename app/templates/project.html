@@ -65,6 +65,31 @@
       <details class="field-details">
         <summary class="soft-button">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 8v5l3 2" />
+            <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+          </svg>
+          Ping
+        </summary>
+        <form class="floating-form" action="/projects/{{ project.id }}/schedule" method="post">
+          <label class="checkbox-line">
+            <input type="checkbox" name="enabled" {% if not project_schedule or project_schedule.enabled %}checked{% endif %}>
+            Расписание включено
+          </label>
+          <label>
+            Интервал, минут
+            <input type="number" name="interval_minutes" min="5" max="10080" value="{{ project_schedule_minutes }}" required>
+          </label>
+          <label class="checkbox-line">
+            <input type="checkbox" name="run_now">
+            Запустить сейчас
+          </label>
+          <button type="submit">Сохранить</button>
+        </form>
+      </details>
+
+      <details class="field-details">
+        <summary class="soft-button">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 3v12" />
             <path d="m7 10 5 5 5-5" />
             <path d="M5 21h14" />

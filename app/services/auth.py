@@ -74,6 +74,7 @@ def bootstrap_initial_admin(db: Session, settings: Settings) -> None:
     existing = db.scalar(select(User).where(func.lower(User.username) == username.lower()))
     if existing is not None:
         existing.is_admin = True
+        existing.is_active = True
         existing.can_create = True
         existing.can_edit = True
         existing.can_delete = True
@@ -107,6 +108,7 @@ def create_user(
     can_edit: bool = False,
     can_delete: bool = False,
     can_manage_columns: bool = False,
+    is_active: bool = True,
 ) -> User:
     user = User(
         username=username.strip(),
@@ -114,6 +116,7 @@ def create_user(
         first_name=first_name.strip(),
         last_name=last_name.strip(),
         description=description.strip(),
+        is_active=is_active,
         can_create=can_create,
         can_edit=can_edit,
         can_delete=can_delete,
