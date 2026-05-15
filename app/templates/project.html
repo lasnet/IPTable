@@ -3,6 +3,13 @@
 {% block title %}Проект {{ project.cidr }} - IPtable{% endblock %}
 
 {% block content %}
+{#
+  Столбец "№" скрыт через этот флаг, чтобы не ломать colgroup и sticky IP-колонку.
+  Если номер снова понадобится:
+  1. Поменяйте false на true.
+  2. В app/static/styles.css верните ".locked-col { left: 74px; }".
+#}
+{% set show_number_column = false %}
 <section class="project-card">
   <div class="project-card-head">
     <div class="project-title">
@@ -162,7 +169,9 @@
   <div class="asset-table-wrap">
     <table class="asset-table">
       <colgroup>
+        {% if show_number_column %}
         <col class="col-number">
+        {% endif %}
         <col class="col-ip">
         <col class="col-hostname">
         <col class="col-os">
@@ -176,7 +185,9 @@
       </colgroup>
       <thead>
         <tr>
+          {% if show_number_column %}
           <th class="number-head">№</th>
+          {% endif %}
           <th class="locked-col">IP адрес</th>
           <th>Hostname</th>
           <th>OS</th>
@@ -192,7 +203,9 @@
       <tbody>
         {% for ip in ip_records %}
         <tr id="ip-{{ ip.id }}" data-row-address="{{ ip.address }}">
+          {% if show_number_column %}
           <td class="number-cell">{{ ip.ordinal }}</td>
+          {% endif %}
           <td class="ip-cell locked-col">{{ ip.address }}</td>
           <td><input form="row-{{ ip.id }}" name="hostname" value="{{ ip.hostname }}" maxlength="255"
               placeholder="пусто"></td>
@@ -227,7 +240,7 @@
         </tr>
         {% else %}
         <tr>
-          <td class="empty-table" colspan="{{ 8 + custom_fields|length }}">
+          <td class="empty-table" colspan="{{ (8 if show_number_column else 7) + custom_fields|length }}">
             Нет записей для отображения.
           </td>
         </tr>

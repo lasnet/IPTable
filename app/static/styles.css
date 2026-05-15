@@ -660,7 +660,7 @@ select:disabled {
 }
 
 .col-number {
-  width: 0;
+  width: 74px;
 }
 
 .col-ip {
@@ -731,18 +731,8 @@ th.locked-col {
   box-shadow: 1px 0 0 var(--line);
 }
 
-/*
-  Столбец "№" сейчас скрыт по просьбе пользователя.
-  Если он снова понадобится:
-  1. Верните ".col-number" ширину 74px.
-  2. Закомментируйте display: none для ".number-head, .number-cell".
-  3. Верните в основном правиле ".locked-col" значение left: 74px.
-*/
-.number-head,
-.number-cell {
-  display: none;
-}
-
+/* Столбец "№" скрыт в app/templates/project.html через show_number_column = false.
+   Если включите его обратно, поменяйте left у .locked-col на 74px. */
 .locked-col {
   left: 0;
 }
