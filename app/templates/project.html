@@ -95,12 +95,14 @@
           {% if current_user.can_edit_inventory %}
           <form class="stack-form" action="/projects/{{ project.id }}/update" method="post">
             <input name="name" maxlength="160" required value="{{ project.name }}">
-            <textarea name="description" maxlength="2000" rows="4" placeholder="Описание">{{ project.description }}</textarea>
+            <textarea name="description" maxlength="2000" rows="4"
+              placeholder="Описание">{{ project.description }}</textarea>
             <button type="submit">Сохранить</button>
           </form>
           {% endif %}
           {% if current_user.can_delete_inventory %}
-          <form action="/projects/{{ project.id }}/delete" method="post" onsubmit="return confirm('Удалить подсеть и все IP-записи?')">
+          <form action="/projects/{{ project.id }}/delete" method="post"
+            onsubmit="return confirm('Удалить подсеть и все IP-записи?')">
             <button class="danger-button" type="submit">Удалить проект</button>
           </form>
           {% endif %}
@@ -140,7 +142,7 @@
       </colgroup>
       <thead>
         <tr>
-          <th>№</th>
+          <!---          <th>№</th> -->
           <th class="locked-col">IP адрес</th>
           <th>Hostname</th>
           <th>OS</th>
@@ -156,7 +158,7 @@
       <tbody>
         {% for ip in ip_records %}
         <tr id="ip-{{ ip.id }}" data-row-address="{{ ip.address }}">
-          <td class="number-cell">{{ ip.ordinal }}</td>
+          <!--          <td class="number-cell">{{ ip.ordinal }}</td> -->
           <td class="ip-cell locked-col">{{ ip.address }}</td>
           <td><input form="row-{{ ip.id }}" name="hostname" value="{{ ip.hostname }}" maxlength="255"
               placeholder="пусто"></td>
@@ -182,7 +184,8 @@
             {% endif %}
           </td>
           <td class="save-cell">
-            <form id="row-{{ ip.id }}" class="asset-row-form" action="/projects/{{ project.id }}/addresses/{{ ip.id }}" method="post">
+            <form id="row-{{ ip.id }}" class="asset-row-form" action="/projects/{{ project.id }}/addresses/{{ ip.id }}"
+              method="post">
               <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
               <button class="row-save" type="submit">Save</button>
             </form>
