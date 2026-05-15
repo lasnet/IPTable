@@ -64,6 +64,10 @@ async def ping_address(ip_id: int, project_id: int, address: str, timeout_second
     return PingResult(ip_id, project_id, process.returncode == 0, latency, checked_at, True, error_output)
 
 
+def _chunk_rows(rows: list[tuple[int, int, str]], batch_size: int) -> list[list[tuple[int, int, str]]]:
+    return [rows[index:index + batch_size] for index in range(0, len(rows), batch_size)]
+
+
 async def _probe_rows(rows: list[tuple[int, int, str]], settings: Settings) -> list[PingResult]:
     semaphore = asyncio.Semaphore(settings.ping_concurrency)
 
@@ -71,7 +75,16 @@ async def _probe_rows(rows: list[tuple[int, int, str]], settings: Settings) -> l
         async with semaphore:
             return await ping_address(ip_id, project_id, address, settings.ping_timeout_seconds)
 
-    return await asyncio.gather(*(guarded_ping(ip_id, project_id, address) for ip_id, project_id, address in rows))
+    results: list[PingResult] = []
+    batches = _chunk_rows(rows, settings.ping_batch_size)
+    for batch_index, batch in enumerate(batches):
+        results.extend(
+            await asyncio.gather(*(guarded_ping(ip_id, project_id, address) for ip_id, project_id, address in batch))
+        )
+        if settings.ping_batch_pause_seconds and batch_index < len(batches) - 1:
+            await asyncio.sleep(settings.ping_batch_pause_seconds)
+
+    return results
 
 
 def _filter_safe_ping_updates(results: list[PingResult]) -> list[PingResult]:
@@ -117,21 +130,22 @@ async def run_ping_project(project_id: int, settings: Settings) -> int:
 
 
 async def run_ping_pass(settings: Settings) -> int:
-    started_at = datetime.utcnow()
     with SessionLocal() as db:
-        db.query(Project).update({Project.last_ping_started_at: started_at})
-        rows = db.execute(select(IPAddress.id, IPAddress.project_id, IPAddress.address)).all()
-        db.commit()
+        project_ids = db.scalars(select(Project.id).order_by(Project.id.asc())).all()
 
-    results = await _probe_rows(list(rows), settings)
-    results_to_update = _filter_safe_ping_updates(results)
-    _apply_ping_results(results_to_update)
-    return len(results_to_update)
+    updated_count = 0
+    for project_index, project_id in enumerate(project_ids):
+        updated_count += await run_ping_project(project_id, settings)
+        if settings.ping_project_pause_seconds and project_index < len(project_ids) - 1:
+            await asyncio.sleep(settings.ping_project_pause_seconds)
+
+    return updated_count
 
 
 async def run_ping_scheduler(settings: Settings) -> None:
     await asyncio.sleep(5)
     while True:
+        pass_started_at = asyncio.get_running_loop().time()
         try:
             await run_ping_pass(settings)
         except asyncio.CancelledError:
@@ -139,4 +153,5 @@ async def run_ping_scheduler(settings: Settings) -> None:
         except Exception:
             logger.exception("Ping scheduler pass failed")
 
-        await asyncio.sleep(settings.ping_interval_seconds)
+        elapsed = asyncio.get_running_loop().time() - pass_started_at
+        await asyncio.sleep(max(0, settings.ping_interval_seconds - elapsed))

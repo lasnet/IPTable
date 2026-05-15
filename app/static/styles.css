@@ -724,11 +724,36 @@ th.locked-col {
   z-index: 12;
 }
 
-.asset-table th:first-child {
+.number-head {
   position: sticky;
   left: 0;
   z-index: 13;
   box-shadow: 1px 0 0 var(--line);
+}
+
+/*
+  Столбец "№" сейчас скрыт по просьбе пользователя.
+  Если он снова понадобится:
+  1. Закомментируйте блок ниже до строки ".locked-col { left: 0; }".
+  2. Верните в основном правиле ".locked-col" значение left: 74px.
+*/
+.col-number,
+.number-head,
+.number-cell {
+  display: none;
+}
+
+.locked-col {
+  left: 0;
+}
+
+.asset-table tr[id] {
+  scroll-margin-top: 58px;
+}
+
+.asset-table tr:target td,
+.asset-table tr:target .locked-col {
+  background: #eef6ff;
 }
 
 .asset-table input,
@@ -854,6 +879,10 @@ th.locked-col {
 }
 
 .asset-table tr.row-dirty td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger), 1px 0 0 var(--line);
+}
+
+.asset-table tr.row-dirty .ip-cell {
   box-shadow: inset 3px 0 0 var(--danger), 1px 0 0 var(--line);
 }
 

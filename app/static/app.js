@@ -129,3 +129,25 @@
     syncPasswordInput();
   });
 })();
+
+(function () {
+  if (!window.location.hash) {
+    return;
+  }
+
+  let targetId = "";
+  try {
+    targetId = decodeURIComponent(window.location.hash.slice(1));
+  } catch (error) {
+    return;
+  }
+
+  const target = document.getElementById(targetId);
+  if (!target || !target.closest(".asset-table-wrap")) {
+    return;
+  }
+
+  window.setTimeout(() => {
+    target.scrollIntoView({ block: "center", inline: "nearest" });
+  }, 50);
+})();
