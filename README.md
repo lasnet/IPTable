@@ -107,6 +107,8 @@ INITIAL_ADMIN_PASSWORD=replace-with-strong-admin-password
 Основные переменные:
 
 - `APP_PORT` - порт веб-приложения на хосте.
+- `PIP_INDEX_URL` - индекс Python-пакетов для Docker build. По умолчанию `https://pypi.org/simple`.
+- `PIP_TRUSTED_HOST` - trusted host для внутреннего PyPI-зеркала, если оно используется без корректного TLS.
 - `SECRET_KEY` - секрет для подписи session cookie. В production должен быть стабильным и случайным.
 - `SESSION_IDLE_TIMEOUT_SECONDS` - время жизни авторизованной сессии бездействия. По умолчанию `86400` секунд.
 - `INITIAL_ADMIN_USERNAME` - логин администратора, которому при старте выдаются административные права. Если логин администратора в `.env` изменится, старый администратор будет понижен до обычного пользователя.
@@ -181,6 +183,7 @@ python -m unittest discover      # запустить базовые тесты 
 ## Типичные проблемы и их решение
 
 - `POSTGRES_PASSWORD is required`: скопируйте `.env.example` в `.env` и задайте пароль.
+- Docker build падает на `Temporary failure in name resolution` или `No matching distribution found for fastapi`: это проблема DNS/доступа к PyPI внутри Docker, а не версия пакета. Проверьте `docker run --rm python:3.12-slim python -m pip index versions fastapi`. Если DNS не работает, настройте DNS Docker daemon или задайте корпоративное зеркало через `PIP_INDEX_URL` и `PIP_TRUSTED_HOST`.
 - Не получается войти: проверьте `INITIAL_ADMIN_USERNAME` и `INITIAL_ADMIN_PASSWORD`. Если пользователь уже создан, смена переменной `INITIAL_ADMIN_PASSWORD` не меняет существующий пароль.
 - Нет кнопки `Админ`: в админ-панель может попасть только пользователь, которому при старте выдан `is_admin` по `INITIAL_ADMIN_USERNAME`.
 - Обычный пользователь не может создать папку, проект или столбец: включите нужное право в админ-панели. По умолчанию эти права отключены.

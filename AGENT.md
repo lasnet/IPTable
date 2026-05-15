@@ -116,6 +116,8 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Если Docker build не может резолвить `pypi.org`, проверьте DNS Docker daemon или задайте внутреннее зеркало через `PIP_INDEX_URL` и `PIP_TRUSTED_HOST` в `.env`.
+
 Без Docker:
 
 ```bash
@@ -170,6 +172,7 @@ python -m unittest discover
 
 ## 10. Какие файлы нельзя менять без необходимости
 
+- `Dockerfile` - влияет на сборку и установку зависимостей; pip-index передается через build args `PIP_INDEX_URL` и `PIP_TRUSTED_HOST`.
 - `docker-compose.yml` - влияет на запуск всей системы.
 - `.env.example` - является контрактом настроек.
 - `app/models.py` - изменение схемы БД требует осторожности.
@@ -217,6 +220,7 @@ python -m unittest discover
 - Изменение `INITIAL_ADMIN_USERNAME` переносит роль администратора на новый env-логин; старый админ теряет `is_admin` и явные права, которые выдавались bootstrap-ом.
 - `SESSION_IDLE_TIMEOUT_SECONDS` управляет idle-timeout и cookie `max_age`; при каждом авторизованном запросе обновляется `last_activity_at` в session cookie.
 - Если `SECRET_KEY` не задан, приложение сгенерирует временный секрет на процесс, и сессии будут сброшены после перезапуска. Для нормальной эксплуатации задавайте стабильный секрет.
+- Ошибка Docker build `Temporary failure in name resolution` означает, что контейнер сборки не видит DNS/PyPI. Это не проблема версии `fastapi`; используйте Docker DNS/proxy или внутренний PyPI mirror через `PIP_INDEX_URL`.
 - Импорт CSV отклоняет неправильный заголовок, не-IPv4 адреса, дубли IP, network/broadcast адреса, слишком большую рассчитанную подсеть и слишком большой файл.
 - Для ручного создания проекта поле CIDR обязательно; для импорта CSV CIDR не требуется и рассчитывается автоматически.
 - Экспорт проекта без пароля возвращает CSV. Экспорт проекта с паролем возвращает ZIP с одним CSV. Экспорт папки всегда возвращает ZIP.
