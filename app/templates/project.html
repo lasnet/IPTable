@@ -128,7 +128,7 @@
   <div class="asset-table-wrap">
     <table class="asset-table">
       <colgroup>
-        <!--       <col class="col-number"> -->
+        <col class="col-number">
         <col class="col-ip">
         <col class="col-hostname">
         <col class="col-os">
@@ -142,7 +142,7 @@
       </colgroup>
       <thead>
         <tr>
-          <!---          <th>№</th> -->
+          <th>№</th>
           <th class="locked-col">IP адрес</th>
           <th>Hostname</th>
           <th>OS</th>
@@ -158,7 +158,7 @@
       <tbody>
         {% for ip in ip_records %}
         <tr id="ip-{{ ip.id }}" data-row-address="{{ ip.address }}">
-          <!--          <td class="number-cell">{{ ip.ordinal }}</td> -->
+          <td class="number-cell">{{ ip.ordinal }}</td>
           <td class="ip-cell locked-col">{{ ip.address }}</td>
           <td><input form="row-{{ ip.id }}" name="hostname" value="{{ ip.hostname }}" maxlength="255"
               placeholder="пусто"></td>
