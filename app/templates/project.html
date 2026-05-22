@@ -256,25 +256,6 @@
   </div>
   {% endif %}
   <div class="table-pagination">
-    <div class="pagination-meta">
-      {% if pagination.total_items %}
-      {{ pagination.start_item }}–{{ pagination.end_item }} из {{ pagination.total_items }}
-      {% else %}
-      0 записей
-      {% endif %}
-    </div>
-    <form class="page-size-form" action="/projects/{{ project.id }}" method="get">
-      <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
-      <input type="hidden" name="page" value="1">
-      <label>
-        Строк:
-        <select name="per_page" onchange="this.form.submit()">
-          {% for option in pagination.options %}
-          <option value="{{ option }}" {% if option == pagination.per_page %}selected{% endif %}>{{ option }}</option>
-          {% endfor %}
-        </select>
-      </label>
-    </form>
     <nav class="pagination-controls" aria-label="Навигация по страницам таблицы">
       {% if pagination.has_prev %}
       <a class="icon-button pagination-button" href="{{ pagination.prev_url }}" aria-label="Предыдущая страница">
@@ -304,6 +285,27 @@
       </span>
       {% endif %}
     </nav>
+    <div class="pagination-summary">
+      <div class="pagination-meta">
+        {% if pagination.total_items %}
+        {{ pagination.start_item }}–{{ pagination.end_item }} из {{ pagination.total_items }}
+        {% else %}
+        0 записей
+        {% endif %}
+      </div>
+      <form class="page-size-form" action="/projects/{{ project.id }}" method="get">
+        <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
+        <input type="hidden" name="page" value="1">
+        <label>
+          Строк:
+          <select name="per_page" onchange="this.form.submit()">
+            {% for option in pagination.options %}
+            <option value="{{ option }}" {% if option == pagination.per_page %}selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+    </div>
   </div>
 </section>
 {% endblock %}

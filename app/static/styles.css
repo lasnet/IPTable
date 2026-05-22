@@ -577,7 +577,7 @@ select:disabled {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 14px;
   min-height: 46px;
   margin-top: 10px;
@@ -585,8 +585,13 @@ select:disabled {
   font-size: 13px;
 }
 
-.pagination-meta {
-  margin-right: auto;
+.pagination-summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-left: auto;
+  min-width: 0;
 }
 
 .page-size-form label,
@@ -1353,16 +1358,17 @@ th.locked-col {
   }
 
   .table-pagination {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
+    flex-wrap: wrap;
   }
 
-  .pagination-meta {
-    margin-right: 0;
+  .pagination-summary {
+    margin-left: auto;
   }
 
   .pagination-controls {
-    justify-content: space-between;
+    justify-content: flex-start;
   }
 
   .permission-grid {
