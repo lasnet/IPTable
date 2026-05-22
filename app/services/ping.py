@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.config import Settings
 from app.core.database import SessionLocal
@@ -18,6 +18,9 @@ PING_JOB_DONE = "done"
 PING_JOB_FAILED = "failed"
 PING_SCHEDULE_PROJECT = "project"
 PING_SCHEDULE_FOLDER = "folder"
+PING_ADVISORY_LOCK_NAMESPACE = 0x495054
+PING_SCHEDULER_LOCK_ID = 0
+PING_CLAIM_WINDOW = 20
 
 
 @dataclass(slots=True)
@@ -139,6 +142,22 @@ def _next_run(interval_seconds: int) -> datetime:
     return datetime.utcnow() + timedelta(seconds=interval_seconds)
 
 
+def _supports_postgres_advisory_locks(db) -> bool:
+    return db.get_bind().dialect.name == "postgresql"
+
+
+def _try_ping_advisory_lock(db, lock_id: int) -> bool:
+    if not _supports_postgres_advisory_locks(db):
+        return True
+
+    return bool(
+        db.scalar(
+            text("SELECT pg_try_advisory_xact_lock(:namespace, :lock_id)"),
+            {"namespace": PING_ADVISORY_LOCK_NAMESPACE, "lock_id": lock_id},
+        )
+    )
+
+
 def _has_active_ping_job(db, project_id: int) -> bool:
     existing = db.scalar(
         select(PingJob.id)
@@ -199,6 +218,9 @@ def ensure_project_ping_schedule(db, project_id: int, settings: Settings) -> Pin
 
 
 def ensure_default_project_schedules(db, settings: Settings) -> int:
+    if not _try_ping_advisory_lock(db, PING_SCHEDULER_LOCK_ID):
+        return 0
+
     project_ids = db.scalars(select(Project.id).order_by(Project.id.asc())).all()
     created_count = 0
     for project_id in project_ids:
@@ -276,6 +298,9 @@ def set_folder_ping_schedule(
 
 
 def enqueue_due_ping_schedules(db, settings: Settings) -> int:
+    if not _try_ping_advisory_lock(db, PING_SCHEDULER_LOCK_ID):
+        return 0
+
     now = datetime.utcnow()
     schedules = db.scalars(
         select(PingSchedule)
@@ -306,9 +331,9 @@ def enqueue_due_ping_schedules(db, settings: Settings) -> int:
     return enqueued_count
 
 
-async def run_next_ping_job(settings: Settings) -> bool:
+def _claim_next_ping_job(db) -> tuple[int, int] | None:
     now = datetime.utcnow()
-    with SessionLocal() as db:
+    if not _supports_postgres_advisory_locks(db):
         job = db.scalar(
             select(PingJob)
             .where(PingJob.status == PING_JOB_QUEUED, PingJob.run_after <= now)
@@ -316,7 +341,7 @@ async def run_next_ping_job(settings: Settings) -> bool:
             .limit(1)
         )
         if job is None:
-            return False
+            return None
 
         job.status = PING_JOB_RUNNING
         job.started_at = now
@@ -324,6 +349,47 @@ async def run_next_ping_job(settings: Settings) -> bool:
         job_id = job.id
         project_id = job.project_id
         db.commit()
+        return job_id, project_id
+
+    candidates = db.execute(
+        select(PingJob.id, PingJob.project_id)
+        .where(PingJob.status == PING_JOB_QUEUED, PingJob.run_after <= now)
+        .order_by(PingJob.run_after.asc(), PingJob.id.asc())
+        .limit(PING_CLAIM_WINDOW)
+    ).all()
+
+    for job_id, project_id in candidates:
+        # Transaction-scoped advisory locks let several PostgreSQL workers compete without duplicating work.
+        if not _try_ping_advisory_lock(db, job_id):
+            continue
+
+        updated_count = (
+            db.query(PingJob)
+            .filter(PingJob.id == job_id, PingJob.status == PING_JOB_QUEUED, PingJob.run_after <= now)
+            .update(
+                {
+                    PingJob.status: PING_JOB_RUNNING,
+                    PingJob.started_at: now,
+                    PingJob.error: "",
+                }
+            )
+        )
+        if updated_count:
+            db.commit()
+            return job_id, project_id
+
+        db.rollback()
+
+    db.rollback()
+    return None
+
+
+async def run_next_ping_job(settings: Settings) -> bool:
+    with SessionLocal() as db:
+        claimed_job = _claim_next_ping_job(db)
+        if claimed_job is None:
+            return False
+        job_id, project_id = claimed_job
 
     try:
         await run_ping_project(project_id, settings)

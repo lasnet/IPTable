@@ -46,7 +46,7 @@ IPtable - веб-приложение для учета занятых IP-адр
 - Реальные ping-timeout ответы записываются как `NO`. Ошибки запуска `ping` логируются и оставляют адрес в `NoTest`.
 - Статусы ping в UI: `NoTest` - не тестировалось, `OK` - доступно, `NO` - недоступно.
 - Для защиты сети от всплесков ICMP используются `PING_CONCURRENCY`, `PING_BATCH_SIZE`, `PING_BATCH_PAUSE_SECONDS`, `PING_PROJECT_PAUSE_SECONDS` и `PING_QUEUE_POLL_SECONDS`.
-- Очередь ping-задач сейчас DB-backed (`ping_jobs`), без Redis. Для нескольких worker-экземпляров лучше добавить Redis/Celery/RQ или PostgreSQL locking.
+- Очередь ping-задач DB-backed (`ping_jobs`) и использует PostgreSQL advisory locks для безопасной работы нескольких worker-экземпляров без Redis/Celery/RQ. В SQLite-режиме fallback рассчитан на локальную разработку с одним worker.
 
 ## Структура директорий
 
@@ -257,6 +257,7 @@ docker compose start web worker
 - Ping всегда показывает offline: worker-контейнеру нужен ICMP-доступ. В `docker-compose.yml` для `worker` добавлен `NET_RAW`, но сеть или firewall могут блокировать ICMP.
 - Ping остается `NoTest`: проверьте логи `docker compose logs -f worker`. Если там `Operation not permitted`, пересоберите образ: Dockerfile выдает `/usr/bin/ping` capability `cap_net_raw`.
 - Ping-задачи не выполняются: проверьте `docker compose logs -f worker`, настройки `ENABLE_PING_WORKER`, расписание проекта/папки и таблицу `ping_jobs`.
+- Несколько worker-реплик безопасно запускать только с PostgreSQL: claim задач и планировщик защищены advisory locks. Для SQLite оставляйте один worker. При масштабировании учитывайте, что общий ICMP-параллелизм растет вместе с количеством worker-реплик, поэтому при необходимости уменьшайте `PING_CONCURRENCY` и `PING_BATCH_SIZE`.
 - История изменений пустая: она фиксирует только новые сохранения строк после внедрения этой функции.
 - Backup не создается: проверьте, что сервис `postgres` запущен, а у пользователя есть права на запись в каталог `backups/`.
 - Restore остановился с предупреждением: нужно явно передать `CONFIRM_RESTORE=YES`, чтобы подтвердить разрушительное восстановление.
@@ -269,8 +270,8 @@ docker compose start web worker
 - Добавить импорт/экспорт XLSX.
 - Добавить массовое редактирование и теги активов.
 - Добавить REST API для интеграции с внешними системами.
-- Добавить Redis/Celery/RQ или PostgreSQL advisory locks для безопасного горизонтального масштабирования worker.
 - Добавить историю ping-задач и страницу мониторинга очереди.
+- Добавить автоматический retry/requeue зависших `running` ping-задач после аварийного завершения worker.
 - Добавить более строгое шифрование экспорта через 7z/AES при необходимости.
 - Добавить виртуализацию/пагинацию таблицы для очень крупных подсетей.
 

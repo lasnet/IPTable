@@ -9,8 +9,11 @@ from app.core.config import Settings
 from app.models import Base, Folder, PingJob, PingSchedule, Project
 from app.services.ping import (
     PING_JOB_QUEUED,
+    PING_JOB_RUNNING,
     PING_SCHEDULE_PROJECT,
+    _claim_next_ping_job,
     _chunk_rows,
+    _supports_postgres_advisory_locks,
     enqueue_due_ping_schedules,
     enqueue_project_ping,
     ensure_project_ping_schedule,
@@ -53,6 +56,38 @@ class PingServiceTest(unittest.TestCase):
         self.assertIsNone(duplicate_job)
         self.assertEqual(queued_count, 1)
 
+    def test_claim_next_ping_job_marks_job_running_on_sqlite(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine)
+
+        with session_factory() as db:
+            folder = Folder(name="Office")
+            db.add(folder)
+            db.flush()
+            project = Project(folder_id=folder.id, name="LAN", cidr="10.0.0.0/24")
+            db.add(project)
+            db.commit()
+            job = enqueue_project_ping(db, project.id, reason="test")
+            job_id = job.id
+            project_id = project.id
+
+            claimed_job = _claim_next_ping_job(db)
+            saved_job = db.get(PingJob, job_id)
+            second_claim = _claim_next_ping_job(db)
+
+        self.assertEqual(claimed_job, (job_id, project_id))
+        self.assertEqual(saved_job.status, PING_JOB_RUNNING)
+        self.assertIsNone(second_claim)
+
+    def test_sqlite_does_not_use_postgres_advisory_locks(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine)
+
+        with session_factory() as db:
+            self.assertFalse(_supports_postgres_advisory_locks(db))
+
     def test_due_schedule_enqueues_ping_job(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
@@ -82,6 +117,29 @@ class PingServiceTest(unittest.TestCase):
         self.assertIsNotNone(job)
         self.assertEqual(job.status, PING_JOB_QUEUED)
         self.assertGreater(saved_schedule.next_run_at, datetime.utcnow())
+
+    def test_due_schedule_skips_when_scheduler_lock_is_busy(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine)
+
+        with session_factory() as db:
+            folder = Folder(name="Office")
+            db.add(folder)
+            db.flush()
+            project = Project(folder_id=folder.id, name="LAN", cidr="10.0.0.0/24")
+            db.add(project)
+            db.commit()
+            schedule = ensure_project_ping_schedule(db, project.id, Settings(initial_admin_password="x"))
+            schedule.next_run_at = datetime.utcnow() - timedelta(seconds=1)
+            db.commit()
+
+            with patch("app.services.ping._try_ping_advisory_lock", return_value=False):
+                enqueued = enqueue_due_ping_schedules(db, Settings(initial_admin_password="x"))
+            job = db.scalar(select(PingJob).where(PingJob.project_id == project.id))
+
+        self.assertEqual(enqueued, 0)
+        self.assertIsNone(job)
 
 
 if __name__ == "__main__":

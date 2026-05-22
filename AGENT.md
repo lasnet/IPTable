@@ -32,6 +32,8 @@ IPtable - внутреннее веб-приложение для учета IP-
 - Экспорт доступен только администратору. Проект экспортируется в CSV или ZIP с одним CSV, если включен пароль. Папка экспортируется в ZIP с отдельным CSV для каждого проекта.
 - ZIP с паролем создается без внешних Python-зависимостей через совместимый традиционный ZIP password. Для более строгого шифрования в будущем можно перейти на 7z/AES.
 - Ping-worker работает через DB-backed очередь `ping_jobs` и расписания `ping_schedules`.
+- На PostgreSQL очередь worker защищена advisory locks: lock `0` внутри namespace IPTable используется для обслуживания расписаний, а id задачи - для claim конкретной `ping_jobs` записи. Это позволяет безопасно запускать несколько worker-экземпляров без Redis/Celery/RQ.
+- SQLite fallback advisory locks не использует и предназначен для локальной разработки с одним worker.
 - В Docker Compose ping вынесен в отдельный сервис `worker`; web только ставит задачи в очередь. Встроенный worker внутри web остается fallback-режимом через `ENABLE_PING_WORKER=true`.
 - Ping-worker защищен от флуда: проекты выполняются отдельными задачами, внутри проекта адреса проверяются пакетами. Управляющие настройки: `PING_CONCURRENCY`, `PING_BATCH_SIZE`, `PING_BATCH_PAUSE_SECONDS`, `PING_PROJECT_PAUSE_SECONDS`, `PING_QUEUE_POLL_SECONDS`.
 - После создания проекта в очередь ставится немедленная ping-проверка адресов этого проекта.
@@ -113,7 +115,7 @@ IPtable - внутреннее веб-приложение для учета IP-
 - `app/templates/project.html` - рабочая область проекта, таблица IP, добавление столбцов и настройки проекта по правам.
 - `app/templates/history.html` - просмотр последних изменений IP-записей проекта.
 - `app/web/routes.py` - HTML-роуты, form-handlers, проверки авторизации и прав.
-- `app/services/ping.py` - ICMP-проверки, OS-specific ping flags, DB-очередь ping-задач и расписания.
+- `app/services/ping.py` - ICMP-проверки, OS-specific ping flags, DB-очередь ping-задач, PostgreSQL advisory locks для worker и расписания.
 - `app/worker.py` - entrypoint отдельного ping-worker.
 - `migrations/versions/` - Alembic-ревизии схемы БД.
 - `app/services/network.py` - нормализация CIDR и генерация usable host-адресов.
@@ -270,7 +272,7 @@ python -m unittest discover
 - Не увеличивайте `PING_CONCURRENCY` без оценки нагрузки. Для продакшена с десятками `/24` безопаснее увеличивать интервал или паузы между пакетами/проектами, чем параллелизм.
 - В Docker capability `NET_RAW` добавлен только сервису `worker`.
 - Если web или worker падают с `Run alembic upgrade head`, схема БД не применена. В Docker за это отвечает сервис `migrate`; локально выполните `alembic upgrade head`.
-- Не запускайте несколько worker-экземпляров без дополнительной блокировки очереди. Текущая DB-очередь рассчитана на один worker-сервис.
+- Несколько worker-экземпляров можно запускать с PostgreSQL: claim задач и обслуживание расписаний защищены advisory locks. В SQLite-режиме оставляйте один worker. При увеличении числа worker-реплик пересчитывайте общий ICMP-параллелизм: фактическая нагрузка примерно равна `PING_CONCURRENCY * количество_worker`.
 - Админ-панель находится на `/admin/users`. В UI ссылка `Админ` показывается только администратору.
 - Env-админ защищен от удаления; его логин и права задаются `.env`, но пароль/описание можно менять через UI.
 - Env-админ всегда активен при bootstrap. Обычных пользователей можно отключать в админ-панели.
@@ -305,6 +307,7 @@ python -m unittest discover
 - общий поиск;
 - фоновые ICMP-проверки;
 - отдельный ping-worker, DB-очередь и расписания проектов/папок;
+- PostgreSQL advisory locks для безопасного горизонтального масштабирования worker;
 - Alembic-миграции;
 - резервное копирование и восстановление PostgreSQL через scripts;
 - Docker Compose;
@@ -315,7 +318,7 @@ python -m unittest discover
 
 - Добавить импорт/экспорт XLSX.
 - Добавить мониторинг очереди ping-задач и историю выполнений.
-- Добавить Redis/Celery/RQ или PostgreSQL advisory locks для безопасного горизонтального масштабирования worker.
+- Добавить автоматический retry/requeue зависших `running` ping-задач после аварийного завершения worker.
 - Добавить более строгое шифрование экспорта через 7z/AES при необходимости.
 - Добавить REST API и OpenAPI-примеры.
 - Добавить pagination/virtual table для крупных подсетей.
