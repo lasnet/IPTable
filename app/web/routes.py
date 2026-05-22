@@ -31,11 +31,13 @@ from app.services.ping import (
     set_folder_ping_schedule,
     set_project_ping_schedule,
 )
+from app.services.security import LoginRateLimiter, require_csrf_token
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_csrf_token)])
 SESSION_LAST_ACTIVITY_KEY = "last_activity_at"
 PROJECT_TABLE_PAGE_SIZE_OPTIONS = (25, 50, 100, 250)
 PROJECT_TABLE_FALLBACK_PAGE_SIZE = 25
+LOGIN_RATE_LIMITER = LoginRateLimiter()
 
 
 def _templates(request: Request):
@@ -137,6 +139,17 @@ def require_admin(current_user: Annotated[User, Depends(require_user)]) -> User:
 
 def _checked(value: str | None) -> bool:
     return value == "on"
+
+
+def _client_ip(request: Request) -> str:
+    if request.client is None:
+        return "unknown"
+    return request.client.host
+
+
+def _login_rate_limit_message(retry_after_seconds: int) -> str:
+    retry_after_minutes = max(1, (retry_after_seconds + 59) // 60)
+    return f"Слишком много попыток входа. Повторите через {retry_after_minutes} мин."
 
 
 def _can_import_csv(user: User) -> bool:
@@ -246,13 +259,33 @@ def login_page(
 def login(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
     username: Annotated[str, Form(min_length=1, max_length=80)],
     password: Annotated[str, Form(min_length=1, max_length=200)],
 ) -> RedirectResponse:
+    client_ip = _client_ip(request)
+    retry_after = LOGIN_RATE_LIMITER.retry_after(
+        client_ip,
+        username,
+        window_seconds=settings.login_rate_limit_window_seconds,
+    )
+    if retry_after is not None:
+        return _redirect_error("/login", _login_rate_limit_message(retry_after))
+
     user = authenticate_user(db, username, password)
     if user is None:
+        retry_after = LOGIN_RATE_LIMITER.record_failure(
+            client_ip,
+            username,
+            attempts=settings.login_rate_limit_attempts,
+            window_seconds=settings.login_rate_limit_window_seconds,
+            lockout_seconds=settings.login_rate_limit_lockout_seconds,
+        )
+        if retry_after is not None:
+            return _redirect_error("/login", _login_rate_limit_message(retry_after))
         return _redirect_error("/login", "Неверный логин или пароль")
 
+    LOGIN_RATE_LIMITER.reset(client_ip, username)
     request.session.clear()
     request.session["user_id"] = user.id
     request.session[SESSION_LAST_ACTIVITY_KEY] = int(time.time())

@@ -5,8 +5,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}IPtable{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260522-pagination-footer">
-  <script src="{{ url_for('static', path='/app.js') }}?v=20260522-pagination-footer" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260523-security">
+  <script src="{{ url_for('static', path='/app.js') }}?v=20260523-security" defer></script>
 </head>
 
 <body>
@@ -23,6 +23,7 @@
       <a class="ghost-button" href="/admin/users">Админ</a>
       {% endif %}
       <form action="/logout" method="post">
+        {{ csrf_input(request) }}
         <button class="ghost-button" type="submit">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
@@ -53,6 +54,7 @@
 
       {% if current_user.can_create_inventory and request.query_params.get('new_folder') == 'true' %}
       <form class="sidebar-form compact-form" action="/folders" method="post">
+        {{ csrf_input(request) }}
         <input name="name" maxlength="120" required placeholder="Название папки">
         <button type="submit">Создать</button>
       </form>
@@ -136,6 +138,7 @@
               Расписание папки ставит ping-задачи для всех проектов внутри нее. Worker выполнит их последовательно.
             </div>
             <form class="stack-form" action="/folders/{{ folder.id }}/schedule" method="post">
+              {{ csrf_input(request) }}
               <label class="checkbox-line">
                 <input type="checkbox" name="enabled" {% if not folder_schedule or folder_schedule.enabled %}checked{% endif %}>
                 Расписание включено
@@ -153,6 +156,7 @@
           {% endif %}
           {% if current_user.can_create_inventory and request.query_params.get('new_project_folder') == folder.id|string %}
           <form class="sidebar-form compact-form project-form" action="/projects" method="post" enctype="multipart/form-data">
+            {{ csrf_input(request) }}
             <input type="hidden" name="folder_id" value="{{ folder.id }}">
             <input name="name" maxlength="160" required placeholder="Название проекта">
             <input name="cidr" maxlength="64" placeholder="172.16.16.0/24">
@@ -177,6 +181,7 @@
               Экспортирует все проекты папки в ZIP-архив с отдельным CSV-файлом для каждой подсети.
             </div>
             <form class="stack-form export-form" action="/folders/{{ folder.id }}/export" method="post">
+              {{ csrf_input(request) }}
               <label class="checkbox-line">
                 <input type="checkbox" name="use_password" checked data-password-toggle>
                 Поставить пароль
@@ -190,12 +195,14 @@
           <div class="sidebar-form compact-form">
             {% if current_user.can_edit_inventory %}
             <form class="stack-form" action="/folders/{{ folder.id }}/update" method="post">
+              {{ csrf_input(request) }}
               <input name="name" maxlength="120" required value="{{ folder.name }}">
               <button type="submit">Сохранить</button>
             </form>
             {% endif %}
             {% if current_user.can_delete_inventory %}
-            <form action="/folders/{{ folder.id }}/delete" method="post" onsubmit="return confirm('Удалить папку и все проекты внутри?')">
+            <form action="/folders/{{ folder.id }}/delete" method="post" data-confirm="Удалить папку и все проекты внутри?">
+              {{ csrf_input(request) }}
               <button class="danger-button" type="submit">Удалить папку</button>
             </form>
             {% endif %}

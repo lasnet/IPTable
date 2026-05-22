@@ -66,6 +66,7 @@
           Столбец
         </summary>
         <form class="floating-form" action="/projects/{{ project.id }}/fields" method="post">
+          {{ csrf_input(request) }}
           <input name="name" maxlength="120" required placeholder="Название столбца">
           <select name="field_type">
             <option value="text">Текст</option>
@@ -87,6 +88,7 @@
           Ping
         </summary>
         <form class="floating-form" action="/projects/{{ project.id }}/schedule" method="post">
+          {{ csrf_input(request) }}
           <label class="checkbox-line">
             <input type="checkbox" name="enabled" {% if not project_schedule or project_schedule.enabled %}checked{% endif %}>
             Расписание включено
@@ -113,6 +115,7 @@
           Экспорт
         </summary>
         <form class="floating-form export-form" action="/projects/{{ project.id }}/export" method="post">
+          {{ csrf_input(request) }}
           <label class="checkbox-line">
             <input type="checkbox" name="use_password" checked data-password-toggle>
             Поставить пароль
@@ -135,6 +138,7 @@
         <div class="floating-form project-settings">
           {% if current_user.can_edit_inventory %}
           <form class="stack-form" action="/projects/{{ project.id }}/update" method="post">
+            {{ csrf_input(request) }}
             <input name="name" maxlength="160" required value="{{ project.name }}">
             <textarea name="description" maxlength="2000" rows="4"
               placeholder="Описание">{{ project.description }}</textarea>
@@ -143,7 +147,8 @@
           {% endif %}
           {% if current_user.can_delete_inventory %}
           <form action="/projects/{{ project.id }}/delete" method="post"
-            onsubmit="return confirm('Удалить подсеть и все IP-записи?')">
+            data-confirm="Удалить подсеть и все IP-записи?">
+            {{ csrf_input(request) }}
             <button class="danger-button" type="submit">Удалить проект</button>
           </form>
           {% endif %}
@@ -233,6 +238,7 @@
           <td class="save-cell">
             <form id="row-{{ ip.id }}" class="asset-row-form" action="/projects/{{ project.id }}/addresses/{{ ip.id }}"
               method="post">
+              {{ csrf_input(request) }}
               <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
               <input type="hidden" name="page" value="{{ pagination.current_page }}">
               <input type="hidden" name="per_page" value="{{ pagination.per_page }}">

@@ -14,6 +14,7 @@
       <div class="notice error">{{ error }}</div>
     {% endif %}
     <form class="login-form" action="/login" method="post">
+      {{ csrf_input(request) }}
       <label>
         Логин
         <input name="username" autocomplete="username" maxlength="80" required autofocus>

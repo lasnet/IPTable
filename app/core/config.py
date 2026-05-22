@@ -1,6 +1,7 @@
 from functools import lru_cache
 
 from pydantic import Field
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,6 +10,9 @@ class Settings(BaseSettings):
     app_env: str = "local"
     secret_key: str = Field(default="", min_length=0)
     session_idle_timeout_seconds: int = Field(default=86400, ge=60)
+    login_rate_limit_attempts: int = Field(default=5, ge=1, le=100)
+    login_rate_limit_window_seconds: int = Field(default=300, ge=60)
+    login_rate_limit_lockout_seconds: int = Field(default=900, ge=60)
     initial_admin_username: str = Field(default="admin", min_length=3, max_length=80)
     initial_admin_password: str = Field(default="", min_length=0)
     database_url: str = "sqlite:///./data/iptable.sqlite3"
@@ -26,6 +30,12 @@ class Settings(BaseSettings):
     enable_ping_worker: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> "Settings":
+        if self.app_env.lower() == "production" and not self.secret_key.strip():
+            raise ValueError("SECRET_KEY is required when APP_ENV=production")
+        return self
 
 
 @lru_cache

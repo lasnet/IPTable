@@ -1,6 +1,7 @@
 import unittest
 import io
-import zipfile
+
+import pyzipper
 
 from app.services.csv_io import CSVImportError, build_zip_archive, parse_assets_csv
 
@@ -38,7 +39,7 @@ class CSVImportTest(unittest.TestCase):
     def test_build_password_zip_can_be_read_by_stdlib(self) -> None:
         archive = build_zip_archive({"asset.csv": b"ip;hostname\n192.168.1.10;gw\n"}, password="secret")
 
-        with zipfile.ZipFile(io.BytesIO(archive)) as zip_file:
+        with pyzipper.AESZipFile(io.BytesIO(archive)) as zip_file:
             content = zip_file.read("asset.csv", pwd=b"secret")
 
         self.assertIn(b"192.168.1.10", content)

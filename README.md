@@ -10,12 +10,13 @@ IPtable - веб-приложение для учета занятых IP-адр
 - Ручное заполнение полей `hostname`, `OS`, `type`, `comment`.
 - Создание дополнительных пользовательских столбцов для проекта администратором или пользователем с отдельным правом.
 - Авторизация пользователей через страницу входа.
+- CSRF-защита всех POST-форм и ограничение частоты попыток входа.
 - Админ-панель `/admin/users` для создания обычных пользователей и назначения прав.
 - Редактирование пользователей администратором: логин, пароль, имя, фамилия, описание, активность и права. Администратора из `.env` отключить или удалить нельзя, а его логин и права управляются `.env`.
 - Ролевая модель: обычные пользователи могут редактировать IP-строки, а создание, редактирование/удаление папок и проектов, а также управление столбцами выдаются отдельными правами.
 - Автоматическое завершение сессии после 24 часов бездействия.
 - Импорт проекта из CSV с разделителем `;` и форматом `ip;hostname;os;type;comment`.
-- Экспорт одной подсети в CSV, а папки - в ZIP-архив с CSV-файлами проектов. ZIP можно защитить паролем.
+- Экспорт одной подсети в CSV, а папки - в ZIP-архив с CSV-файлами проектов. ZIP можно защитить паролем с AES-шифрованием.
 - Скрытие незаполненных IP-записей в таблице проекта по умолчанию. Ping-статус сам по себе не считается заполнением строки.
 - Защита от потери несохраненных изменений: измененная строка подсвечивается красным, а кнопка `Save` появляется только для нее.
 - История изменений IP-записей: кто, когда, какой IP и какое поле изменил.
@@ -29,6 +30,7 @@ IPtable - веб-приложение для учета занятых IP-адр
 - Современный светлый интерфейс с верхним поиском, выходом, боковой панелью и таблицей в стиле улучшенной Excel-замены.
 - Запуск локально через Docker Compose.
 - Скрипты резервного копирования и восстановления PostgreSQL.
+- Security headers для web-ответов; в `APP_ENV=production` отключаются `/docs`, `/redoc` и `/openapi.json`.
 
 ## Архитектура проекта
 
@@ -41,9 +43,12 @@ IPtable - веб-приложение для учета занятых IP-адр
 - `Alembic` управляет миграциями схемы БД; таблицы не создаются через `create_all` при старте web.
 - `Jinja2` используется для серверного HTML-рендеринга.
 - `SessionMiddleware` хранит подписанную cookie-сессию авторизованного пользователя.
+- CSRF-токен хранится в session cookie и проверяется на всех небезопасных HTTP-методах.
+- Login rate limit работает in-memory на уровне web-процесса и ограничивает частые неудачные попытки входа по IP+логину.
 - Idle-timeout сессии контролируется настройкой `SESSION_IDLE_TIMEOUT_SECONDS`; по умолчанию 24 часа.
 - Пользователь из `INITIAL_ADMIN_USERNAME` является администратором и получает все права при старте приложения.
 - `app/services/csv_io.py` отвечает за проверку CSV, расчет подсети, генерацию CSV и ZIP-архивов.
+- Защищенный ZIP-экспорт использует AES через `pyzipper`.
 - `worker` запускает `python -m app.worker`, читает расписания/очередь из БД и выполняет ICMP-проверки отдельно от web.
 - Реальные ping-timeout ответы записываются как `NO`. Ошибки запуска `ping` логируются и оставляют адрес в `NoTest`.
 - Статусы ping в UI: `NoTest` - не тестировалось, `OK` - доступно, `NO` - недоступно.
@@ -72,6 +77,7 @@ IPtable - веб-приложение для учета занятых IP-адр
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
+├── requirements-dev.txt
 ├── .env.example
 ├── AGENT.md
 └── README.md
@@ -86,8 +92,10 @@ IPtable - веб-приложение для учета занятых IP-адр
 - PostgreSQL 16
 - Jinja2
 - itsdangerous / signed session cookies
+- pyzipper / AES-encrypted ZIP export
 - Docker Compose
 - pytest / unittest-compatible tests
+- bandit / pip-audit / ruff / semgrep / checkov для security-проверок в dev-окружении
 
 ## Требования для запуска
 
@@ -123,6 +131,9 @@ INITIAL_ADMIN_PASSWORD=replace-with-strong-admin-password
 - `APP_PORT` - порт веб-приложения на хосте.
 - `SECRET_KEY` - секрет для подписи session cookie. В production должен быть стабильным и случайным.
 - `SESSION_IDLE_TIMEOUT_SECONDS` - время жизни авторизованной сессии бездействия. По умолчанию `86400` секунд.
+- `LOGIN_RATE_LIMIT_ATTEMPTS` - число неудачных попыток входа до временной блокировки.
+- `LOGIN_RATE_LIMIT_WINDOW_SECONDS` - окно подсчета неудачных попыток входа.
+- `LOGIN_RATE_LIMIT_LOCKOUT_SECONDS` - длительность временной блокировки после превышения лимита.
 - `INITIAL_ADMIN_USERNAME` - логин администратора, которому при старте выдаются административные права. Если логин администратора в `.env` изменится, старый администратор будет понижен до обычного пользователя.
 - `INITIAL_ADMIN_PASSWORD` - пароль администратора. Используется только для создания пользователя, если его еще нет.
 - `DATABASE_URL` - строка подключения SQLAlchemy.
@@ -168,7 +179,7 @@ http://localhost:8000
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 mkdir -p data
 export DATABASE_URL=sqlite:///./data/iptable.sqlite3
 export ENABLE_PING_WORKER=false
@@ -199,9 +210,47 @@ docker compose logs -f worker    # смотреть логи ping-worker
 docker compose logs -f postgres  # смотреть логи PostgreSQL
 alembic upgrade head             # применить миграции без Docker
 scripts/backup_postgres.sh       # создать backup PostgreSQL в ./backups
-python -m pytest                 # запустить тесты после установки зависимостей
+python -m pytest                 # запустить тесты после установки dev-зависимостей
 python -m unittest discover      # запустить базовые тесты через stdlib
+python -m bandit -r app scripts  # SAST-проверка Python-кода
+python -m pip_audit --cache-dir .cache/pip-audit --local
+python -m ruff check .           # линтер
+semgrep --metrics=off --config p/python app scripts
+checkov -f docker-compose.yml --framework yaml --skip-download --compact
 ```
+
+## Security checks
+
+Для локального запуска проверок установите dev-зависимости:
+
+```bash
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+```
+
+Рекомендуемый набор проверок перед изменениями в auth/session/admin/export/upload/Docker:
+
+```bash
+python -m bandit -r app scripts
+python -m pip_audit --cache-dir .cache/pip-audit --local
+python -m ruff check .
+semgrep --metrics=off --config p/python app scripts
+checkov -f docker-compose.yml --framework yaml --skip-download --compact
+gitleaks detect --redact --source .
+trivy fs --scanners secret,misconfig .
+hadolint Dockerfile
+```
+
+Локально добавлен `.vscode/tasks.json` с этими задачами. Каталог `.vscode/` остается в `.gitignore`, поэтому персональные настройки VS Code не попадают в репозиторий.
+`bandit` запускайте под Python 3.12/3.13. На Python 3.14 у текущего `bandit==1.8.6` есть upstream-проблема совместимости с AST, из-за которой часть файлов может быть пропущена.
+
+Для production-деплоя дополнительно проверьте, что:
+
+- `APP_ENV=production`;
+- `SECRET_KEY` задан постоянным случайным значением;
+- `/docs`, `/redoc` и `/openapi.json` недоступны;
+- наружу опубликован только web-порт, а PostgreSQL остается во внутренней сети Docker;
+- reverse proxy или firewall ограничивает доступ к приложению внутренней сетью, если это внутренний сервис.
 
 ## Резервное копирование и восстановление PostgreSQL
 
@@ -255,10 +304,12 @@ docker compose start web worker
 - Обычный пользователь не может создать папку, проект или столбец: включите нужное право в админ-панели. По умолчанию эти права отключены.
 - Пользователь больше не может войти: проверьте, не отключен ли он в админ-панели.
 - Сессия завершилась: пользователь был неактивен дольше `SESSION_IDLE_TIMEOUT_SECONDS`.
-- Сессии сбрасываются после перезапуска: задайте постоянный `SECRET_KEY` в `.env`.
+- В production приложение не стартует без `SECRET_KEY`: задайте постоянный случайный секрет в `.env`.
+- Сессии сбрасываются после перезапуска в local-режиме: задайте постоянный `SECRET_KEY` в `.env`.
+- Слишком много ошибок входа: подождите `LOGIN_RATE_LIMIT_LOCKOUT_SECONDS` или проверьте логин/пароль администратора.
 - Web падает с сообщением `Run alembic upgrade head`: миграции не применены. В Docker это делает сервис `migrate`; без Docker выполните `alembic upgrade head`.
 - CSV не импортируется: проверьте заголовок `ip;hostname;os;type;comment`, разделитель `;`, отсутствие дублей IP и network/broadcast адресов.
-- ZIP с паролем создается без внешних Python-зависимостей. Это совместимый традиционный ZIP-пароль; для более строгого шифрования в будущем можно перейти на 7z/AES.
+- ZIP с паролем создается с AES-шифрованием через `pyzipper`. Для открытия используйте архиватор с поддержкой AES ZIP.
 - Приложение не подключается к БД: проверьте `DATABASE_URL`, имя сервиса `postgres` и логи `docker compose logs postgres`.
 - Ping всегда показывает offline: worker-контейнеру нужен ICMP-доступ. В `docker-compose.yml` для `worker` добавлен `NET_RAW`, но сеть или firewall могут блокировать ICMP.
 - Ping остается `NoTest`: проверьте логи `docker compose logs -f worker`. Если там `Operation not permitted`, пересоберите образ: Dockerfile выдает `/usr/bin/ping` capability `cap_net_raw`.
@@ -278,7 +329,7 @@ docker compose start web worker
 - Добавить массовое редактирование и теги активов.
 - Добавить REST API для интеграции с внешними системами.
 - Добавить историю ping-задач и страницу мониторинга очереди.
-- Добавить более строгое шифрование экспорта через 7z/AES при необходимости.
+- Добавить централизованный Redis/PostgreSQL rate limiting для нескольких web-реплик.
 - Добавить AJAX/HTMX-подгрузку страниц таблицы без полного перерендера страницы.
 
 ## Другие важные моменты

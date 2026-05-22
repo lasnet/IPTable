@@ -1,13 +1,11 @@
 import csv
 import io
 import re
-import secrets
-import struct
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime
 from ipaddress import IPv4Address, IPv4Network, ip_address
-from zlib import crc32 as zlib_crc32
+
+import pyzipper
 
 from app.models import IPAddress, Project
 from app.services.network import reserved_project_addresses
@@ -19,21 +17,6 @@ FIELD_LIMITS = {
     "type": 120,
     "comment": 4000,
 }
-
-def _generate_crc_table() -> list[int]:
-    table: list[int] = []
-    for item in range(256):
-        value = item
-        for _ in range(8):
-            if value & 1:
-                value = 0xEDB88320 ^ (value >> 1)
-            else:
-                value >>= 1
-        table.append(value)
-    return table
-
-
-CRC_TABLE = _generate_crc_table()
 
 
 class CSVImportError(ValueError):
@@ -174,118 +157,23 @@ def safe_export_name(value: str, *, suffix: str) -> str:
     return f"{clean or 'export'}{suffix}"
 
 
-def _update_zipcrypto_keys(keys: tuple[int, int, int], value: int) -> tuple[int, int, int]:
-    key0, key1, key2 = keys
-    key0 = ((key0 >> 8) ^ CRC_TABLE[(key0 ^ value) & 0xFF]) & 0xFFFFFFFF
-    key1 = (key1 + (key0 & 0xFF)) & 0xFFFFFFFF
-    key1 = (key1 * 134775813 + 1) & 0xFFFFFFFF
-    key2 = ((key2 >> 8) ^ CRC_TABLE[(key2 ^ (key1 >> 24)) & 0xFF]) & 0xFFFFFFFF
-    return key0, key1, key2
-
-
-def _zipcrypto_byte(keys: tuple[int, int, int]) -> int:
-    temp = keys[2] | 2
-    return ((temp * (temp ^ 1)) >> 8) & 0xFF
-
-
-def _zipcrypto_encrypt(data: bytes, password: str) -> bytes:
-    keys = (305419896, 591751049, 878082192)
-    for value in password.encode("utf-8"):
-        keys = _update_zipcrypto_keys(keys, value)
-
-    encrypted = bytearray()
-    for value in data:
-        encrypted.append(value ^ _zipcrypto_byte(keys))
-        keys = _update_zipcrypto_keys(keys, value)
-    return bytes(encrypted)
-
-
-def _dos_datetime() -> tuple[int, int]:
-    now = datetime.now()
-    year = max(now.year, 1980)
-    dos_time = (now.hour << 11) | (now.minute << 5) | (now.second // 2)
-    dos_date = ((year - 1980) << 9) | (now.month << 5) | now.day
-    return dos_time, dos_date
-
-
-def _build_zipcrypto_archive(files: dict[str, bytes], password: str) -> bytes:
-    output = io.BytesIO()
-    central_directory = io.BytesIO()
-    local_offsets: dict[str, int] = {}
-    dos_time, dos_date = _dos_datetime()
-
-    for filename, content in files.items():
-        filename_bytes = filename.encode("utf-8")
-        checksum = zlib_crc32(content) & 0xFFFFFFFF
-        plain_header = secrets.token_bytes(11) + bytes([(checksum >> 24) & 0xFF])
-        encrypted_payload = _zipcrypto_encrypt(plain_header + content, password)
-        local_offsets[filename] = output.tell()
-
-        output.write(
-            struct.pack(
-                "<IHHHHHIIIHH",
-                0x04034B50,
-                20,
-                0x0801,
-                0,
-                dos_time,
-                dos_date,
-                checksum,
-                len(encrypted_payload),
-                len(content),
-                len(filename_bytes),
-                0,
-            )
-        )
-        output.write(filename_bytes)
-        output.write(encrypted_payload)
-
-        central_directory.write(
-            struct.pack(
-                "<IHHHHHHIIIHHHHHII",
-                0x02014B50,
-                20,
-                20,
-                0x0801,
-                0,
-                dos_time,
-                dos_date,
-                checksum,
-                len(encrypted_payload),
-                len(content),
-                len(filename_bytes),
-                0,
-                0,
-                0,
-                0,
-                0,
-                local_offsets[filename],
-            )
-        )
-        central_directory.write(filename_bytes)
-
-    central_offset = output.tell()
-    central_content = central_directory.getvalue()
-    output.write(central_content)
-    output.write(
-        struct.pack(
-            "<IHHHHIIH",
-            0x06054B50,
-            0,
-            0,
-            len(files),
-            len(files),
-            len(central_content),
-            central_offset,
-            0,
-        )
-    )
-    return output.getvalue()
+def _build_aes_zip_archive(files: dict[str, bytes], password: str) -> bytes:
+    buffer = io.BytesIO()
+    with pyzipper.AESZipFile(
+        buffer,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+        encryption=pyzipper.WZ_AES,
+    ) as archive:
+        archive.setpassword(password.encode("utf-8"))
+        for filename, content in files.items():
+            archive.writestr(filename, content)
+    return buffer.getvalue()
 
 
 def build_zip_archive(files: dict[str, bytes], *, password: str | None = None) -> bytes:
     if password:
-        return _build_zipcrypto_archive(files, password)
+        return _build_aes_zip_archive(files, password)
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:

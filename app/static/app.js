@@ -82,6 +82,12 @@
     if (hasDirtyRow()) {
       event.preventDefault();
       warnAboutDirtyRow();
+      return;
+    }
+
+    const confirmMessage = form.dataset.confirm;
+    if (confirmMessage && !window.confirm(confirmMessage)) {
+      event.preventDefault();
     }
   }, true);
 

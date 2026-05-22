@@ -18,6 +18,8 @@ IPtable - внутреннее веб-приложение для учета IP-
 - Администратор - пользователь из `INITIAL_ADMIN_USERNAME`; при старте он получает `is_admin=True` и все права. Старые пользователи с `is_admin=True`, не совпадающие с текущим env-логином, понижаются до обычных пользователей.
 - Обычные пользователи создаются через `/admin/users`. Чекбоксы прав по умолчанию выключены.
 - Администратор может редактировать обычных пользователей, менять им пароль, права, активность и удалять их. У env-админа через UI можно менять пароль/описание, но нельзя менять логин, права, отключить или удалить учетную запись.
+- Все POST-формы защищены CSRF-токеном из session cookie. Новые POST-формы обязаны добавлять `{{ csrf_input(request) }}`.
+- `/login` защищен in-memory rate limit по IP+логину. Настройки: `LOGIN_RATE_LIMIT_ATTEMPTS`, `LOGIN_RATE_LIMIT_WINDOW_SECONDS`, `LOGIN_RATE_LIMIT_LOCKOUT_SECONDS`.
 - Права обычных пользователей:
   - `can_create` - создание папок и проектов;
   - `can_edit` - редактирование названий папок, названия/описания проектов;
@@ -30,7 +32,7 @@ IPtable - внутреннее веб-приложение для учета IP-
 - Импорт CSV доступен администратору или пользователю, у которого одновременно включены `can_create` и `can_edit`.
 - CSV импортируется с разделителем `;` и строгим заголовком `ip;hostname;os;type;comment`; подсеть проекта рассчитывается по минимальной сети, которая покрывает импортированные IPv4-адреса.
 - Экспорт доступен только администратору. Проект экспортируется в CSV или ZIP с одним CSV, если включен пароль. Папка экспортируется в ZIP с отдельным CSV для каждого проекта.
-- ZIP с паролем создается без внешних Python-зависимостей через совместимый традиционный ZIP password. Для более строгого шифрования в будущем можно перейти на 7z/AES.
+- ZIP с паролем создается с AES-шифрованием через `pyzipper`.
 - Ping-worker работает через DB-backed очередь `ping_jobs` и расписания `ping_schedules`.
 - На PostgreSQL очередь worker защищена advisory locks: lock `0` внутри namespace IPTable используется для обслуживания расписаний, а id задачи - для claim конкретной `ping_jobs` записи. Это позволяет безопасно запускать несколько worker-экземпляров без Redis/Celery/RQ.
 - SQLite fallback advisory locks не использует и предназначен для локальной разработки с одним worker.
@@ -50,7 +52,7 @@ IPtable - внутреннее веб-приложение для учета IP-
 
 Проект является FastAPI-приложением с отдельным worker-процессом:
 
-- `app/main.py` создает приложение, подключает статику, роуты и lifecycle.
+- `app/main.py` создает приложение, подключает статику, роуты и lifecycle, добавляет security headers и отключает `/docs`, `/redoc`, `/openapi.json` при `APP_ENV=production`.
 - `app/core/config.py` читает настройки из окружения.
 - `app/core/database.py` создает SQLAlchemy engine/session и проверяет, что Alembic-миграции уже применены.
 - `app/models.py` содержит SQLAlchemy-модели.
@@ -106,10 +108,12 @@ IPtable - внутреннее веб-приложение для учета IP-
 - `docker-compose.yml` - сервисы `postgres`, `migrate`, `web` и `worker`.
 - `.env.example` - пример настроек без реальных секретов.
 - `requirements.txt` - Python-зависимости.
+- `requirements-dev.txt` - dev/test/security tooling.
 - `README.md` - публичная инструкция по запуску и эксплуатации.
 - `AGENT.md` - инструкция для будущего ИИ-агента или разработчика.
 - `app/services/auth.py` - PBKDF2-хеширование паролей, проверка логина и bootstrap первого администратора.
-- `app/services/csv_io.py` - импорт CSV, расчет CIDR по IP-адресам, рендер CSV и создание ZIP/ZIP с паролем.
+- `app/services/csv_io.py` - импорт CSV, расчет CIDR по IP-адресам, рендер CSV и создание ZIP/AES ZIP с паролем.
+- `app/services/security.py` - CSRF helpers и in-memory rate limiter для login.
 - `app/services/history.py` - построение diff и запись истории изменений IP-записей.
 - `app/models.py` - модели БД, включая `User` и computed properties прав доступа.
 - `app/templates/admin_users.html` - админ-панель создания пользователей и просмотра выданных прав.
@@ -150,7 +154,7 @@ Compose сначала запускает `postgres`, затем однораз�
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 mkdir -p data
 export DATABASE_URL=sqlite:///./data/iptable.sqlite3
 export ENABLE_PING_WORKER=false
@@ -184,6 +188,22 @@ python -m pytest
 python -m unittest discover
 ```
 
+Security-проверки:
+
+```bash
+python -m bandit -r app scripts
+python -m pip_audit --cache-dir .cache/pip-audit --local
+python -m ruff check .
+semgrep --metrics=off --config p/python app scripts
+checkov -f docker-compose.yml --framework yaml --skip-download --compact
+gitleaks detect --redact --source .
+trivy fs --scanners secret,misconfig .
+hadolint Dockerfile
+```
+
+`.vscode/tasks.json` можно держать локально для запуска этих команд из VS Code. Каталог `.vscode/` намеренно игнорируется Git.
+`bandit` запускайте под Python 3.12/3.13. На Python 3.14 у текущего `bandit==1.8.6` есть upstream-проблема совместимости с AST, из-за которой часть файлов может быть пропущена.
+
 ## 8. Как добавлять новые функции
 
 1. Сначала проверьте, относится ли функция к бизнес-логике, веб-слою или инфраструктуре.
@@ -195,6 +215,7 @@ python -m unittest discover
 7. Если меняете авторизацию или права, проверяйте редирект на `/login`, `/admin/users`, создание пользователя и запреты для обычного пользователя без прав.
 8. Административные действия должны быть защищены на backend-роутах, а не только скрыты в шаблонах.
 9. Изменения схемы БД должны проходить через Alembic. Не возвращайте `Base.metadata.create_all()` в startup web.
+10. При изменениях auth/session/admin/export/upload/Docker обязательно запускайте security-проверки и отдельно проверяйте CSRF, rate limit, секреты, публичные порты и OpenAPI exposure.
 
 ## 9. Какие правила кодстайла использовать
 
@@ -207,6 +228,8 @@ python -m unittest discover
 - Ошибки пользовательского ввода показывайте через UI или понятный HTTP-ответ.
 - Пароли храните только в виде PBKDF2-хеша, не логируйте пароли и session secret.
 - Не логируйте пароль ZIP-экспорта и содержимое импортируемого CSV.
+- Не добавляйте POST-формы без `csrf_input(request)`.
+- Не включайте OpenAPI UI в `APP_ENV=production`.
 
 ## 10. Какие файлы нельзя менять без необходимости
 
@@ -217,6 +240,7 @@ python -m unittest discover
 - `app/models.py` - изменение схемы БД требует осторожности.
 - `app/core/database.py` - влияет на подключение и lifecycle БД.
 - `app/services/auth.py` - влияет на безопасность входа.
+- `app/services/security.py` - влияет на CSRF и rate limit.
 - `README.md` и `AGENT.md` - обязаны оставаться актуальными.
 
 ## 11. Какие данные нельзя коммитить
@@ -260,11 +284,12 @@ python -m unittest discover
 - `INITIAL_ADMIN_PASSWORD` используется только при создании нового пользователя. Изменение переменной не сбрасывает пароль уже созданного пользователя.
 - Изменение `INITIAL_ADMIN_USERNAME` переносит роль администратора на новый env-логин; старый админ теряет `is_admin` и явные права, которые выдавались bootstrap-ом.
 - `SESSION_IDLE_TIMEOUT_SECONDS` управляет idle-timeout и cookie `max_age`; при каждом авторизованном запросе обновляется `last_activity_at` в session cookie.
-- Если `SECRET_KEY` не задан, приложение сгенерирует временный секрет на процесс, и сессии будут сброшены после перезапуска. Для нормальной эксплуатации задавайте стабильный секрет.
+- Если `SECRET_KEY` не задан в `APP_ENV=production`, приложение не стартует. В local-режиме без секрета будет временный ключ на процесс, поэтому сессии сбросятся после перезапуска.
+- OpenAPI UI доступен только вне production. При `APP_ENV=production` `/docs`, `/redoc` и `/openapi.json` отключены.
 - Ошибка Docker build `Temporary failure in name resolution` означает, что контейнер сборки не видит DNS для Debian/PyPI. Это не проблема версии `fastapi`; настройте Docker DNS/proxy на сервере.
 - Импорт CSV отклоняет неправильный заголовок, не-IPv4 адреса, дубли IP, network/broadcast адреса, слишком большую рассчитанную подсеть и слишком большой файл.
 - Для ручного создания проекта поле CIDR обязательно; для импорта CSV CIDR не требуется и рассчитывается автоматически.
-- Экспорт проекта без пароля возвращает CSV. Экспорт проекта с паролем возвращает ZIP с одним CSV. Экспорт папки всегда возвращает ZIP.
+- Экспорт проекта без пароля возвращает CSV. Экспорт проекта с паролем возвращает AES ZIP с одним CSV. Экспорт папки всегда возвращает ZIP.
 - История изменений не заполняется задним числом для старых записей; она появляется только после новых сохранений строк.
 - Скрипт восстановления PostgreSQL разрушительно заменяет данные в текущей БД. Перед запуском остановите `web` и `worker`, затем требуйте явное `CONFIRM_RESTORE=YES`.
 - Подсети ограничены `MAX_PROJECT_ADDRESSES`, чтобы случайно не создать огромную таблицу.
@@ -274,6 +299,7 @@ python -m unittest discover
 - Не увеличивайте `PING_CONCURRENCY` без оценки нагрузки. Для продакшена с десятками `/24` безопаснее увеличивать интервал или паузы между пакетами/проектами, чем параллелизм.
 - `PING_RUNNING_JOB_TIMEOUT_SECONDS` должен быть больше ожидаемого времени проверки самой большой подсети. Иначе долгий, но живой job может быть поставлен в очередь повторно.
 - В Docker capability `NET_RAW` добавлен только сервису `worker`.
+- Dockerfile и Compose содержат healthcheck. Для `migrate` healthcheck отключен, потому что это одноразовый job.
 - Если web или worker падают с `Run alembic upgrade head`, схема БД не применена. В Docker за это отвечает сервис `migrate`; локально выполните `alembic upgrade head`.
 - Несколько worker-экземпляров можно запускать с PostgreSQL: claim задач и обслуживание расписаний защищены advisory locks. В SQLite-режиме оставляйте один worker. При увеличении числа worker-реплик пересчитывайте общий ICMP-параллелизм: фактическая нагрузка примерно равна `PING_CONCURRENCY * количество_worker`.
 - Таблица проекта не должна рендерить все IP-записи сразу. Сохраняйте `page`, `per_page` и `hide_empty` в ссылках/формах, если добавляете новые действия внутри таблицы.
@@ -293,6 +319,9 @@ python -m unittest discover
 
 - папки;
 - авторизация через login/logout;
+- CSRF-защита POST-форм;
+- rate limiting на login;
+- security headers и отключение OpenAPI UI в production;
 - проекты-подсети;
 - генерация IP-таблицы;
 - редактирование IP-записей;
@@ -305,7 +334,7 @@ python -m unittest discover
 - редактирование/удаление папок и проектов для пользователей с правами;
 - idle-timeout сессии 24 часа бездействия;
 - импорт проекта из CSV;
-- экспорт проекта/папки в CSV/ZIP, включая ZIP с паролем;
+- экспорт проекта/папки в CSV/ZIP, включая AES ZIP с паролем;
 - скрытие пустых строк;
 - новый светлый SaaS-интерфейс с верхним поиском и боковой панелью;
 - общий поиск;
@@ -317,6 +346,8 @@ python -m unittest discover
 - Alembic-миграции;
 - резервное копирование и восстановление PostgreSQL через scripts;
 - Docker Compose;
+- Docker healthchecks;
+- dev security tooling;
 - базовые тесты;
 - документация.
 
@@ -324,6 +355,6 @@ python -m unittest discover
 
 - Добавить импорт/экспорт XLSX.
 - Добавить мониторинг очереди ping-задач и историю выполнений.
-- Добавить более строгое шифрование экспорта через 7z/AES при необходимости.
+- Добавить централизованный Redis/PostgreSQL rate limiting для нескольких web-реплик.
 - Добавить REST API и OpenAPI-примеры.
 - Добавить AJAX/HTMX-подгрузку страниц таблицы без полного перерендера страницы.

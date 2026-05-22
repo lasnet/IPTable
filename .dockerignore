@@ -3,8 +3,10 @@
 venv
 __pycache__
 .pytest_cache
+.cache
 .mypy_cache
 .ruff_cache
+.vscode
 .env
 data
 logs
