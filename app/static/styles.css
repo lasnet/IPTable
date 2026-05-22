@@ -575,9 +575,10 @@ select:disabled {
 
 .table-pagination {
   flex: 0 0 auto;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
+  width: 100%;
   gap: 14px;
   min-height: 46px;
   margin-top: 10px;
@@ -585,13 +586,22 @@ select:disabled {
   font-size: 13px;
 }
 
-.pagination-summary {
+.pagination-left,
+.pagination-right {
+  min-width: 0;
+}
+
+.pagination-left {
+  justify-self: start;
+}
+
+.pagination-right {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
   gap: 14px;
-  margin-left: auto;
-  min-width: 0;
+  justify-self: end;
+  white-space: nowrap;
 }
 
 .page-size-form label,
@@ -1358,17 +1368,22 @@ th.locked-col {
   }
 
   .table-pagination {
-    align-items: center;
-    flex-direction: row;
-    flex-wrap: wrap;
+    grid-template-columns: 1fr;
   }
 
-  .pagination-summary {
-    margin-left: auto;
+  .pagination-left,
+  .pagination-right {
+    justify-self: stretch;
   }
 
   .pagination-controls {
     justify-content: flex-start;
+  }
+
+  .pagination-right {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    white-space: normal;
   }
 
   .permission-grid {

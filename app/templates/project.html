@@ -256,7 +256,8 @@
   </div>
   {% endif %}
   <div class="table-pagination">
-    <nav class="pagination-controls" aria-label="Навигация по страницам таблицы">
+    <div class="pagination-left">
+      <nav class="pagination-controls" aria-label="Навигация по страницам таблицы">
       {% if pagination.has_prev %}
       <a class="icon-button pagination-button" href="{{ pagination.prev_url }}" aria-label="Предыдущая страница">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -284,8 +285,9 @@
         </svg>
       </span>
       {% endif %}
-    </nav>
-    <div class="pagination-summary">
+      </nav>
+    </div>
+    <div class="pagination-right">
       <div class="pagination-meta">
         {% if pagination.total_items %}
         {{ pagination.start_item }}–{{ pagination.end_item }} из {{ pagination.total_items }}
