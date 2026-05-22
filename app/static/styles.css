@@ -573,6 +573,57 @@ select:disabled {
   background: var(--surface-soft);
 }
 
+.table-pagination {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  min-height: 46px;
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pagination-meta {
+  margin-right: auto;
+}
+
+.page-size-form label,
+.pagination-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.page-size-form select {
+  min-height: 34px;
+  padding: 0 28px 0 10px;
+  border: 1px solid #cfd8e6;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.pagination-button {
+  width: 34px;
+  min-height: 34px;
+  color: var(--text);
+}
+
+.pagination-button.disabled {
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.pagination-page {
+  min-width: 58px;
+  color: var(--text);
+  text-align: center;
+  font-weight: 800;
+}
+
 .import-details {
   display: grid;
   gap: 10px;
@@ -1299,6 +1350,19 @@ th.locked-col {
 
   .project-actions {
     flex-wrap: wrap;
+  }
+
+  .table-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pagination-meta {
+    margin-right: 0;
+  }
+
+  .pagination-controls {
+    justify-content: space-between;
   }
 
   .permission-grid {

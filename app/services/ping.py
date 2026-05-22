@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 
 from app.core.config import Settings
 from app.core.database import SessionLocal
@@ -331,6 +331,34 @@ def enqueue_due_ping_schedules(db, settings: Settings) -> int:
     return enqueued_count
 
 
+def requeue_stale_ping_jobs(db, settings: Settings) -> int:
+    if not _try_ping_advisory_lock(db, PING_SCHEDULER_LOCK_ID):
+        return 0
+
+    now = datetime.utcnow()
+    stale_before = now - timedelta(seconds=settings.ping_running_job_timeout_seconds)
+    requeued_count = (
+        db.query(PingJob)
+        .filter(
+            PingJob.status == PING_JOB_RUNNING,
+            or_(PingJob.started_at.is_(None), PingJob.started_at <= stale_before),
+        )
+        .update(
+            {
+                PingJob.status: PING_JOB_QUEUED,
+                PingJob.run_after: now,
+                PingJob.started_at: None,
+                PingJob.finished_at: None,
+                PingJob.error: "Requeued after worker timeout",
+            },
+            synchronize_session=False,
+        )
+    )
+    if requeued_count:
+        db.commit()
+    return requeued_count
+
+
 def _claim_next_ping_job(db) -> tuple[int, int] | None:
     now = datetime.utcnow()
     if not _supports_postgres_advisory_locks(db):
@@ -433,6 +461,9 @@ async def run_ping_scheduler(settings: Settings) -> None:
         try:
             with SessionLocal() as db:
                 ensure_default_project_schedules(db, settings)
+                requeued_count = requeue_stale_ping_jobs(db, settings)
+                if requeued_count:
+                    logger.warning("Requeued stale ping jobs: %s", requeued_count)
                 enqueue_due_ping_schedules(db, settings)
 
             processed = await run_next_ping_job(settings)

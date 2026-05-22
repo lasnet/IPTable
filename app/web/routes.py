@@ -20,7 +20,7 @@ from app.services.csv_io import (
     render_project_csv,
     safe_export_name,
 )
-from app.services.inventory import create_custom_field, create_project_with_addresses, is_ip_record_empty
+from app.services.inventory import create_custom_field, create_project_with_addresses
 from app.services.history import FieldChange, build_field_change, record_ip_address_history
 from app.services.network import NetworkValidationError
 from app.services.ping import (
@@ -34,6 +34,8 @@ from app.services.ping import (
 
 router = APIRouter()
 SESSION_LAST_ACTIVITY_KEY = "last_activity_at"
+PROJECT_TABLE_PAGE_SIZE_OPTIONS = (25, 50, 100, 250)
+PROJECT_TABLE_FALLBACK_PAGE_SIZE = 25
 
 
 def _templates(request: Request):
@@ -139,6 +141,69 @@ def _checked(value: str | None) -> bool:
 
 def _can_import_csv(user: User) -> bool:
     return user.is_admin or (user.can_create and user.can_edit)
+
+
+def _nearest_page_size(value: int) -> int:
+    return min(PROJECT_TABLE_PAGE_SIZE_OPTIONS, key=lambda option: abs(option - value))
+
+
+def _normalize_project_page_size(value: int | None, settings: Settings) -> int:
+    if value in PROJECT_TABLE_PAGE_SIZE_OPTIONS:
+        return int(value)
+
+    default_size = settings.project_table_default_page_size
+    if default_size in PROJECT_TABLE_PAGE_SIZE_OPTIONS:
+        return default_size
+    return _nearest_page_size(default_size or PROJECT_TABLE_FALLBACK_PAGE_SIZE)
+
+
+def _safe_positive_int(value: object, default: int) -> int:
+    try:
+        parsed = int(str(value))
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _project_table_url(project_id: int, *, hide_empty: bool, page: int, per_page: int) -> str:
+    return f"/projects/{project_id}?{urlencode({'hide_empty': str(hide_empty).lower(), 'page': page, 'per_page': per_page})}"
+
+
+def _filled_value(column):
+    return func.length(func.trim(func.coalesce(column, ""))) > 0
+
+
+def _ip_record_filled_condition(custom_fields: list[CustomField]):
+    conditions = [
+        _filled_value(IPAddress.hostname),
+        _filled_value(IPAddress.os),
+        _filled_value(IPAddress.asset_type),
+        _filled_value(IPAddress.comment),
+    ]
+    for field in custom_fields:
+        conditions.append(_filled_value(IPAddress.custom_values[field.key].as_string()))
+    return or_(*conditions)
+
+
+def _pagination_context(project_id: int, *, hide_empty: bool, page: int, per_page: int, total_items: int) -> dict:
+    total_pages = max(1, (total_items + per_page - 1) // per_page)
+    current_page = min(max(1, page), total_pages)
+    start_item = ((current_page - 1) * per_page) + 1 if total_items else 0
+    end_item = min(current_page * per_page, total_items)
+    return {
+        "current_page": current_page,
+        "total_pages": total_pages,
+        "per_page": per_page,
+        "options": PROJECT_TABLE_PAGE_SIZE_OPTIONS,
+        "total_items": total_items,
+        "start_item": start_item,
+        "end_item": end_item,
+        "offset": (current_page - 1) * per_page,
+        "has_prev": current_page > 1,
+        "has_next": current_page < total_pages,
+        "prev_url": _project_table_url(project_id, hide_empty=hide_empty, page=current_page - 1, per_page=per_page),
+        "next_url": _project_table_url(project_id, hide_empty=hide_empty, page=current_page + 1, per_page=per_page),
+    }
 
 
 def _csv_response(filename: str, content: bytes) -> Response:
@@ -537,8 +602,11 @@ def project_detail(
     project_id: int,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
     hide_empty: bool = True,
+    page: Annotated[int, Query(ge=1)] = 1,
+    per_page: Annotated[int | None, Query(ge=10, le=250)] = None,
     error: Annotated[str | None, Query(max_length=240)] = None,
     message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
@@ -553,16 +621,25 @@ def project_detail(
     custom_fields = db.scalars(
         select(CustomField).where(CustomField.project_id == project.id).order_by(CustomField.position.asc())
     ).all()
-    all_ip_records = db.scalars(
-        select(IPAddress).where(IPAddress.project_id == project.id).order_by(IPAddress.ordinal.asc())
-    ).all()
-    ip_records = list(all_ip_records)
-
-    if hide_empty:
-        ip_records = [ip_record for ip_record in ip_records if not is_ip_record_empty(ip_record)]
+    filled_condition = _ip_record_filled_condition(list(custom_fields))
 
     total_count = db.scalar(select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id)) or 0
-    filled_total = sum(1 for ip_record in all_ip_records if not is_ip_record_empty(ip_record))
+    filled_total = db.scalar(
+        select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, filled_condition)
+    ) or 0
+    visible_count = filled_total if hide_empty else total_count
+    page_size = _normalize_project_page_size(per_page, settings)
+    pagination = _pagination_context(
+        project.id,
+        hide_empty=hide_empty,
+        page=page,
+        per_page=page_size,
+        total_items=visible_count,
+    )
+    ip_query = select(IPAddress).where(IPAddress.project_id == project.id).order_by(IPAddress.ordinal.asc())
+    if hide_empty:
+        ip_query = ip_query.where(filled_condition)
+    ip_records = db.scalars(ip_query.offset(pagination["offset"]).limit(page_size)).all()
     online_count = db.scalar(
         select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, IPAddress.is_reachable.is_(True))
     ) or 0
@@ -587,15 +664,17 @@ def project_detail(
             "current_user": current_user,
             "custom_fields": custom_fields,
             "project_schedule": project_schedule,
-            "project_schedule_minutes": _schedule_interval_minutes(project_schedule, get_settings()),
+            "project_schedule_minutes": _schedule_interval_minutes(project_schedule, settings),
             "ip_records": ip_records,
             "hide_empty": hide_empty,
+            "pagination": pagination,
             "error": error,
             "message": message,
             "total_count": total_count,
             "filled_count": filled_total,
             "online_count": online_count,
             "shown_count": len(ip_records),
+            "visible_count": visible_count,
         },
     )
 
@@ -852,6 +931,7 @@ async def update_ip_address(
     ip_id: int,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
     ip_record = db.scalar(select(IPAddress).where(IPAddress.id == ip_id, IPAddress.project_id == project_id))
@@ -894,8 +974,10 @@ async def update_ip_address(
     record_ip_address_history(db, ip_record=ip_record, user=current_user, changes=changes)
 
     db.commit()
-    suffix = "?hide_empty=true" if form.get("hide_empty") == "true" else ""
-    return _redirect(f"/projects/{project_id}{suffix}#ip-{ip_id}")
+    hide_empty = form.get("hide_empty") == "true"
+    page = _safe_positive_int(form.get("page"), 1)
+    per_page = _normalize_project_page_size(_safe_positive_int(form.get("per_page"), 0), settings)
+    return _redirect(f"{_project_table_url(project_id, hide_empty=hide_empty, page=page, per_page=per_page)}#ip-{ip_id}")
 
 
 @router.get("/projects/{project_id}/history", response_class=HTMLResponse)
@@ -940,6 +1022,7 @@ def project_history(
 def search(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
     q: Annotated[str, Query(max_length=120)] = "",
 ) -> HTMLResponse:
@@ -978,6 +1061,7 @@ def search(
             .limit(50)
         ).all()
 
+    project_page_size = _normalize_project_page_size(None, settings)
     return _templates(request).TemplateResponse(
         request,
         "search.html",
@@ -992,5 +1076,6 @@ def search(
             "found_folders": found_folders,
             "projects": projects,
             "ip_records": ip_records,
+            "project_page_size": project_page_size,
         },
     )

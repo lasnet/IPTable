@@ -46,7 +46,8 @@
       <section>
         <h3>IP-записи</h3>
         {% for ip in ip_records %}
-          <a class="result-row link-row" href="/projects/{{ ip.project.id }}?hide_empty=false#ip-{{ ip.id }}">
+          {% set target_page = ((ip.ordinal - 1) // project_page_size) + 1 %}
+          <a class="result-row link-row" href="/projects/{{ ip.project.id }}?hide_empty=false&page={{ target_page }}&per_page={{ project_page_size }}#ip-{{ ip.id }}">
             <strong>{{ ip.address }}</strong>
             <span>{{ ip.project.folder.name }} / {{ ip.project.name }}</span>
             <small>{{ ip.hostname }} {{ ip.os }} {{ ip.asset_type }} {{ ip.comment }}</small>

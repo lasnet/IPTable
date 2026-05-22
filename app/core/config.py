@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     ping_batch_pause_seconds: float = Field(default=1.0, ge=0)
     ping_project_pause_seconds: float = Field(default=5.0, ge=0)
     ping_queue_poll_seconds: float = Field(default=5.0, ge=1)
+    ping_running_job_timeout_seconds: int = Field(default=7200, ge=300)
+    project_table_default_page_size: int = Field(default=25, ge=10, le=250)
     max_project_addresses: int = Field(default=4096, ge=1)
     csv_import_max_bytes: int = Field(default=2_097_152, ge=1024)
     enable_ping_worker: bool = True
