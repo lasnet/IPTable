@@ -44,6 +44,7 @@ REQUIRED_TABLES = {
     "ip_addresses",
     "ip_address_history",
     "custom_fields",
+    "login_rate_limit_events",
     "ping_schedules",
     "ping_jobs",
 }

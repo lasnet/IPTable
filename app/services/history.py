@@ -37,18 +37,20 @@ def record_ip_address_history(
     db: Session,
     *,
     ip_record: IPAddress,
-    user: User,
+    user: User | None,
     changes: list[FieldChange],
+    username: str | None = None,
 ) -> int:
     if not changes:
         return 0
 
+    actor_name = username or (user.username if user is not None else "api")
     db.add_all(
         IPAddressHistory(
             project_id=ip_record.project_id,
             ip_address_id=ip_record.id,
-            user_id=user.id,
-            username=user.username,
+            user_id=user.id if user is not None else None,
+            username=actor_name,
             address=ip_record.address,
             field_name=change.field_name,
             field_label=change.field_label,

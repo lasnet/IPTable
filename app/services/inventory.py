@@ -31,9 +31,12 @@ def create_project_with_addresses(
 
 def is_ip_record_empty(ip_record: IPAddress) -> bool:
     base_values = [ip_record.hostname, ip_record.os, ip_record.asset_type, ip_record.comment]
+    tags = ip_record.tags or []
     custom_values = ip_record.custom_values or {}
-    return not any(value.strip() for value in base_values) and not any(
-        str(value).strip() for value in custom_values.values()
+    return (
+        not any(value.strip() for value in base_values)
+        and not any(str(value).strip() for value in tags)
+        and not any(str(value).strip() for value in custom_values.values())
     )
 
 

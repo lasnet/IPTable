@@ -50,6 +50,7 @@ class ProjectPaginationTest(unittest.TestCase):
                     IPAddress(project_id=project.id, ordinal=2, address="10.0.0.2", hostname="gw"),
                     IPAddress(project_id=project.id, ordinal=3, address="10.0.0.3", custom_values={"rack": ""}),
                     IPAddress(project_id=project.id, ordinal=4, address="10.0.0.4", custom_values={"rack": "A1"}),
+                    IPAddress(project_id=project.id, ordinal=5, address="10.0.0.5", tags=["edge"]),
                 ]
             )
             db.commit()
@@ -61,7 +62,7 @@ class ProjectPaginationTest(unittest.TestCase):
                 )
             )
 
-        self.assertEqual(filled_count, 2)
+        self.assertEqual(filled_count, 3)
 
 
 if __name__ == "__main__":

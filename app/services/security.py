@@ -1,11 +1,18 @@
 import html
+import hashlib
+import math
 import secrets
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException, Request
 from markupsafe import Markup
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
+
+from app.models import LoginRateLimitEvent
 
 CSRF_SESSION_KEY = "csrf_token"
 CSRF_FORM_FIELD = "_csrf_token"
@@ -101,3 +108,92 @@ class LoginRateLimiter:
         key = self._key(client_ip, username)
         with self._lock:
             self._records.pop(key, None)
+
+
+def _login_rate_limit_key(client_ip: str, username: str) -> str:
+    identity = f"{client_ip}:{username.strip().casefold()}"
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def _prune_login_rate_limit_events(
+    db: Session,
+    *,
+    identity_hash: str,
+    keep_after: datetime,
+) -> None:
+    db.execute(
+        delete(LoginRateLimitEvent).where(
+            LoginRateLimitEvent.identity_hash == identity_hash,
+            LoginRateLimitEvent.created_at < keep_after,
+        )
+    )
+
+
+def login_rate_limit_retry_after(
+    db: Session,
+    client_ip: str,
+    username: str,
+    *,
+    attempts: int,
+    window_seconds: int,
+    lockout_seconds: int,
+    now: datetime | None = None,
+) -> int | None:
+    current_time = now or datetime.utcnow()
+    identity_hash = _login_rate_limit_key(client_ip, username)
+    keep_seconds = max(window_seconds, lockout_seconds) + window_seconds
+    keep_after = current_time - timedelta(seconds=keep_seconds)
+    _prune_login_rate_limit_events(db, identity_hash=identity_hash, keep_after=keep_after)
+
+    events = db.scalars(
+        select(LoginRateLimitEvent.created_at)
+        .where(
+            LoginRateLimitEvent.identity_hash == identity_hash,
+            LoginRateLimitEvent.created_at >= keep_after,
+        )
+        .order_by(LoginRateLimitEvent.created_at.desc())
+        .limit(attempts)
+    ).all()
+    if len(events) < attempts:
+        db.commit()
+        return None
+
+    newest = events[0]
+    oldest = events[-1]
+    if newest - oldest > timedelta(seconds=window_seconds):
+        db.commit()
+        return None
+
+    unlock_at = newest + timedelta(seconds=lockout_seconds)
+    remaining = (unlock_at - current_time).total_seconds()
+    db.commit()
+    return max(1, math.ceil(remaining)) if remaining > 0 else None
+
+
+def record_login_failure(
+    db: Session,
+    client_ip: str,
+    username: str,
+    *,
+    attempts: int,
+    window_seconds: int,
+    lockout_seconds: int,
+    now: datetime | None = None,
+) -> int | None:
+    current_time = now or datetime.utcnow()
+    db.add(LoginRateLimitEvent(identity_hash=_login_rate_limit_key(client_ip, username), created_at=current_time))
+    db.commit()
+    return login_rate_limit_retry_after(
+        db,
+        client_ip,
+        username,
+        attempts=attempts,
+        window_seconds=window_seconds,
+        lockout_seconds=lockout_seconds,
+        now=current_time,
+    )
+
+
+def reset_login_failures(db: Session, client_ip: str, username: str) -> None:
+    db.execute(delete(LoginRateLimitEvent).where(LoginRateLimitEvent.identity_hash == _login_rate_limit_key(client_ip, username)))
+    db.commit()

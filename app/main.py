@@ -8,9 +8,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.api.routes import api_router
 from app.core.config import get_settings
 from app.core.database import SessionLocal, init_db
 from app.services.auth import bootstrap_initial_admin
+from app.services.assets import tags_to_text
 from app.services.inventory import normalize_project_address_rows
 from app.services.ping import ensure_default_project_schedules, run_ping_scheduler
 from app.services.security import csrf_input
@@ -78,8 +80,10 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
     templates = Jinja2Templates(directory="app/templates")
     templates.env.globals["csrf_input"] = csrf_input
+    templates.env.globals["tags_to_text"] = tags_to_text
     app.state.templates = templates
     app.include_router(router)
+    app.include_router(api_router)
     return app
 
 

@@ -3,13 +3,6 @@
 {% block title %}Проект {{ project.cidr }} - IPtable{% endblock %}
 
 {% block content %}
-{#
-  Столбец "№" скрыт через этот флаг, чтобы не ломать colgroup и sticky IP-колонку.
-  Если номер снова понадобится:
-  1. Поменяйте false на true.
-  2. В app/static/styles.css верните ".locked-col { left: 74px; }".
-#}
-{% set show_number_column = false %}
 <section class="project-card">
   <div class="project-card-head">
     <div class="project-title">
@@ -116,6 +109,13 @@
         </summary>
         <form class="floating-form export-form" action="/projects/{{ project.id }}/export" method="post">
           {{ csrf_input(request) }}
+          <label>
+            Формат
+            <select name="export_format">
+              <option value="csv">CSV</option>
+              <option value="xlsx">XLSX</option>
+            </select>
+          </label>
           <label class="checkbox-line">
             <input type="checkbox" name="use_password" checked data-password-toggle>
             Поставить пароль
@@ -171,149 +171,26 @@
   <p class="project-description">{{ project.description }}</p>
   {% endif %}
 
-  <div class="asset-table-wrap">
-    <table class="asset-table">
-      <colgroup>
-        {% if show_number_column %}
-        <col class="col-number">
-        {% endif %}
-        <col class="col-ip">
-        <col class="col-hostname">
-        <col class="col-os">
-        <col class="col-type">
-        <col class="col-comment">
-        {% for field in custom_fields %}
-        <col class="col-custom">
-        {% endfor %}
-        <col class="col-status">
-        <col class="col-action">
-      </colgroup>
-      <thead>
-        <tr>
-          {% if show_number_column %}
-          <th class="number-head">№</th>
-          {% endif %}
-          <th class="locked-col">IP адрес</th>
-          <th>Hostname</th>
-          <th>OS</th>
-          <th>Type</th>
-          <th>Comment</th>
-          {% for field in custom_fields %}
-          <th>{{ field.name }}</th>
-          {% endfor %}
-          <th>Статус (Ping)</th>
-          <th class="save-head"></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for ip in ip_records %}
-        <tr id="ip-{{ ip.id }}" data-row-address="{{ ip.address }}">
-          {% if show_number_column %}
-          <td class="number-cell">{{ ip.ordinal }}</td>
-          {% endif %}
-          <td class="ip-cell locked-col">{{ ip.address }}</td>
-          <td><input form="row-{{ ip.id }}" name="hostname" value="{{ ip.hostname }}" maxlength="255"
-              placeholder="пусто"></td>
-          <td><input form="row-{{ ip.id }}" name="os" value="{{ ip.os }}" maxlength="120" placeholder="пусто"></td>
-          <td><input form="row-{{ ip.id }}" name="asset_type" value="{{ ip.asset_type }}" maxlength="120"
-              placeholder="пусто"></td>
-          <td><textarea form="row-{{ ip.id }}" name="comment" maxlength="4000" rows="1"
-              placeholder="пусто">{{ ip.comment }}</textarea></td>
-          {% for field in custom_fields %}
-          <td>
-            <input form="row-{{ ip.id }}" name="custom__{{ field.key }}"
-              value="{{ (ip.custom_values or {}).get(field.key, '') }}" maxlength="1000" placeholder="пусто" {% if
-              field.field_type in ['number', 'date' ] %}type="{{ field.field_type }}" {% endif %}>
-          </td>
-          {% endfor %}
-          <td class="status-cell">
-            {% if ip.is_reachable is sameas true %}
-            <span class="status-pill online"><span></span>OK</span>
-            {% elif ip.is_reachable is sameas false %}
-            <span class="status-pill offline"><span></span>NO</span>
-            {% else %}
-            <span class="status-pill unknown"><span></span>NoTest</span>
-            {% endif %}
-          </td>
-          <td class="save-cell">
-            <form id="row-{{ ip.id }}" class="asset-row-form" action="/projects/{{ project.id }}/addresses/{{ ip.id }}"
-              method="post">
-              {{ csrf_input(request) }}
-              <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
-              <input type="hidden" name="page" value="{{ pagination.current_page }}">
-              <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
-              <button class="row-save" type="submit">Save</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td class="empty-table" colspan="{{ (8 if show_number_column else 7) + custom_fields|length }}">
-            Нет записей для отображения.
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% if hide_empty %}
-  <div class="hidden-rows-note">
-    Пустые строки скрыты. Нажмите «Показать скрытые», чтобы заполнить новые IP-адреса.
-  </div>
-  {% endif %}
-  <div class="table-pagination">
-    <div class="pagination-left">
-      <nav class="pagination-controls" aria-label="Навигация по страницам таблицы">
-      {% if pagination.has_prev %}
-      <a class="icon-button pagination-button" href="{{ pagination.prev_url }}" aria-label="Предыдущая страница">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m15 18-6-6 6-6" />
-        </svg>
-      </a>
-      {% else %}
-      <span class="icon-button pagination-button disabled" aria-hidden="true">
-        <svg class="icon" viewBox="0 0 24 24">
-          <path d="m15 18-6-6 6-6" />
-        </svg>
-      </span>
-      {% endif %}
-      <span class="pagination-page">{{ pagination.current_page }} / {{ pagination.total_pages }}</span>
-      {% if pagination.has_next %}
-      <a class="icon-button pagination-button" href="{{ pagination.next_url }}" aria-label="Следующая страница">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m9 18 6-6-6-6" />
-        </svg>
-      </a>
-      {% else %}
-      <span class="icon-button pagination-button disabled" aria-hidden="true">
-        <svg class="icon" viewBox="0 0 24 24">
-          <path d="m9 18 6-6-6-6" />
-        </svg>
-      </span>
-      {% endif %}
-      </nav>
-    </div>
-    <div class="pagination-right">
-      <div class="pagination-meta">
-        {% if pagination.total_items %}
-        {{ pagination.start_item }}–{{ pagination.end_item }} из {{ pagination.total_items }}
-        {% else %}
-        0 записей
-        {% endif %}
-      </div>
-      <form class="page-size-form" action="/projects/{{ project.id }}" method="get">
-        <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
-        <input type="hidden" name="page" value="1">
-        <label>
-          Строк:
-          <select name="per_page" onchange="this.form.submit()">
-            {% for option in pagination.options %}
-            <option value="{{ option }}" {% if option == pagination.per_page %}selected{% endif %}>{{ option }}</option>
-            {% endfor %}
-          </select>
-        </label>
-      </form>
-    </div>
+  <form id="bulk-edit-form" class="bulk-edit-form" action="/projects/{{ project.id }}/addresses/bulk" method="post">
+    {{ csrf_input(request) }}
+    <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
+    <input type="hidden" name="page" value="{{ pagination.current_page }}">
+    <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
+    <div class="bulk-edit-title">Массовое редактирование</div>
+    <input name="hostname" maxlength="255" placeholder="Hostname">
+    <input name="os" maxlength="120" placeholder="OS">
+    <input name="asset_type" maxlength="120" placeholder="Type">
+    <input name="comment" maxlength="4000" placeholder="Comment">
+    <input name="tags" maxlength="1000" placeholder="Tags через запятую">
+    <select name="tags_mode" aria-label="Режим тегов">
+      <option value="append">Добавить теги</option>
+      <option value="replace">Заменить теги</option>
+    </select>
+    <button type="submit">Применить</button>
+  </form>
+
+  <div class="project-table-region" data-project-table-region>
+    {% include "_project_table.html" %}
   </div>
 </section>
 {% endblock %}

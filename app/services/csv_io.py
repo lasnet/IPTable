@@ -5,17 +5,24 @@ import zipfile
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv4Network, ip_address
 
+from openpyxl import Workbook, load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 import pyzipper
 
 from app.models import IPAddress, Project
+from app.services.assets import normalize_tags, tags_to_text
 from app.services.network import reserved_project_addresses
 
-CSV_COLUMNS = ["ip", "hostname", "os", "type", "comment"]
+BASE_COLUMNS = ["ip", "hostname", "os", "type", "comment"]
+OPTIONAL_COLUMNS = ["tags"]
+EXPORT_COLUMNS = [*BASE_COLUMNS, *OPTIONAL_COLUMNS]
+XLSX_MAX_UNCOMPRESSED_BYTES = 20_000_000
 FIELD_LIMITS = {
     "hostname": 255,
     "os": 120,
     "type": 120,
     "comment": 4000,
+    "tags": 1000,
 }
 
 
@@ -30,6 +37,7 @@ class ImportedAsset:
     os: str
     asset_type: str
     comment: str
+    tags: list[str]
 
 
 @dataclass(frozen=True)
@@ -47,6 +55,21 @@ def _decode_csv(content: bytes) -> str:
     raise CSVImportError("Не удалось прочитать файл: используйте UTF-8 или Windows-1251")
 
 
+def _validate_headers(headers: list[str], *, source: str) -> list[str]:
+    if headers == BASE_COLUMNS:
+        return BASE_COLUMNS
+    if headers == EXPORT_COLUMNS:
+        return EXPORT_COLUMNS
+    expected = "ip;hostname;os;type;comment или ip;hostname;os;type;comment;tags"
+    raise CSVImportError(f"Неверный заголовок {source}. Ожидается: {expected}")
+
+
+def _cell_text(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 def _smallest_network(addresses: list[IPv4Address]) -> IPv4Network:
     first = min(int(address) for address in addresses)
     last = max(int(address) for address in addresses)
@@ -55,22 +78,17 @@ def _smallest_network(addresses: list[IPv4Address]) -> IPv4Network:
     return IPv4Network((first & mask, prefix))
 
 
-def parse_assets_csv(content: bytes, *, max_addresses: int) -> CSVImportResult:
-    text = _decode_csv(content)
-    reader = csv.DictReader(io.StringIO(text, newline=""), delimiter=";")
-    if reader.fieldnames is None:
-        raise CSVImportError("CSV-файл пустой или не содержит заголовок")
-
-    headers = [header.strip().lower() for header in reader.fieldnames]
-    if headers != CSV_COLUMNS:
-        raise CSVImportError("Неверный заголовок CSV. Ожидается: ip;hostname;os;type;comment")
-
+def _parse_import_rows(
+    rows_with_numbers: list[tuple[int, dict[str, str]]],
+    *,
+    max_addresses: int,
+) -> CSVImportResult:
     rows: list[ImportedAsset] = []
     parsed_addresses: list[IPv4Address] = []
     seen_addresses: dict[str, int] = {}
 
-    for row_number, raw_row in enumerate(reader, start=2):
-        normalized = {key: (raw_row.get(key) or "").strip() for key in CSV_COLUMNS}
+    for row_number, raw_row in rows_with_numbers:
+        normalized = {key: _cell_text(raw_row.get(key)) for key in EXPORT_COLUMNS}
         if not any(normalized.values()):
             continue
 
@@ -97,6 +115,8 @@ def parse_assets_csv(content: bytes, *, max_addresses: int) -> CSVImportResult:
             if len(normalized[field_name]) > limit:
                 raise CSVImportError(f"Строка {row_number}: поле {field_name} длиннее {limit} символов")
 
+        tags = normalize_tags(normalized["tags"])
+
         rows.append(
             ImportedAsset(
                 address=address,
@@ -104,6 +124,7 @@ def parse_assets_csv(content: bytes, *, max_addresses: int) -> CSVImportResult:
                 os=normalized["os"],
                 asset_type=normalized["type"],
                 comment=normalized["comment"],
+                tags=tags,
             )
         )
         parsed_addresses.append(parsed_ip)
@@ -131,10 +152,76 @@ def parse_assets_csv(content: bytes, *, max_addresses: int) -> CSVImportResult:
     return CSVImportResult(cidr=str(network), rows=rows)
 
 
+def parse_assets_csv(content: bytes, *, max_addresses: int) -> CSVImportResult:
+    text = _decode_csv(content)
+    reader = csv.DictReader(io.StringIO(text, newline=""), delimiter=";")
+    if reader.fieldnames is None:
+        raise CSVImportError("CSV-файл пустой или не содержит заголовок")
+
+    headers = [header.strip().lower() for header in reader.fieldnames]
+    columns = _validate_headers(headers, source="CSV")
+
+    rows_with_numbers: list[tuple[int, dict[str, str]]] = []
+    for row_number, raw_row in enumerate(reader, start=2):
+        if None in raw_row:
+            raise CSVImportError(f"Строка {row_number}: слишком много столбцов")
+        rows_with_numbers.append((row_number, {key: _cell_text(raw_row.get(key)) for key in columns}))
+
+    return _parse_import_rows(rows_with_numbers, max_addresses=max_addresses)
+
+
+def parse_assets_xlsx(content: bytes, *, max_addresses: int) -> CSVImportResult:
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            uncompressed_size = sum(item.file_size for item in archive.infolist())
+    except zipfile.BadZipFile as exc:
+        raise CSVImportError("Не удалось прочитать XLSX-файл") from exc
+    if uncompressed_size > XLSX_MAX_UNCOMPRESSED_BYTES:
+        raise CSVImportError("XLSX-файл слишком большой после распаковки")
+
+    try:
+        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except (InvalidFileException, OSError, ValueError) as exc:
+        raise CSVImportError("Не удалось прочитать XLSX-файл") from exc
+
+    worksheet = workbook.worksheets[0]
+    rows_iter = worksheet.iter_rows(values_only=True)
+    try:
+        header_row = next(rows_iter)
+    except StopIteration as exc:
+        raise CSVImportError("XLSX-файл пустой или не содержит заголовок") from exc
+
+    headers = [_cell_text(item).lower() for item in header_row if _cell_text(item)]
+    columns = _validate_headers(headers, source="XLSX")
+
+    rows_with_numbers: list[tuple[int, dict[str, str]]] = []
+    for row_number, values in enumerate(rows_iter, start=2):
+        row_values = list(values[: len(columns)])
+        if len(values) > len(columns) and any(_cell_text(item) for item in values[len(columns):]):
+            raise CSVImportError(f"Строка {row_number}: слишком много столбцов")
+        rows_with_numbers.append(
+            (
+                row_number,
+                {column: _cell_text(row_values[index]) if index < len(row_values) else "" for index, column in enumerate(columns)},
+            )
+        )
+
+    return _parse_import_rows(rows_with_numbers, max_addresses=max_addresses)
+
+
+def parse_assets_file(content: bytes, *, filename: str, max_addresses: int) -> CSVImportResult:
+    clean_filename = filename.lower().strip()
+    if clean_filename.endswith(".xlsx"):
+        return parse_assets_xlsx(content, max_addresses=max_addresses)
+    if clean_filename.endswith(".csv"):
+        return parse_assets_csv(content, max_addresses=max_addresses)
+    raise CSVImportError("Поддерживаются только файлы .csv и .xlsx")
+
+
 def render_project_csv(project: Project, ip_records: list[IPAddress]) -> str:
     output = io.StringIO(newline="")
     writer = csv.writer(output, delimiter=";", lineterminator="\n")
-    writer.writerow(CSV_COLUMNS)
+    writer.writerow(EXPORT_COLUMNS)
     for ip_record in ip_records:
         writer.writerow(
             [
@@ -143,9 +230,43 @@ def render_project_csv(project: Project, ip_records: list[IPAddress]) -> str:
                 ip_record.os,
                 ip_record.asset_type,
                 ip_record.comment,
+                tags_to_text(ip_record.tags),
             ]
         )
     return output.getvalue()
+
+
+def render_project_xlsx(project: Project, ip_records: list[IPAddress]) -> bytes:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Assets"
+    worksheet.append(EXPORT_COLUMNS)
+    for ip_record in ip_records:
+        worksheet.append(
+            [
+                ip_record.address,
+                ip_record.hostname,
+                ip_record.os,
+                ip_record.asset_type,
+                ip_record.comment,
+                tags_to_text(ip_record.tags),
+            ]
+        )
+
+    widths = {
+        "A": 18,
+        "B": 24,
+        "C": 22,
+        "D": 18,
+        "E": 42,
+        "F": 28,
+    }
+    for column, width in widths.items():
+        worksheet.column_dimensions[column].width = width
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
 
 
 def csv_bytes(content: str) -> bytes:

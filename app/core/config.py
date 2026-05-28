@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     login_rate_limit_attempts: int = Field(default=5, ge=1, le=100)
     login_rate_limit_window_seconds: int = Field(default=300, ge=60)
     login_rate_limit_lockout_seconds: int = Field(default=900, ge=60)
+    integration_api_token: str = Field(default="", min_length=0)
     initial_admin_username: str = Field(default="admin", min_length=3, max_length=80)
     initial_admin_password: str = Field(default="", min_length=0)
     database_url: str = "sqlite:///./data/iptable.sqlite3"

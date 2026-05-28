@@ -1,17 +1,28 @@
 import os
 import re
 import unittest
+from datetime import datetime
 from unittest.mock import patch
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.core.config import Settings, get_settings
 from app.main import create_app
-from app.services.security import LoginRateLimiter, ensure_csrf_token, require_csrf_token
+from app.models import Base, LoginRateLimitEvent
+from app.services.security import (
+    LoginRateLimiter,
+    ensure_csrf_token,
+    login_rate_limit_retry_after,
+    record_login_failure,
+    require_csrf_token,
+    reset_login_failures,
+)
 
 
 class SecurityTest(unittest.TestCase):
@@ -85,6 +96,51 @@ class SecurityTest(unittest.TestCase):
             limiter.retry_after("127.0.0.1", "admin", window_seconds=60, now=1002),
             299,
         )
+
+    def test_database_login_rate_limiter_is_shared_via_db(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine)
+
+        with session_factory() as db:
+            self.assertIsNone(
+                record_login_failure(
+                    db,
+                    "127.0.0.1",
+                    "admin",
+                    attempts=2,
+                    window_seconds=60,
+                    lockout_seconds=300,
+                    now=datetime.fromtimestamp(1000),
+                )
+            )
+            retry_after = record_login_failure(
+                db,
+                "127.0.0.1",
+                "admin",
+                attempts=2,
+                window_seconds=60,
+                lockout_seconds=300,
+                now=datetime.fromtimestamp(1001),
+            )
+
+            self.assertEqual(retry_after, 300)
+            self.assertEqual(
+                login_rate_limit_retry_after(
+                    db,
+                    "127.0.0.1",
+                    "admin",
+                    attempts=2,
+                    window_seconds=60,
+                    lockout_seconds=300,
+                    now=datetime.fromtimestamp(1002),
+                ),
+                299,
+            )
+            reset_login_failures(db, "127.0.0.1", "admin")
+            remaining_events = db.scalars(select(LoginRateLimitEvent)).all()
+
+        self.assertEqual(remaining_events, [])
 
 
 if __name__ == "__main__":

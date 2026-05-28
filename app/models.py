@@ -101,6 +101,7 @@ class IPAddress(TimestampMixin, Base):
     os: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     asset_type: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     comment: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     custom_values: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     is_reachable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -190,3 +191,14 @@ class PingJob(TimestampMixin, Base):
     error: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
     project: Mapped[Project] = relationship(back_populates="ping_jobs")
+
+
+class LoginRateLimitEvent(TimestampMixin, Base):
+    __tablename__ = "login_rate_limit_events"
+    __table_args__ = (
+        Index("ix_login_rate_limit_events_lookup", "identity_hash", "created_at"),
+        Index("ix_login_rate_limit_events_created", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    identity_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

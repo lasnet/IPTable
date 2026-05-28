@@ -573,6 +573,54 @@ select:disabled {
   background: var(--surface-soft);
 }
 
+.bulk-edit-form {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto repeat(5, minmax(120px, 1fr)) minmax(140px, 0.7fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.bulk-edit-title {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.bulk-edit-form input,
+.bulk-edit-form select {
+  min-width: 0;
+  min-height: 36px;
+  padding: 7px 9px;
+  border: 1px solid #cfd8e6;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text);
+}
+
+.bulk-edit-form button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.project-table-region {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .table-pagination {
   flex: 0 0 auto;
   display: grid;
@@ -691,7 +739,7 @@ select:disabled {
 
 .asset-table {
   width: 100%;
-  min-width: 1150px;
+  min-width: 1380px;
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
@@ -729,6 +777,10 @@ select:disabled {
   width: 74px;
 }
 
+.col-select {
+  width: 46px;
+}
+
 .col-ip {
   width: 152px;
 }
@@ -747,6 +799,10 @@ select:disabled {
 
 .col-comment {
   width: 230px;
+}
+
+.col-tags {
+  width: 180px;
 }
 
 .col-custom {
@@ -770,6 +826,28 @@ select:disabled {
   text-align: center;
   font-weight: 650;
   box-shadow: 1px 0 0 var(--line);
+}
+
+.select-head,
+.select-cell {
+  position: sticky !important;
+  left: 0;
+  z-index: 9;
+  padding: 0 !important;
+  text-align: center;
+  box-shadow: 1px 0 0 var(--line);
+}
+
+.select-head {
+  z-index: 14 !important;
+}
+
+.select-head input,
+.select-cell input {
+  width: 16px;
+  height: 16px;
+  margin: 0 auto;
+  accent-color: var(--accent);
 }
 
 .ip-cell {
@@ -797,10 +875,10 @@ th.locked-col {
   box-shadow: 1px 0 0 var(--line);
 }
 
-/* Столбец "№" скрыт в app/templates/project.html через show_number_column = false.
-   Если включите его обратно, поменяйте left у .locked-col на 74px. */
+/* Столбец "№" скрыт в app/templates/_project_table.html через show_number_column = false.
+   Если включите его обратно, разнесите sticky-offsets для .select-cell, .number-cell и .locked-col. */
 .locked-col {
-  left: 0;
+  left: 46px;
 }
 
 .asset-table tr[id] {
@@ -835,6 +913,15 @@ th.locked-col {
 .asset-table input::placeholder,
 .asset-table textarea::placeholder {
   color: #a4adbb;
+}
+
+.asset-table .select-head input,
+.asset-table .select-cell input {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  accent-color: var(--accent);
 }
 
 .asset-table input:focus,
@@ -1326,6 +1413,14 @@ th.locked-col {
   .user-row {
     grid-template-columns: 1fr;
   }
+
+  .bulk-edit-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bulk-edit-title {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 720px) {
@@ -1384,6 +1479,10 @@ th.locked-col {
     flex-wrap: wrap;
     justify-content: flex-start;
     white-space: normal;
+  }
+
+  .bulk-edit-form {
+    grid-template-columns: 1fr;
   }
 
   .permission-grid {

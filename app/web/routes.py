@@ -11,13 +11,15 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, User
+from app.services.assets import normalize_tags, tags_to_text
 from app.services.auth import authenticate_user, create_user, hash_password
 from app.services.csv_io import (
     CSVImportError,
     build_zip_archive,
     csv_bytes,
-    parse_assets_csv,
+    parse_assets_file,
     render_project_csv,
+    render_project_xlsx,
     safe_export_name,
 )
 from app.services.inventory import create_custom_field, create_project_with_addresses
@@ -31,13 +33,12 @@ from app.services.ping import (
     set_folder_ping_schedule,
     set_project_ping_schedule,
 )
-from app.services.security import LoginRateLimiter, require_csrf_token
+from app.services.security import login_rate_limit_retry_after, record_login_failure, require_csrf_token, reset_login_failures
 
 router = APIRouter(dependencies=[Depends(require_csrf_token)])
 SESSION_LAST_ACTIVITY_KEY = "last_activity_at"
 PROJECT_TABLE_PAGE_SIZE_OPTIONS = (25, 50, 100, 250)
 PROJECT_TABLE_FALLBACK_PAGE_SIZE = 25
-LOGIN_RATE_LIMITER = LoginRateLimiter()
 
 
 def _templates(request: Request):
@@ -192,6 +193,7 @@ def _ip_record_filled_condition(custom_fields: list[CustomField]):
         _filled_value(IPAddress.os),
         _filled_value(IPAddress.asset_type),
         _filled_value(IPAddress.comment),
+        func.length(func.coalesce(cast(IPAddress.tags, String), "")) > 2,
     ]
     for field in custom_fields:
         conditions.append(_filled_value(IPAddress.custom_values[field.key].as_string()))
@@ -227,12 +229,29 @@ def _csv_response(filename: str, content: bytes) -> Response:
     )
 
 
+def _xlsx_response(filename: str, content: bytes) -> Response:
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 def _zip_response(filename: str, content: bytes) -> Response:
     return Response(
         content=content,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _project_export_file(project: Project, ip_records: list[IPAddress], export_format: str) -> tuple[str, bytes, str]:
+    if export_format == "xlsx":
+        filename = safe_export_name(project.cidr.replace("/", "_"), suffix=".xlsx")
+        return filename, render_project_xlsx(project, ip_records), "xlsx"
+
+    filename = safe_export_name(project.cidr.replace("/", "_"), suffix=".csv")
+    return filename, csv_bytes(render_project_csv(project, ip_records)), "csv"
 
 
 @router.get("/health")
@@ -264,17 +283,21 @@ def login(
     password: Annotated[str, Form(min_length=1, max_length=200)],
 ) -> RedirectResponse:
     client_ip = _client_ip(request)
-    retry_after = LOGIN_RATE_LIMITER.retry_after(
+    retry_after = login_rate_limit_retry_after(
+        db,
         client_ip,
         username,
+        attempts=settings.login_rate_limit_attempts,
         window_seconds=settings.login_rate_limit_window_seconds,
+        lockout_seconds=settings.login_rate_limit_lockout_seconds,
     )
     if retry_after is not None:
         return _redirect_error("/login", _login_rate_limit_message(retry_after))
 
     user = authenticate_user(db, username, password)
     if user is None:
-        retry_after = LOGIN_RATE_LIMITER.record_failure(
+        retry_after = record_login_failure(
+            db,
             client_ip,
             username,
             attempts=settings.login_rate_limit_attempts,
@@ -285,7 +308,7 @@ def login(
             return _redirect_error("/login", _login_rate_limit_message(retry_after))
         return _redirect_error("/login", "Неверный логин или пароль")
 
-    LOGIN_RATE_LIMITER.reset(client_ip, username)
+    reset_login_failures(db, client_ip, username)
     request.session.clear()
     request.session["user_id"] = user.id
     request.session[SESSION_LAST_ACTIVITY_KEY] = int(time.time())
@@ -461,7 +484,10 @@ async def import_project_csv(
 ) -> RedirectResponse:
     error_path = f"/?new_project_folder={folder_id}"
     if not _can_import_csv(current_user):
-        return _redirect_error(error_path, "Импорт CSV доступен только администратору или пользователю с правами создания и редактирования")
+        return _redirect_error(
+            error_path,
+            "Импорт доступен только администратору или пользователю с правами создания и редактирования",
+        )
 
     folder = db.get(Folder, folder_id)
     if folder is None:
@@ -472,11 +498,14 @@ async def import_project_csv(
         return _redirect_error(error_path, "Название проекта обязательно для импорта")
 
     if not csv_file.filename:
-        return _redirect_error(error_path, "Выберите CSV-файл для импорта")
+        return _redirect_error(error_path, "Выберите CSV или XLSX-файл для импорта")
 
     content = await csv_file.read(settings.csv_import_max_bytes + 1)
     if len(content) > settings.csv_import_max_bytes:
-        return _redirect_error(error_path, f"CSV-файл слишком большой. Лимит: {settings.csv_import_max_bytes} байт")
+        return _redirect_error(
+            error_path,
+            f"Файл импорта слишком большой. Лимит: {settings.csv_import_max_bytes} байт",
+        )
 
     existing = db.scalar(
         select(Project).where(Project.folder_id == folder.id, func.lower(Project.name) == clean_name.lower())
@@ -485,7 +514,11 @@ async def import_project_csv(
         return _redirect_error(error_path, "Проект с таким именем уже существует в выбранной папке")
 
     try:
-        import_result = parse_assets_csv(content, max_addresses=settings.max_project_addresses)
+        import_result = parse_assets_file(
+            content,
+            filename=csv_file.filename,
+            max_addresses=settings.max_project_addresses,
+        )
         project = create_project_with_addresses(
             db,
             folder_id=folder.id,
@@ -506,6 +539,7 @@ async def import_project_csv(
             ip_record.os = row.os
             ip_record.asset_type = row.asset_type
             ip_record.comment = row.comment
+            ip_record.tags = row.tags
         db.commit()
     except CSVImportError as exc:
         db.rollback()
@@ -515,14 +549,14 @@ async def import_project_csv(
         return _redirect_error(error_path, str(exc))
     except IntegrityError:
         db.rollback()
-        return _redirect_error(error_path, "Не удалось импортировать CSV: проверьте уникальность проекта")
+        return _redirect_error(error_path, "Не удалось импортировать файл: проверьте уникальность проекта")
 
     ensure_project_ping_schedule(db, project.id, settings)
     enqueue_project_ping(db, project.id, reason="project-imported")
 
     return _redirect_message(
         f"/projects/{project.id}?hide_empty=true",
-        f"CSV импортирован: {len(import_result.rows)} строк, рассчитанная подсеть {project.cidr}. Ping-проверка поставлена в очередь",
+        f"Файл импортирован: {len(import_result.rows)} строк, рассчитанная подсеть {project.cidr}. Ping-проверка поставлена в очередь",
     )
 
 
@@ -684,10 +718,7 @@ def project_detail(
         )
     )
 
-    return _templates(request).TemplateResponse(
-        request,
-        "project.html",
-        {
+    context = {
             "request": request,
             "project": project,
             "folders": folders,
@@ -708,8 +739,9 @@ def project_detail(
             "online_count": online_count,
             "shown_count": len(ip_records),
             "visible_count": visible_count,
-        },
-    )
+        }
+    template_name = "_project_table.html" if request.headers.get("x-requested-with") == "XMLHttpRequest" else "project.html"
+    return _templates(request).TemplateResponse(request, template_name, context)
 
 
 @router.get("/admin/users", response_class=HTMLResponse)
@@ -870,6 +902,7 @@ def export_project(
     project_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
+    export_format: Annotated[str, Form()] = "csv",
     use_password: Annotated[str | None, Form()] = None,
     password: Annotated[str, Form(max_length=200)] = "",
 ) -> Response:
@@ -880,18 +913,20 @@ def export_project(
     ip_records = db.scalars(
         select(IPAddress).where(IPAddress.project_id == project.id).order_by(IPAddress.ordinal.asc())
     ).all()
-    csv_content = csv_bytes(render_project_csv(project, list(ip_records)))
-    csv_filename = safe_export_name(project.cidr.replace("/", "_"), suffix=".csv")
+    clean_format = "xlsx" if export_format == "xlsx" else "csv"
+    export_filename, export_content, clean_format = _project_export_file(project, list(ip_records), clean_format)
 
     if not _checked(use_password):
-        return _csv_response(csv_filename, csv_content)
+        if clean_format == "xlsx":
+            return _xlsx_response(export_filename, export_content)
+        return _csv_response(export_filename, export_content)
 
     clean_password = password.strip()
     if not clean_password:
         return _redirect_error(f"/projects/{project.id}", "Введите пароль для защищенного экспорта")
 
     try:
-        archive = build_zip_archive({csv_filename: csv_content}, password=clean_password)
+        archive = build_zip_archive({export_filename: export_content}, password=clean_password)
     except RuntimeError as exc:
         return _redirect_error(f"/projects/{project.id}", str(exc))
 
@@ -903,6 +938,7 @@ def export_folder(
     folder_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
+    export_format: Annotated[str, Form()] = "csv",
     use_password: Annotated[str | None, Form()] = None,
     password: Annotated[str, Form(max_length=200)] = "",
 ) -> Response:
@@ -917,10 +953,11 @@ def export_folder(
         return _redirect_error("/", "В папке нет проектов для экспорта")
 
     files: dict[str, bytes] = {}
+    clean_format = "xlsx" if export_format == "xlsx" else "csv"
     for project in sorted(folder.projects, key=lambda item: item.name.lower()):
         ordered_records = sorted(project.ip_addresses, key=lambda item: item.ordinal)
-        filename = safe_export_name(project.cidr.replace("/", "_"), suffix=".csv")
-        files[filename] = csv_bytes(render_project_csv(project, ordered_records))
+        filename, content, _ = _project_export_file(project, ordered_records, clean_format)
+        files[filename] = content
 
     clean_password = password.strip() if _checked(use_password) else ""
     if _checked(use_password) and not clean_password:
@@ -958,6 +995,88 @@ def add_custom_field(
     return _redirect(f"/projects/{project_id}?hide_empty=false")
 
 
+@router.post("/projects/{project_id}/addresses/bulk")
+async def bulk_update_ip_addresses(
+    project_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    if db.get(Project, project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    form = await request.form()
+    selected_ids: list[int] = []
+    for raw_id in form.getlist("ip_ids"):
+        try:
+            selected_ids.append(int(str(raw_id)))
+        except ValueError:
+            continue
+
+    if not selected_ids:
+        return _redirect_error(f"/projects/{project_id}", "Выберите строки для массового редактирования")
+
+    field_updates = {
+        "hostname": _clean_text(str(form.get("hostname", "")), 255),
+        "os": _clean_text(str(form.get("os", "")), 120),
+        "asset_type": _clean_text(str(form.get("asset_type", "")), 120),
+        "comment": _clean_text(str(form.get("comment", "")), 4000),
+    }
+    tag_updates = normalize_tags(form.get("tags", ""))
+    tags_mode = str(form.get("tags_mode", "append"))
+
+    if not any(field_updates.values()) and not tag_updates:
+        return _redirect_error(f"/projects/{project_id}", "Заполните хотя бы одно поле для массового изменения")
+
+    ip_records = db.scalars(
+        select(IPAddress)
+        .where(IPAddress.project_id == project_id, IPAddress.id.in_(selected_ids))
+        .order_by(IPAddress.ordinal.asc())
+    ).all()
+    if not ip_records:
+        return _redirect_error(f"/projects/{project_id}", "Выбранные строки не найдены")
+
+    labels = {
+        "hostname": "Hostname",
+        "os": "OS",
+        "asset_type": "Type",
+        "comment": "Comment",
+    }
+    for ip_record in ip_records:
+        changes: list[FieldChange] = []
+        for field_name, new_value in field_updates.items():
+            if not new_value:
+                continue
+            old_value = getattr(ip_record, field_name)
+            change = build_field_change(field_name, labels[field_name], old_value, new_value)
+            if change is not None:
+                changes.append(change)
+            setattr(ip_record, field_name, new_value)
+
+        if tag_updates:
+            old_tags = normalize_tags(ip_record.tags)
+            if tags_mode == "replace":
+                new_tags = tag_updates
+            else:
+                new_tags = normalize_tags([*old_tags, *tag_updates])
+            change = build_field_change("tags", "Tags", tags_to_text(old_tags), tags_to_text(new_tags))
+            if change is not None:
+                changes.append(change)
+            ip_record.tags = new_tags
+
+        record_ip_address_history(db, ip_record=ip_record, user=current_user, changes=changes)
+
+    db.commit()
+    hide_empty = form.get("hide_empty") == "true"
+    page = _safe_positive_int(form.get("page"), 1)
+    per_page = _normalize_project_page_size(_safe_positive_int(form.get("per_page"), 0), settings)
+    return _redirect_message(
+        _project_table_url(project_id, hide_empty=hide_empty, page=page, per_page=per_page),
+        f"Обновлено строк: {len(ip_records)}",
+    )
+
+
 @router.post("/projects/{project_id}/addresses/{ip_id}")
 async def update_ip_address(
     project_id: int,
@@ -976,6 +1095,7 @@ async def update_ip_address(
     new_os = _clean_text(str(form.get("os", "")), 120)
     new_asset_type = _clean_text(str(form.get("asset_type", "")), 120)
     new_comment = _clean_text(str(form.get("comment", "")), 4000)
+    new_tags = normalize_tags(form.get("tags", ""))
 
     changes: list[FieldChange] = []
     for change in [
@@ -983,6 +1103,7 @@ async def update_ip_address(
         build_field_change("os", "OS", ip_record.os, new_os),
         build_field_change("asset_type", "Type", ip_record.asset_type, new_asset_type),
         build_field_change("comment", "Comment", ip_record.comment, new_comment),
+        build_field_change("tags", "Tags", tags_to_text(ip_record.tags), tags_to_text(new_tags)),
     ]:
         if change is not None:
             changes.append(change)
@@ -991,6 +1112,7 @@ async def update_ip_address(
     ip_record.os = new_os
     ip_record.asset_type = new_asset_type
     ip_record.comment = new_comment
+    ip_record.tags = new_tags
 
     custom_fields = db.scalars(
         select(CustomField).where(CustomField.project_id == project_id).order_by(CustomField.position.asc())
@@ -1087,6 +1209,7 @@ def search(
                     IPAddress.os.ilike(pattern),
                     IPAddress.asset_type.ilike(pattern),
                     IPAddress.comment.ilike(pattern),
+                    cast(IPAddress.tags, String).ilike(pattern),
                     cast(IPAddress.custom_values, String).ilike(pattern),
                 )
             )

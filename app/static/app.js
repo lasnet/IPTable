@@ -1,13 +1,8 @@
 (function () {
-  const table = document.querySelector(".asset-table");
-  if (!table) {
-    return;
-  }
-
   let dirtyRow = null;
   let allowSubmit = false;
 
-  const editableSelector = "input:not([type='hidden']), textarea, select";
+  const editableSelector = ".asset-table input:not([type='hidden']):not([type='checkbox']), .asset-table textarea, .asset-table select";
 
   function rowFor(element) {
     return element.closest("tr");
@@ -37,7 +32,80 @@
     focusDirtyRow();
   }
 
-  table.addEventListener("focusin", (event) => {
+  function projectTableRegion() {
+    return document.querySelector("[data-project-table-region]");
+  }
+
+  function updateBulkHiddenFields(url) {
+    const form = document.getElementById("bulk-edit-form");
+    if (!form) {
+      return;
+    }
+
+    const parsedUrl = new URL(url, window.location.origin);
+    const hideEmpty = parsedUrl.searchParams.get("hide_empty");
+    const page = parsedUrl.searchParams.get("page");
+    const perPage = parsedUrl.searchParams.get("per_page");
+    if (hideEmpty) {
+      form.elements.hide_empty.value = hideEmpty;
+    }
+    if (page) {
+      form.elements.page.value = page;
+    }
+    if (perPage) {
+      form.elements.per_page.value = perPage;
+    }
+  }
+
+  function scrollToHash() {
+    if (!window.location.hash) {
+      return;
+    }
+
+    let targetId = "";
+    try {
+      targetId = decodeURIComponent(window.location.hash.slice(1));
+    } catch (error) {
+      return;
+    }
+
+    const target = document.getElementById(targetId);
+    if (!target || !target.closest(".asset-table-wrap")) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      target.scrollIntoView({ block: "center", inline: "nearest" });
+    }, 50);
+  }
+
+  async function loadTablePage(url, pushState = true) {
+    const region = projectTableRegion();
+    if (!region) {
+      window.location.href = url;
+      return;
+    }
+
+    const response = await window.fetch(url, {
+      headers: { "X-Requested-With": "XMLHttpRequest" },
+      credentials: "same-origin",
+    });
+    if (!response.ok) {
+      window.location.href = url;
+      return;
+    }
+
+    region.innerHTML = await response.text();
+    dirtyRow = null;
+    allowSubmit = false;
+    updateBulkHiddenFields(url);
+    if (pushState) {
+      window.history.pushState(null, "", url);
+    }
+    scrollToHash();
+  }
+
+  document.addEventListener("focusin", (event) => {
     const target = event.target;
     if (!target.matches(editableSelector)) {
       return;
@@ -49,7 +117,7 @@
     }
   });
 
-  table.addEventListener("input", (event) => {
+  document.addEventListener("input", (event) => {
     const target = event.target;
     if (!target.matches(editableSelector)) {
       return;
@@ -71,6 +139,18 @@
 
   document.addEventListener("submit", (event) => {
     const form = event.target;
+    if (form.classList.contains("page-size-form")) {
+      event.preventDefault();
+      if (hasDirtyRow()) {
+        warnAboutDirtyRow();
+        return;
+      }
+
+      const params = new URLSearchParams(new FormData(form));
+      loadTablePage(`${form.action}?${params.toString()}`);
+      return;
+    }
+
     const formRow = document.querySelector(`tr [form="${form.id}"]`)?.closest("tr") || form.closest("tr");
 
     if (hasDirtyRow() && form.classList.contains("asset-row-form") && formRow === dirtyRow) {
@@ -91,9 +171,39 @@
     }
   }, true);
 
+  document.addEventListener("change", (event) => {
+    const target = event.target;
+    if (target.matches(".page-size-form select")) {
+      target.form.requestSubmit();
+      return;
+    }
+
+    if (target.matches("[data-bulk-select-all]")) {
+      const region = projectTableRegion();
+      const checkboxes = region ? region.querySelectorAll("[data-bulk-row]") : [];
+      checkboxes.forEach((checkbox) => {
+        checkbox.checked = target.checked;
+      });
+    }
+  });
+
   document.addEventListener("click", (event) => {
     const link = event.target.closest("a");
-    if (!link || !hasDirtyRow()) {
+    if (!link) {
+      return;
+    }
+
+    if (link.closest("[data-project-table-region]") && link.closest(".pagination-controls")) {
+      event.preventDefault();
+      if (hasDirtyRow()) {
+        warnAboutDirtyRow();
+        return;
+      }
+      loadTablePage(link.href);
+      return;
+    }
+
+    if (!hasDirtyRow()) {
       return;
     }
 
@@ -106,12 +216,18 @@
     }
   }, true);
 
+  window.addEventListener("popstate", () => {
+    loadTablePage(window.location.href, false);
+  });
+
   window.addEventListener("beforeunload", (event) => {
     if (hasDirtyRow() && !allowSubmit) {
       event.preventDefault();
       event.returnValue = "";
     }
   });
+
+  scrollToHash();
 })();
 
 (function () {
@@ -134,26 +250,4 @@
     toggle.addEventListener("change", syncPasswordInput);
     syncPasswordInput();
   });
-})();
-
-(function () {
-  if (!window.location.hash) {
-    return;
-  }
-
-  let targetId = "";
-  try {
-    targetId = decodeURIComponent(window.location.hash.slice(1));
-  } catch (error) {
-    return;
-  }
-
-  const target = document.getElementById(targetId);
-  if (!target || !target.closest(".asset-table-wrap")) {
-    return;
-  }
-
-  window.setTimeout(() => {
-    target.scrollIntoView({ block: "center", inline: "nearest" });
-  }, 50);
 })();

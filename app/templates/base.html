@@ -5,8 +5,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}IPtable{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260523-security">
-  <script src="{{ url_for('static', path='/app.js') }}?v=20260523-security" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260528-integrations">
+  <script src="{{ url_for('static', path='/app.js') }}?v=20260528-integrations" defer></script>
 </head>
 
 <body>
@@ -163,13 +163,15 @@
             <textarea name="description" maxlength="2000" rows="3" placeholder="Комментарий"></textarea>
             {% if current_user.is_admin or (current_user.can_create and current_user.can_edit) %}
             <details class="import-details">
-              <summary class="soft-button compact-action">Импортировать из CSV</summary>
+              <summary class="soft-button compact-action">Импортировать из CSV/XLSX</summary>
               <div class="form-hint">
-                Формат файла: <strong>ip;hostname;os;type;comment</strong>. Разделитель - точка с запятой.
-                IP-адреса должны быть IPv4, без дублей, без network/broadcast адресов. Подсеть будет рассчитана автоматически.
+                CSV: <strong>ip;hostname;os;type;comment</strong>, разделитель - точка с запятой.
+                XLSX: те же заголовки в первой строке. Дополнительно можно указать колонку <strong>tags</strong>.
+                IP-адреса должны быть IPv4, без дублей, без network/broadcast адресов.
+                Подсеть будет рассчитана автоматически.
               </div>
-              <input type="file" name="csv_file" accept=".csv,text/csv">
-              <button type="submit" formaction="/folders/{{ folder.id }}/projects/import">Загрузить CSV и создать</button>
+              <input type="file" name="csv_file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+              <button type="submit" formaction="/folders/{{ folder.id }}/projects/import">Загрузить файл и создать</button>
             </details>
             {% endif %}
             <button type="submit">Создать</button>
@@ -178,10 +180,17 @@
           {% if current_user.is_admin and request.query_params.get('export_folder') == folder.id|string %}
           <div class="sidebar-form compact-form">
             <div class="form-hint">
-              Экспортирует все проекты папки в ZIP-архив с отдельным CSV-файлом для каждой подсети.
+              Экспортирует все проекты папки в ZIP-архив с отдельным файлом для каждой подсети.
             </div>
             <form class="stack-form export-form" action="/folders/{{ folder.id }}/export" method="post">
               {{ csrf_input(request) }}
+              <label>
+                Формат
+                <select name="export_format">
+                  <option value="csv">CSV</option>
+                  <option value="xlsx">XLSX</option>
+                </select>
+              </label>
               <label class="checkbox-line">
                 <input type="checkbox" name="use_password" checked data-password-toggle>
                 Поставить пароль
