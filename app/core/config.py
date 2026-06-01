@@ -4,6 +4,8 @@ from pydantic import Field
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.services.i18n import normalize_language
+
 
 class Settings(BaseSettings):
     app_name: str = "IPtable"
@@ -14,6 +16,7 @@ class Settings(BaseSettings):
     login_rate_limit_window_seconds: int = Field(default=300, ge=60)
     login_rate_limit_lockout_seconds: int = Field(default=900, ge=60)
     integration_api_token: str = Field(default="", min_length=0)
+    interface_language: str = Field(default="RU", min_length=0, max_length=8)
     initial_admin_username: str = Field(default="admin", min_length=3, max_length=80)
     initial_admin_password: str = Field(default="", min_length=0)
     database_url: str = "sqlite:///./data/iptable.sqlite3"
@@ -34,6 +37,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":
+        self.interface_language = normalize_language(self.interface_language)
         if self.app_env.lower() == "production" and not self.secret_key.strip():
             raise ValueError("SECRET_KEY is required when APP_ENV=production")
         return self

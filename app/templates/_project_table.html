@@ -1,8 +1,8 @@
 {#
-  Столбец "№" скрыт через этот флаг, чтобы не ломать colgroup и sticky IP-колонку.
-  Если номер снова понадобится:
-  1. Поменяйте false на true.
-  2. В app/static/styles.css задайте ширину .col-number и сместите .locked-col на эту ширину.
+  The number column is hidden through this flag to keep colgroup and sticky IP column stable.
+  If the number column is needed again:
+  1. Change false to true.
+  2. Set .col-number width and move .locked-col by the same width in app/static/styles.css.
 #}
 {% set show_number_column = false %}
 <div class="asset-table-wrap">
@@ -28,7 +28,7 @@
         {% if show_number_column %}
         <th class="number-head">№</th>
         {% endif %}
-        <th class="locked-col">IP адрес</th>
+        <th class="locked-col">{{ _('table.ip_address') }}</th>
         <th>Hostname</th>
         <th>OS</th>
         <th>Type</th>
@@ -37,7 +37,7 @@
         {% for field in custom_fields %}
         <th>{{ field.name }}</th>
         {% endfor %}
-        <th>Статус (Ping)</th>
+        <th>{{ _('table.status_ping') }}</th>
         <th class="save-head"></th>
       </tr>
     </thead>
@@ -49,18 +49,18 @@
         {% endif %}
         <td class="ip-cell locked-col">{{ ip.address }}</td>
         <td><input form="row-{{ ip.id }}" name="hostname" value="{{ ip.hostname }}" maxlength="255"
-            placeholder="пусто"></td>
-        <td><input form="row-{{ ip.id }}" name="os" value="{{ ip.os }}" maxlength="120" placeholder="пусто"></td>
+            placeholder="{{ _('table.placeholder_empty') }}"></td>
+        <td><input form="row-{{ ip.id }}" name="os" value="{{ ip.os }}" maxlength="120" placeholder="{{ _('table.placeholder_empty') }}"></td>
         <td><input form="row-{{ ip.id }}" name="asset_type" value="{{ ip.asset_type }}" maxlength="120"
-            placeholder="пусто"></td>
+            placeholder="{{ _('table.placeholder_empty') }}"></td>
         <td><textarea form="row-{{ ip.id }}" name="comment" maxlength="4000" rows="1"
-            placeholder="пусто">{{ ip.comment }}</textarea></td>
+            placeholder="{{ _('table.placeholder_empty') }}">{{ ip.comment }}</textarea></td>
         <td><input form="row-{{ ip.id }}" name="tags" value="{{ tags_to_text(ip.tags) }}" maxlength="1000"
-            placeholder="пусто"></td>
+            placeholder="{{ _('table.placeholder_empty') }}"></td>
         {% for field in custom_fields %}
         <td>
           <input form="row-{{ ip.id }}" name="custom__{{ field.key }}"
-            value="{{ (ip.custom_values or {}).get(field.key, '') }}" maxlength="1000" placeholder="пусто" {% if
+            value="{{ (ip.custom_values or {}).get(field.key, '') }}" maxlength="1000" placeholder="{{ _('table.placeholder_empty') }}" {% if
             field.field_type in ['number', 'date' ] %}type="{{ field.field_type }}" {% endif %}>
         </td>
         {% endfor %}
@@ -90,7 +90,7 @@
       {% else %}
       <tr>
         <td class="empty-table" colspan="{{ (9 if show_number_column else 8) + custom_fields|length }}">
-          Нет записей для отображения.
+          {{ _('table.no_records') }}
         </td>
       </tr>
       {% endfor %}
@@ -99,14 +99,14 @@
 </div>
 {% if hide_empty %}
 <div class="hidden-rows-note">
-  Пустые строки скрыты. Нажмите «Показать скрытые», чтобы заполнить новые IP-адреса.
+  {{ _('table.empty_hidden_note') }}
 </div>
 {% endif %}
 <div class="table-pagination">
   <div class="pagination-left">
-    <nav class="pagination-controls" aria-label="Навигация по страницам таблицы">
+    <nav class="pagination-controls" aria-label="{{ _('pagination.navigation') }}">
     {% if pagination.has_prev %}
-    <a class="icon-button pagination-button" href="{{ pagination.prev_url }}" aria-label="Предыдущая страница">
+    <a class="icon-button pagination-button" href="{{ pagination.prev_url }}" aria-label="{{ _('pagination.previous') }}">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
         <path d="m15 18-6-6 6-6" />
       </svg>
@@ -120,7 +120,7 @@
     {% endif %}
     <span class="pagination-page">{{ pagination.current_page }} / {{ pagination.total_pages }}</span>
     {% if pagination.has_next %}
-    <a class="icon-button pagination-button" href="{{ pagination.next_url }}" aria-label="Следующая страница">
+    <a class="icon-button pagination-button" href="{{ pagination.next_url }}" aria-label="{{ _('pagination.next') }}">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
         <path d="m9 18 6-6-6-6" />
       </svg>
@@ -137,9 +137,9 @@
   <div class="pagination-right">
     <div class="pagination-meta">
       {% if pagination.total_items %}
-      {{ pagination.start_item }}–{{ pagination.end_item }} из {{ pagination.total_items }}
+      {{ _('pagination.range', start=pagination.start_item, end=pagination.end_item, total=pagination.total_items) }}
       {% else %}
-      0 записей
+      {{ _('pagination.zero_records') }}
       {% endif %}
     </div>
     <form class="page-size-form" action="/projects/{{ project.id }}" method="get">
@@ -149,7 +149,7 @@
       <input type="hidden" name="type_filter" value="{{ table_filters.type_filter }}">
       <input type="hidden" name="os_filter" value="{{ table_filters.os_filter }}">
       <label>
-        Строк:
+        {{ _('pagination.rows') }}
         <select name="per_page">
           {% for option in pagination.options %}
           <option value="{{ option }}" {% if option == pagination.per_page %}selected{% endif %}>{{ option }}</option>

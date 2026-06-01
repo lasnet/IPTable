@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Проект {{ project.cidr }} - IPtable{% endblock %}
+{% block title %}{{ _('project.title') }} {{ project.cidr }} - IPtable{% endblock %}
 
 {% block content %}
 <section class="project-card">
@@ -28,7 +28,7 @@
           <path d="M3.05 13A9 9 0 1 0 5.6 6.6L3 8" />
           <path d="M12 7v5l3 2" />
         </svg>
-        История
+        {{ _('history.title') }}
       </a>
 
       <a class="soft-button" href="{{ hide_toggle_url }}" data-hide-toggle>
@@ -39,13 +39,13 @@
           <path d="M9.9 4.24A10.8 10.8 0 0 1 12 4c5 0 9.27 3.11 11 8a12.3 12.3 0 0 1-2.16 3.19" />
           <path d="M3 3l18 18" />
         </svg>
-        Показать скрытые
+        {{ _('table.show_hidden') }}
         {% else %}
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
           <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
         </svg>
-        Скрыть пустые
+        {{ _('table.hide_empty') }}
         {% endif %}
       </a>
 
@@ -56,17 +56,17 @@
             <path d="M12 5v14" />
             <path d="M5 12h14" />
           </svg>
-          Столбец
+          {{ _('field.add_column') }}
         </summary>
         <form class="floating-form" action="/projects/{{ project.id }}/fields" method="post">
           {{ csrf_input(request) }}
-          <input name="name" maxlength="120" required placeholder="Название столбца">
+          <input name="name" maxlength="120" required placeholder="{{ _('field.name_placeholder') }}">
           <select name="field_type">
-            <option value="text">Текст</option>
-            <option value="number">Число</option>
-            <option value="date">Дата</option>
+            <option value="text">{{ _('field.text') }}</option>
+            <option value="number">{{ _('field.number') }}</option>
+            <option value="date">{{ _('field.date') }}</option>
           </select>
-          <button type="submit">Добавить</button>
+          <button type="submit">{{ _('button.add') }}</button>
         </form>
       </details>
       {% endif %}
@@ -84,17 +84,17 @@
           {{ csrf_input(request) }}
           <label class="checkbox-line">
             <input type="checkbox" name="enabled" {% if not project_schedule or project_schedule.enabled %}checked{% endif %}>
-            Расписание включено
+            {{ _('schedule.enabled') }}
           </label>
           <label>
-            Интервал, минут
+            {{ _('schedule.interval_minutes') }}
             <input type="number" name="interval_minutes" min="5" max="10080" value="{{ project_schedule_minutes }}" required>
           </label>
           <label class="checkbox-line">
             <input type="checkbox" name="run_now">
-            Запустить сейчас
+            {{ _('schedule.run_now') }}
           </label>
-          <button type="submit">Сохранить</button>
+          <button type="submit">{{ _('button.save') }}</button>
         </form>
       </details>
 
@@ -105,12 +105,12 @@
             <path d="m7 10 5 5 5-5" />
             <path d="M5 21h14" />
           </svg>
-          Экспорт
+          {{ _('export.project') }}
         </summary>
         <form class="floating-form export-form" action="/projects/{{ project.id }}/export" method="post">
           {{ csrf_input(request) }}
           <label>
-            Формат
+            {{ _('common.format') }}
             <select name="export_format">
               <option value="csv">CSV</option>
               <option value="xlsx">XLSX</option>
@@ -118,17 +118,17 @@
           </label>
           <label class="checkbox-line">
             <input type="checkbox" name="use_password" checked data-password-toggle>
-            Поставить пароль
+            {{ _('export.set_password') }}
           </label>
-          <input type="password" name="password" maxlength="200" placeholder="Пароль архива" data-password-input>
-          <button type="submit">Экспорт проекта</button>
+          <input type="password" name="password" maxlength="200" placeholder="{{ _('export.password_placeholder') }}" data-password-input>
+          <button type="submit">{{ _('export.project') }}</button>
         </form>
       </details>
       {% endif %}
 
       {% if current_user.can_edit_inventory or current_user.can_delete_inventory %}
       <details class="field-details">
-        <summary class="icon-button" aria-label="Настройки проекта">
+        <summary class="icon-button" aria-label="{{ _('project.settings') }}">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 12h.01" />
             <path d="M12 5h.01" />
@@ -141,22 +141,22 @@
             {{ csrf_input(request) }}
             <input name="name" maxlength="160" required value="{{ project.name }}">
             <textarea name="description" maxlength="2000" rows="4"
-              placeholder="Описание">{{ project.description }}</textarea>
-            <button type="submit">Сохранить</button>
+              placeholder="{{ _('common.description') }}">{{ project.description }}</textarea>
+            <button type="submit">{{ _('button.save') }}</button>
           </form>
           {% endif %}
           {% if current_user.can_delete_inventory %}
           <form action="/projects/{{ project.id }}/delete" method="post"
-            data-confirm="Удалить подсеть и все IP-записи?">
+            data-confirm="{{ _('confirm.delete_project') }}">
             {{ csrf_input(request) }}
-            <button class="danger-button" type="submit">Удалить проект</button>
+            <button class="danger-button" type="submit">{{ _('project.delete') }}</button>
           </form>
           {% endif %}
         </div>
       </details>
       {% endif %}
       {% if not (current_user.can_edit_inventory or current_user.can_delete_inventory) %}
-      <button class="icon-button" type="button" aria-label="Меню проекта">
+      <button class="icon-button" type="button" aria-label="{{ _('project.menu') }}">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 12h.01" />
           <path d="M12 5h.01" />
@@ -188,7 +188,7 @@
     <label>
       Type
       <select name="type_filter">
-        <option value="">Все типы</option>
+        <option value="">{{ _('filter.all_types') }}</option>
         {% for option in filter_options.types %}
         <option value="{{ option }}" {% if option == table_filters.type_filter %}selected{% endif %}>{{ option }}</option>
         {% endfor %}
@@ -197,7 +197,7 @@
     <label>
       OS
       <select name="os_filter">
-        <option value="">Все OS</option>
+        <option value="">{{ _('filter.all_os') }}</option>
         {% for option in filter_options.oses %}
         <option value="{{ option }}" {% if option == table_filters.os_filter %}selected{% endif %}>{{ option }}</option>
         {% endfor %}
@@ -205,7 +205,7 @@
     </label>
     <a class="soft-button compact-action" data-filter-reset
       href="/projects/{{ project.id }}?hide_empty={{ 'true' if hide_empty else 'false' }}&page=1&per_page={{ pagination.per_page }}">
-      Сбросить
+      {{ _('button.reset') }}
     </a>
   </form>
 

@@ -1,26 +1,28 @@
 <!doctype html>
-<html lang="ru">
+<html lang="{{ html_language }}">
 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}IPtable{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260528-integrations">
-  <script src="{{ url_for('static', path='/app.js') }}?v=20260528-integrations" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260601-i18n">
+  <script src="{{ url_for('static', path='/app.js') }}?v=20260601-i18n" defer></script>
 </head>
 
-<body>
+<body data-i18n-selected-row="{{ _('js.selected_row') }}"
+  data-i18n-unsaved-row="{{ _('js.unsaved_row') }}"
+  data-i18n-unsaved-leave="{{ _('js.unsaved_leave') }}">
   {% if current_user is defined %}
   <header class="topbar">
     <form class="global-search" action="/search" method="get">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
         <path d="m21 21-4.35-4.35m1.35-5.15a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z" />
       </svg>
-      <input type="search" name="q" value="{{ q | default('') }}" placeholder="Поиск по всем проектам и папкам">
+      <input type="search" name="q" value="{{ q | default('') }}" placeholder="{{ _('search.placeholder') }}">
     </form>
     <div class="top-actions">
       {% if current_user.is_admin %}
-      <a class="ghost-button" href="/admin/users">Админ</a>
+      <a class="ghost-button" href="/admin/users">{{ _('nav.admin') }}</a>
       {% endif %}
       <form action="/logout" method="post">
         {{ csrf_input(request) }}
@@ -30,7 +32,7 @@
             <path d="M16 17l5-5-5-5" />
             <path d="M21 12H9" />
           </svg>
-          Выход
+          {{ _('nav.logout') }}
         </button>
       </form>
     </div>
@@ -40,10 +42,10 @@
     <aside class="sidebar">
 
       <div class="folders-title">
-        <span>Папки</span>
+        <span>{{ _('folder.title') }}</span>
         {% if current_user.can_create_inventory %}
-        <a class="add-link" href="{{ request.url.path }}?new_folder=true" title="Добавить папку"
-          aria-label="Добавить папку">
+        <a class="add-link" href="{{ request.url.path }}?new_folder=true" title="{{ _('folder.add') }}"
+          aria-label="{{ _('folder.add') }}">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14" />
             <path d="M5 12h14" />
@@ -55,8 +57,8 @@
       {% if current_user.can_create_inventory and request.query_params.get('new_folder') == 'true' %}
       <form class="sidebar-form compact-form" action="/folders" method="post">
         {{ csrf_input(request) }}
-        <input name="name" maxlength="120" required placeholder="Название папки">
-        <button type="submit">Создать</button>
+        <input name="name" maxlength="120" required placeholder="{{ _('folder.name_placeholder') }}">
+        <button type="submit">{{ _('button.create') }}</button>
       </form>
       {% endif %}
 
@@ -89,14 +91,14 @@
                   <span>{{ item.cidr }}</span>
                 </a>
                 {% else %}
-                <span class="tree-empty">Нет проектов</span>
+                <span class="tree-empty">{{ _('folder.no_projects') }}</span>
                 {% endfor %}
               </div>
             </details>
             <div class="folder-tools">
               {% if current_user.can_create_inventory %}
             <a class="add-link folder-add" href="{{ request.url.path }}?new_project_folder={{ folder.id }}"
-              title="Добавить проект" aria-label="Добавить проект">
+              title="{{ _('project.add') }}" aria-label="{{ _('project.add') }}">
               <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 5v14" />
                 <path d="M5 12h14" />
@@ -105,7 +107,7 @@
               {% endif %}
               {% if current_user.can_edit_inventory or current_user.can_delete_inventory %}
               <a class="add-link folder-add" href="{{ request.url.path }}?edit_folder={{ folder.id }}"
-                title="Редактировать папку" aria-label="Редактировать папку">
+                title="{{ _('folder.edit') }}" aria-label="{{ _('folder.edit') }}">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M12 20h9" />
                   <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
@@ -114,14 +116,14 @@
               {% endif %}
               {% if current_user.is_admin %}
               <a class="add-link folder-add" href="{{ request.url.path }}?schedule_folder={{ folder.id }}"
-                title="Расписание ping" aria-label="Расписание ping">
+                title="{{ _('folder.schedule') }}" aria-label="{{ _('folder.schedule') }}">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M12 8v5l3 2" />
                   <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
                 </svg>
               </a>
               <a class="add-link folder-add" href="{{ request.url.path }}?export_folder={{ folder.id }}"
-                title="Экспорт папки" aria-label="Экспорт папки">
+                title="{{ _('export.folder') }}" aria-label="{{ _('export.folder') }}">
                 <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M12 3v12" />
                   <path d="m7 10 5 5 5-5" />
@@ -135,22 +137,22 @@
           {% set folder_schedule = folder_schedules.get(folder.id) if folder_schedules is defined else none %}
           <div class="sidebar-form compact-form">
             <div class="form-hint">
-              Расписание папки ставит ping-задачи для всех проектов внутри нее. Worker выполнит их последовательно.
+              {{ _('folder.schedule_hint') }}
             </div>
             <form class="stack-form" action="/folders/{{ folder.id }}/schedule" method="post">
               {{ csrf_input(request) }}
               <label class="checkbox-line">
                 <input type="checkbox" name="enabled" {% if not folder_schedule or folder_schedule.enabled %}checked{% endif %}>
-                Расписание включено
+                {{ _('schedule.enabled') }}
               </label>
               <input type="number" name="interval_minutes" min="5" max="10080"
                 value="{{ ((folder_schedule.interval_seconds if folder_schedule else default_ping_interval_minutes * 60) / 60) | round | int }}"
                 required>
               <label class="checkbox-line">
                 <input type="checkbox" name="run_now">
-                Запустить сейчас
+                {{ _('schedule.run_now') }}
               </label>
-              <button type="submit">Сохранить расписание</button>
+              <button type="submit">{{ _('schedule.save') }}</button>
             </form>
           </div>
           {% endif %}
@@ -158,34 +160,31 @@
           <form class="sidebar-form compact-form project-form" action="/projects" method="post" enctype="multipart/form-data">
             {{ csrf_input(request) }}
             <input type="hidden" name="folder_id" value="{{ folder.id }}">
-            <input name="name" maxlength="160" required placeholder="Название проекта">
+            <input name="name" maxlength="160" required placeholder="{{ _('project.name_placeholder') }}">
             <input name="cidr" maxlength="64" placeholder="172.16.16.0/24">
-            <textarea name="description" maxlength="2000" rows="3" placeholder="Комментарий"></textarea>
+            <textarea name="description" maxlength="2000" rows="3" placeholder="{{ _('project.description_placeholder') }}"></textarea>
             {% if current_user.is_admin or (current_user.can_create and current_user.can_edit) %}
             <details class="import-details">
-              <summary class="soft-button compact-action">Импортировать из CSV/XLSX</summary>
+              <summary class="soft-button compact-action">{{ _('import.open') }}</summary>
               <div class="form-hint">
-                CSV: <strong>ip;hostname;os;type;comment</strong>, разделитель - точка с запятой.
-                XLSX: те же заголовки в первой строке. Дополнительно можно указать колонку <strong>tags</strong>.
-                IP-адреса должны быть IPv4, без дублей, без network/broadcast адресов.
-                Подсеть будет рассчитана автоматически.
+                {{ _('import.hint') }}
               </div>
               <input type="file" name="csv_file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-              <button type="submit" formaction="/folders/{{ folder.id }}/projects/import">Загрузить файл и создать</button>
+              <button type="submit" formaction="/folders/{{ folder.id }}/projects/import">{{ _('import.create_from_file') }}</button>
             </details>
             {% endif %}
-            <button type="submit">Создать</button>
+            <button type="submit">{{ _('button.create') }}</button>
           </form>
           {% endif %}
           {% if current_user.is_admin and request.query_params.get('export_folder') == folder.id|string %}
           <div class="sidebar-form compact-form">
             <div class="form-hint">
-              Экспортирует все проекты папки в ZIP-архив с отдельным файлом для каждой подсети.
+              {{ _('export.folder_hint') }}
             </div>
             <form class="stack-form export-form" action="/folders/{{ folder.id }}/export" method="post">
               {{ csrf_input(request) }}
               <label>
-                Формат
+                {{ _('common.format') }}
                 <select name="export_format">
                   <option value="csv">CSV</option>
                   <option value="xlsx">XLSX</option>
@@ -193,10 +192,10 @@
               </label>
               <label class="checkbox-line">
                 <input type="checkbox" name="use_password" checked data-password-toggle>
-                Поставить пароль
+                {{ _('export.set_password') }}
               </label>
-              <input type="password" name="password" maxlength="200" placeholder="Пароль архива" data-password-input>
-              <button type="submit">Экспорт папки</button>
+              <input type="password" name="password" maxlength="200" placeholder="{{ _('export.password_placeholder') }}" data-password-input>
+              <button type="submit">{{ _('export.folder') }}</button>
             </form>
           </div>
           {% endif %}
@@ -206,20 +205,20 @@
             <form class="stack-form" action="/folders/{{ folder.id }}/update" method="post">
               {{ csrf_input(request) }}
               <input name="name" maxlength="120" required value="{{ folder.name }}">
-              <button type="submit">Сохранить</button>
+              <button type="submit">{{ _('button.save') }}</button>
             </form>
             {% endif %}
             {% if current_user.can_delete_inventory %}
-            <form action="/folders/{{ folder.id }}/delete" method="post" data-confirm="Удалить папку и все проекты внутри?">
+            <form action="/folders/{{ folder.id }}/delete" method="post" data-confirm="{{ _('confirm.delete_folder') }}">
               {{ csrf_input(request) }}
-              <button class="danger-button" type="submit">Удалить папку</button>
+              <button class="danger-button" type="submit">{{ _('folder.delete') }}</button>
             </form>
             {% endif %}
           </div>
           {% endif %}
         </div>
         {% else %}
-        <div class="tree-empty-state">Создайте первую папку.</div>
+        <div class="tree-empty-state">{{ _('folder.create_first') }}</div>
         {% endfor %}
       </nav>
     </aside>

@@ -3,13 +3,21 @@
   let allowSubmit = false;
 
   const editableSelector = ".asset-table input:not([type='hidden']):not([type='checkbox']), .asset-table textarea, .asset-table select";
+  const i18n = document.body.dataset;
+
+  function formatMessage(template, values) {
+    return Object.entries(values).reduce(
+      (message, [key, value]) => message.replaceAll(`{${key}}`, value),
+      template
+    );
+  }
 
   function rowFor(element) {
     return element.closest("tr");
   }
 
   function rowAddress(row) {
-    return row?.dataset.rowAddress || "выбранной строки";
+    return row?.dataset.rowAddress || i18n.i18nSelectedRow || "selected row";
   }
 
   function firstEditable(row) {
@@ -28,7 +36,8 @@
   }
 
   function warnAboutDirtyRow() {
-    window.alert(`Есть несохраненные изменения в строке ${rowAddress(dirtyRow)}. Сначала нажмите Save для этой строки.`);
+    const template = i18n.i18nUnsavedRow || "There are unsaved changes in row {row}. Press Save for this row first.";
+    window.alert(formatMessage(template, { row: rowAddress(dirtyRow) }));
     focusDirtyRow();
   }
 
@@ -224,9 +233,8 @@
       return;
     }
 
-    const allowLeave = window.confirm(
-      `Есть несохраненные изменения в строке ${rowAddress(dirtyRow)}. Перейти без сохранения?`
-    );
+    const leaveTemplate = i18n.i18nUnsavedLeave || "There are unsaved changes in row {row}. Leave without saving?";
+    const allowLeave = window.confirm(formatMessage(leaveTemplate, { row: rowAddress(dirtyRow) }));
     if (!allowLeave) {
       event.preventDefault();
       focusDirtyRow();

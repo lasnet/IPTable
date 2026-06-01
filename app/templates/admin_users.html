@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Админ-панель - IPtable{% endblock %}
+{% block title %}{{ _('admin.title') }} - IPtable{% endblock %}
 
 {% block content %}
 <section class="project-card admin-card">
@@ -15,149 +15,149 @@
         </svg>
       </div>
       <div>
-        <h2>Админ-панель</h2>
-        <p class="subtle">Создание пользователей и назначение прав доступа.</p>
+        <h2>{{ _('admin.title') }}</h2>
+        <p class="subtle">{{ _('admin.description') }}</p>
       </div>
     </div>
   </div>
 
   <div class="admin-layout">
     <section class="admin-section">
-      <h3>Новый пользователь</h3>
+      <h3>{{ _('admin.new_user') }}</h3>
       <form class="admin-form" action="/admin/users" method="post">
         {{ csrf_input(request) }}
         <div class="form-grid">
           <label>
-            Логин
+            {{ _('common.username') }}
             <input name="username" minlength="3" maxlength="80" required>
           </label>
           <label>
-            Пароль
+            {{ _('common.password') }}
             <input name="password" type="password" minlength="8" maxlength="200" required>
           </label>
           <label>
-            Имя
+            {{ _('admin.first_name') }}
             <input name="first_name" maxlength="120">
           </label>
           <label>
-            Фамилия
+            {{ _('admin.last_name') }}
             <input name="last_name" maxlength="120">
           </label>
         </div>
         <label>
-          Описание
+          {{ _('common.description') }}
           <textarea name="description" maxlength="2000" rows="3"></textarea>
         </label>
         <div class="permission-grid">
-          <label><input type="checkbox" name="is_active" checked> Пользователь активен</label>
-          <label><input type="checkbox" name="can_create"> Разрешить создание</label>
-          <label><input type="checkbox" name="can_edit"> Разрешить редактирование</label>
-          <label><input type="checkbox" name="can_delete"> Разрешить удаление</label>
-          <label><input type="checkbox" name="can_manage_columns"> Редактирование столбцов</label>
+          <label><input type="checkbox" name="is_active" checked> {{ _('admin.user_active') }}</label>
+          <label><input type="checkbox" name="can_create"> {{ _('admin.allow_create') }}</label>
+          <label><input type="checkbox" name="can_edit"> {{ _('admin.allow_edit') }}</label>
+          <label><input type="checkbox" name="can_delete"> {{ _('admin.allow_delete') }}</label>
+          <label><input type="checkbox" name="can_manage_columns"> {{ _('admin.edit_columns') }}</label>
         </div>
-        <button type="submit">Создать пользователя</button>
+        <button type="submit">{{ _('admin.create_user') }}</button>
       </form>
     </section>
 
     <section class="admin-section">
-      <h3>Пользователи</h3>
+      <h3>{{ _('admin.users') }}</h3>
       <div class="users-list">
         {% for user in users %}
         <article class="user-row">
           <div>
             <strong>{{ user.username }}</strong>
             {% if user.is_admin %}<span class="role-badge">admin</span>{% endif %}
-            {% if not user.is_active %}<span class="status-badge inactive">отключен</span>{% endif %}
+            {% if not user.is_active %}<span class="status-badge inactive">{{ _('admin.disabled') }}</span>{% endif %}
             {% if user.first_name or user.last_name %}
             <p>{{ user.first_name }} {{ user.last_name }}</p>
             {% endif %}
             {% if user.description %}<small>{{ user.description }}</small>{% endif %}
           </div>
           <div class="user-permissions">
-            <span class="{{ 'enabled' if user.can_create_inventory else '' }}">создание</span>
-            <span class="{{ 'enabled' if user.can_edit_inventory else '' }}">редактирование</span>
-            <span class="{{ 'enabled' if user.can_delete_inventory else '' }}">удаление</span>
-            <span class="{{ 'enabled' if user.can_manage_project_columns else '' }}">столбцы</span>
+            <span class="{{ 'enabled' if user.can_create_inventory else '' }}">{{ _('admin.permission_create') }}</span>
+            <span class="{{ 'enabled' if user.can_edit_inventory else '' }}">{{ _('admin.permission_edit') }}</span>
+            <span class="{{ 'enabled' if user.can_delete_inventory else '' }}">{{ _('admin.permission_delete') }}</span>
+            <span class="{{ 'enabled' if user.can_manage_project_columns else '' }}">{{ _('admin.permission_columns') }}</span>
           </div>
           <details class="user-editor">
-            <summary class="soft-button compact-action">Редактировать</summary>
+            <summary class="soft-button compact-action">{{ _('admin.edit') }}</summary>
             {% if user.is_admin %}
             <div class="form-hint">
-              Логин и права администратора задаются через <strong>INITIAL_ADMIN_USERNAME</strong> в .env. Учетную запись администратора нельзя удалить.
+              {{ _('admin.hint') }}
             </div>
             <form class="admin-form" action="/admin/users/{{ user.id }}/update" method="post">
               {{ csrf_input(request) }}
               <div class="form-grid">
                 <label>
-                  Логин
+                  {{ _('common.username') }}
                   <input name="username" minlength="3" maxlength="80" required readonly value="{{ user.username }}">
                 </label>
                 <label>
-                  Новый пароль
-                  <input name="password" type="password" minlength="8" maxlength="200" placeholder="Оставьте пустым, чтобы не менять">
+                  {{ _('admin.new_password') }}
+                  <input name="password" type="password" minlength="8" maxlength="200" placeholder="{{ _('password.keep_empty') }}">
                 </label>
                 <label>
-                  Имя
+                  {{ _('admin.first_name') }}
                   <input name="first_name" maxlength="120" value="{{ user.first_name }}">
                 </label>
                 <label>
-                  Фамилия
+                  {{ _('admin.last_name') }}
                   <input name="last_name" maxlength="120" value="{{ user.last_name }}">
                 </label>
               </div>
               <label>
-                Описание
+                {{ _('common.description') }}
                 <textarea name="description" maxlength="2000" rows="3">{{ user.description }}</textarea>
               </label>
               <div class="permission-grid">
-                <label><input type="checkbox" checked disabled> Администратор активен</label>
+                <label><input type="checkbox" checked disabled> {{ _('admin.active_admin') }}</label>
               </div>
-              <button type="submit">Сохранить администратора</button>
+              <button type="submit">{{ _('admin.save_admin') }}</button>
             </form>
             {% else %}
             <form class="admin-form" action="/admin/users/{{ user.id }}/update" method="post">
               {{ csrf_input(request) }}
               <div class="form-grid">
                 <label>
-                  Логин
+                  {{ _('common.username') }}
                   <input name="username" minlength="3" maxlength="80" required value="{{ user.username }}">
                 </label>
                 <label>
-                  Новый пароль
-                  <input name="password" type="password" minlength="8" maxlength="200" placeholder="Оставьте пустым, чтобы не менять">
+                  {{ _('admin.new_password') }}
+                  <input name="password" type="password" minlength="8" maxlength="200" placeholder="{{ _('password.keep_empty') }}">
                 </label>
                 <label>
-                  Имя
+                  {{ _('admin.first_name') }}
                   <input name="first_name" maxlength="120" value="{{ user.first_name }}">
                 </label>
                 <label>
-                  Фамилия
+                  {{ _('admin.last_name') }}
                   <input name="last_name" maxlength="120" value="{{ user.last_name }}">
                 </label>
               </div>
               <label>
-                Описание
+                {{ _('common.description') }}
                 <textarea name="description" maxlength="2000" rows="3">{{ user.description }}</textarea>
               </label>
               <div class="permission-grid">
-                <label><input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %}> Пользователь активен</label>
-                <label><input type="checkbox" name="can_create" {% if user.can_create %}checked{% endif %}> Разрешить создание</label>
-                <label><input type="checkbox" name="can_edit" {% if user.can_edit %}checked{% endif %}> Разрешить редактирование</label>
-                <label><input type="checkbox" name="can_delete" {% if user.can_delete %}checked{% endif %}> Разрешить удаление</label>
-                <label><input type="checkbox" name="can_manage_columns" {% if user.can_manage_columns %}checked{% endif %}> Редактирование столбцов</label>
+                <label><input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %}> {{ _('admin.user_active') }}</label>
+                <label><input type="checkbox" name="can_create" {% if user.can_create %}checked{% endif %}> {{ _('admin.allow_create') }}</label>
+                <label><input type="checkbox" name="can_edit" {% if user.can_edit %}checked{% endif %}> {{ _('admin.allow_edit') }}</label>
+                <label><input type="checkbox" name="can_delete" {% if user.can_delete %}checked{% endif %}> {{ _('admin.allow_delete') }}</label>
+                <label><input type="checkbox" name="can_manage_columns" {% if user.can_manage_columns %}checked{% endif %}> {{ _('admin.edit_columns') }}</label>
               </div>
-              <button type="submit">Сохранить пользователя</button>
+              <button type="submit">{{ _('admin.save_user') }}</button>
             </form>
             <form class="delete-user-form" action="/admin/users/{{ user.id }}/delete" method="post"
-              data-confirm="Удалить пользователя {{ user.username }}?">
+              data-confirm="{{ _('confirm.delete_user', username=user.username) }}">
               {{ csrf_input(request) }}
-              <button class="danger-button" type="submit">Удалить пользователя</button>
+              <button class="danger-button" type="submit">{{ _('admin.delete_user') }}</button>
             </form>
             {% endif %}
           </details>
         </article>
         {% else %}
-        <div class="empty-table">Пользователей пока нет.</div>
+        <div class="empty-table">{{ _('admin.no_users') }}</div>
         {% endfor %}
       </div>
     </section>

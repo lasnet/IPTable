@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Вход - IPtable{% endblock %}
+{% block title %}{{ _('login.title') }} - IPtable{% endblock %}
 
 {% block auth_content %}
 <main class="login-page">
@@ -8,22 +8,22 @@
     <div class="login-mark">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v5"/><path d="M5 21v-3a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v3"/><path d="M8 8h8v5H8z"/><path d="M3 21h18"/><path d="M7 21v-3"/><path d="M17 21v-3"/></svg>
     </div>
-    <h1>Вход в IPtable</h1>
-    <p>Доступ разрешен только зарегистрированным пользователям.</p>
+    <h1>{{ _('login.title') }}</h1>
+    <p>{{ _('login.subtitle') }}</p>
     {% if error %}
       <div class="notice error">{{ error }}</div>
     {% endif %}
     <form class="login-form" action="/login" method="post">
       {{ csrf_input(request) }}
       <label>
-        Логин
+        {{ _('common.username') }}
         <input name="username" autocomplete="username" maxlength="80" required autofocus>
       </label>
       <label>
-        Пароль
+        {{ _('login.password') }}
         <input name="password" type="password" autocomplete="current-password" maxlength="200" required>
       </label>
-      <button type="submit">Войти</button>
+      <button type="submit">{{ _('login.submit') }}</button>
     </form>
   </section>
 </main>

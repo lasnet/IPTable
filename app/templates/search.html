@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Поиск - IPtable{% endblock %}
+{% block title %}{{ _('search.global') }} - IPtable{% endblock %}
 
 {% block content %}
 <section class="project-card search-card">
@@ -10,41 +10,41 @@
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m1.35-5.15a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z"/></svg>
       </div>
       <div>
-        <h2>Глобальный поиск</h2>
-        <p class="subtle">Папки, проекты, IP-адреса, hostname, OS, type и комментарии.</p>
+        <h2>{{ _('search.global') }}</h2>
+        <p class="subtle">{{ _('search.subtitle') }}</p>
       </div>
     </div>
   </div>
 
   {% if not q %}
-    <div class="empty-table">Введите запрос в верхней строке поиска.</div>
+    <div class="empty-table">{{ _('search.empty') }}</div>
   {% else %}
     <div class="search-sections">
       <section>
-        <h3>Папки</h3>
+        <h3>{{ _('search.folders') }}</h3>
         {% for folder in found_folders %}
           <div class="result-row">
             <strong>{{ folder.name }}</strong>
           </div>
         {% else %}
-          <p class="subtle">Ничего не найдено.</p>
+          <p class="subtle">{{ _('search.no_results') }}</p>
         {% endfor %}
       </section>
 
       <section>
-        <h3>Проекты</h3>
+        <h3>{{ _('search.projects') }}</h3>
         {% for item in projects %}
           <a class="result-row link-row" href="/projects/{{ item.id }}">
             <strong>{{ item.cidr }}</strong>
             <span>{{ item.folder.name }} / {{ item.name }}</span>
           </a>
         {% else %}
-          <p class="subtle">Ничего не найдено.</p>
+          <p class="subtle">{{ _('search.no_results') }}</p>
         {% endfor %}
       </section>
 
       <section>
-        <h3>IP-записи</h3>
+        <h3>{{ _('search.ip_records') }}</h3>
         {% for ip in ip_records %}
           {% set target_page = ((ip.ordinal - 1) // project_page_size) + 1 %}
           <a class="result-row link-row" href="/projects/{{ ip.project.id }}?hide_empty=false&page={{ target_page }}&per_page={{ project_page_size }}#ip-{{ ip.id }}">
@@ -53,7 +53,7 @@
             <small>{{ ip.hostname }} {{ ip.os }} {{ ip.asset_type }} {{ ip.comment }} {{ tags_to_text(ip.tags) }}</small>
           </a>
         {% else %}
-          <p class="subtle">Ничего не найдено.</p>
+          <p class="subtle">{{ _('search.no_results') }}</p>
         {% endfor %}
       </section>
     </div>

@@ -24,6 +24,7 @@ from app.services.csv_io import (
 )
 from app.services.inventory import create_custom_field, create_project_with_addresses
 from app.services.history import FieldChange, build_field_change, record_ip_address_history
+from app.services.i18n import translate, translate_error_message
 from app.services.network import NetworkValidationError
 from app.services.ping import (
     PING_SCHEDULE_FOLDER,
@@ -48,6 +49,14 @@ def _templates(request: Request):
 
 def _clean_text(value: str, max_len: int) -> str:
     return value.strip()[:max_len]
+
+
+def _ui(key: str, **kwargs) -> str:
+    return translate(get_settings().interface_language, key, **kwargs)
+
+
+def _ui_error(message: str) -> str:
+    return translate_error_message(get_settings().interface_language, message)
 
 
 def _redirect(path: str) -> RedirectResponse:
@@ -116,7 +125,7 @@ def require_user(
 
     if now - last_activity_at > settings.session_idle_timeout_seconds:
         request.session.clear()
-        raise _login_redirect("Сессия истекла из-за бездействия. Войдите снова.")
+        raise _login_redirect(_ui("session.expired"))
 
     try:
         user_pk = int(user_id)
@@ -151,7 +160,7 @@ def _client_ip(request: Request) -> str:
 
 def _login_rate_limit_message(retry_after_seconds: int) -> str:
     retry_after_minutes = max(1, (retry_after_seconds + 59) // 60)
-    return f"Слишком много попыток входа. Повторите через {retry_after_minutes} мин."
+    return _ui("login.rate_limited", minutes=retry_after_minutes)
 
 
 def _can_import_csv(user: User) -> bool:
@@ -373,7 +382,7 @@ def login(
         )
         if retry_after is not None:
             return _redirect_error("/login", _login_rate_limit_message(retry_after))
-        return _redirect_error("/login", "Неверный логин или пароль")
+        return _redirect_error("/login", _ui("login.invalid"))
 
     reset_login_failures(db, client_ip, username)
     request.session.clear()
@@ -424,22 +433,22 @@ def create_folder(
     name: Annotated[str, Form(min_length=1, max_length=120)],
 ) -> RedirectResponse:
     if not current_user.can_create_inventory:
-        return _redirect_error("/", "Недостаточно прав для создания папок")
+        return _redirect_error("/", _ui("folder.create_denied"))
 
     clean_name = _clean_text(name, 120)
     if not clean_name:
-        return _redirect_error("/", "Название папки не может быть пустым")
+        return _redirect_error("/", _ui("folder.name_empty"))
 
     existing = db.scalar(select(Folder).where(func.lower(Folder.name) == clean_name.lower()))
     if existing:
-        return _redirect_error("/", "Папка с таким именем уже существует")
+        return _redirect_error("/", _ui("folder.duplicate"))
 
     db.add(Folder(name=clean_name))
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-        return _redirect_error("/", "Папка с таким именем уже существует")
+        return _redirect_error("/", _ui("folder.duplicate"))
     return _redirect("/")
 
 
@@ -451,22 +460,22 @@ def update_folder(
     name: Annotated[str, Form(min_length=1, max_length=120)],
 ) -> RedirectResponse:
     if not current_user.can_edit_inventory:
-        return _redirect_error("/", "Недостаточно прав для редактирования папок")
+        return _redirect_error("/", _ui("folder.edit_denied"))
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", "Папка не найдена")
+        return _redirect_error("/", _ui("folder.not_found"))
 
     clean_name = _clean_text(name, 120)
     if not clean_name:
-        return _redirect_error("/", "Название папки не может быть пустым")
+        return _redirect_error("/", _ui("folder.name_empty"))
 
     folder.name = clean_name
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-        return _redirect_error("/", "Папка с таким именем уже существует")
+        return _redirect_error("/", _ui("folder.duplicate"))
     return _redirect("/")
 
 
@@ -477,11 +486,11 @@ def delete_folder(
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
     if not current_user.can_delete_inventory:
-        return _redirect_error("/", "Недостаточно прав для удаления папок")
+        return _redirect_error("/", _ui("folder.delete_denied"))
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", "Папка не найдена")
+        return _redirect_error("/", _ui("folder.not_found"))
 
     db.delete(folder)
     db.commit()
@@ -499,25 +508,25 @@ async def create_project(
     description: Annotated[str, Form(max_length=2000)] = "",
 ) -> RedirectResponse:
     if not current_user.can_create_inventory:
-        return _redirect_error("/", "Недостаточно прав для создания проектов")
+        return _redirect_error("/", _ui("project.create_denied"))
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", "Папка не найдена")
+        return _redirect_error("/", _ui("folder.not_found"))
 
     clean_name = _clean_text(name, 160)
     if not clean_name:
-        return _redirect_error("/", "Название проекта не может быть пустым")
+        return _redirect_error("/", _ui("project.name_empty"))
 
     clean_cidr = _clean_text(cidr, 64)
     if not clean_cidr:
-        return _redirect_error("/", "CIDR подсети обязателен для ручного создания проекта")
+        return _redirect_error("/", _ui("project.cidr_required"))
 
     existing = db.scalar(
         select(Project).where(Project.folder_id == folder.id, func.lower(Project.name) == clean_name.lower())
     )
     if existing:
-        return _redirect_error("/", "Проект с таким именем уже существует в выбранной папке")
+        return _redirect_error("/", _ui("project.duplicate"))
 
     try:
         project = create_project_with_addresses(
@@ -529,10 +538,10 @@ async def create_project(
             max_addresses=settings.max_project_addresses,
         )
     except NetworkValidationError as exc:
-        return _redirect_error("/", str(exc))
+        return _redirect_error("/", _ui_error(str(exc)))
     except IntegrityError:
         db.rollback()
-        return _redirect_error("/", "Не удалось создать проект: проверьте уникальность имени")
+        return _redirect_error("/", _ui("project.create_failed_unique"))
 
     ensure_project_ping_schedule(db, project.id, settings)
     enqueue_project_ping(db, project.id, reason="project-created")
@@ -553,32 +562,32 @@ async def import_project_csv(
     if not _can_import_csv(current_user):
         return _redirect_error(
             error_path,
-            "Импорт доступен только администратору или пользователю с правами создания и редактирования",
+            _ui("import.denied"),
         )
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", "Папка не найдена")
+        return _redirect_error("/", _ui("folder.not_found"))
 
     clean_name = _clean_text(name, 160)
     if not clean_name:
-        return _redirect_error(error_path, "Название проекта обязательно для импорта")
+        return _redirect_error(error_path, _ui("import.name_required"))
 
     if not csv_file.filename:
-        return _redirect_error(error_path, "Выберите CSV или XLSX-файл для импорта")
+        return _redirect_error(error_path, _ui("import.file_required"))
 
     content = await csv_file.read(settings.csv_import_max_bytes + 1)
     if len(content) > settings.csv_import_max_bytes:
         return _redirect_error(
             error_path,
-            f"Файл импорта слишком большой. Лимит: {settings.csv_import_max_bytes} байт",
+            _ui("import.file_too_large", max_bytes=settings.csv_import_max_bytes),
         )
 
     existing = db.scalar(
         select(Project).where(Project.folder_id == folder.id, func.lower(Project.name) == clean_name.lower())
     )
     if existing:
-        return _redirect_error(error_path, "Проект с таким именем уже существует в выбранной папке")
+        return _redirect_error(error_path, _ui("project.duplicate"))
 
     try:
         import_result = parse_assets_file(
@@ -601,7 +610,7 @@ async def import_project_csv(
         for row in import_result.rows:
             ip_record = records_by_address.get(row.address)
             if ip_record is None:
-                raise CSVImportError(f"IP {row.address} не входит в рассчитанную подсеть {import_result.cidr}")
+                raise CSVImportError(_ui("import.ip_outside_subnet", address=row.address, cidr=import_result.cidr))
             ip_record.hostname = row.hostname
             ip_record.os = row.os
             ip_record.asset_type = row.asset_type
@@ -610,20 +619,20 @@ async def import_project_csv(
         db.commit()
     except CSVImportError as exc:
         db.rollback()
-        return _redirect_error(error_path, str(exc))
+        return _redirect_error(error_path, _ui_error(str(exc)))
     except NetworkValidationError as exc:
         db.rollback()
-        return _redirect_error(error_path, str(exc))
+        return _redirect_error(error_path, _ui_error(str(exc)))
     except IntegrityError:
         db.rollback()
-        return _redirect_error(error_path, "Не удалось импортировать файл: проверьте уникальность проекта")
+        return _redirect_error(error_path, _ui("import.failed_unique"))
 
     ensure_project_ping_schedule(db, project.id, settings)
     enqueue_project_ping(db, project.id, reason="project-imported")
 
     return _redirect_message(
         f"/projects/{project.id}?hide_empty=true",
-        f"Файл импортирован: {len(import_result.rows)} строк, рассчитанная подсеть {project.cidr}. Ping-проверка поставлена в очередь",
+        _ui("import.success", rows=len(import_result.rows), cidr=project.cidr),
     )
 
 
@@ -636,15 +645,15 @@ def update_project(
     description: Annotated[str, Form(max_length=2000)] = "",
 ) -> RedirectResponse:
     if not current_user.can_edit_inventory:
-        return _redirect_error(f"/projects/{project_id}", "Недостаточно прав для редактирования проектов")
+        return _redirect_error(f"/projects/{project_id}", _ui("project.edit_denied"))
 
     project = db.get(Project, project_id)
     if project is None:
-        return _redirect_error("/", "Проект не найден")
+        return _redirect_error("/", _ui("project.not_found"))
 
     clean_name = _clean_text(name, 160)
     if not clean_name:
-        return _redirect_error(f"/projects/{project_id}", "Название проекта не может быть пустым")
+        return _redirect_error(f"/projects/{project_id}", _ui("project.name_empty"))
 
     project.name = clean_name
     project.description = _clean_text(description, 2000)
@@ -652,7 +661,7 @@ def update_project(
         db.commit()
     except IntegrityError:
         db.rollback()
-        return _redirect_error(f"/projects/{project_id}", "Проект с таким именем уже существует в выбранной папке")
+        return _redirect_error(f"/projects/{project_id}", _ui("project.duplicate"))
     return _redirect(f"/projects/{project_id}")
 
 
@@ -663,11 +672,11 @@ def delete_project(
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
     if not current_user.can_delete_inventory:
-        return _redirect_error(f"/projects/{project_id}", "Недостаточно прав для удаления проектов")
+        return _redirect_error(f"/projects/{project_id}", _ui("project.delete_denied"))
 
     project = db.get(Project, project_id)
     if project is None:
-        return _redirect_error("/", "Проект не найден")
+        return _redirect_error("/", _ui("project.not_found"))
 
     db.delete(project)
     db.commit()
@@ -685,7 +694,7 @@ def update_project_ping_schedule(
 ) -> RedirectResponse:
     project = db.get(Project, project_id)
     if project is None:
-        return _redirect_error("/", "Проект не найден")
+        return _redirect_error("/", _ui("project.not_found"))
 
     set_project_ping_schedule(
         db,
@@ -695,9 +704,9 @@ def update_project_ping_schedule(
     )
     if _checked(run_now):
         enqueue_project_ping(db, project.id, reason="manual")
-        return _redirect_message(f"/projects/{project.id}", "Расписание сохранено, ping-проверка поставлена в очередь")
+        return _redirect_message(f"/projects/{project.id}", _ui("schedule.project_saved_queued"))
 
-    return _redirect_message(f"/projects/{project.id}", "Расписание ping-проверки сохранено")
+    return _redirect_message(f"/projects/{project.id}", _ui("schedule.project_saved"))
 
 
 @router.post("/folders/{folder_id}/schedule")
@@ -711,7 +720,7 @@ def update_folder_ping_schedule(
 ) -> RedirectResponse:
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", "Папка не найдена")
+        return _redirect_error("/", _ui("folder.not_found"))
 
     set_folder_ping_schedule(
         db,
@@ -726,9 +735,9 @@ def update_folder_ping_schedule(
         for project_id in project_ids:
             enqueue_project_ping(db, project_id, reason="manual-folder", commit=False)
         db.commit()
-        return _redirect_message("/", "Расписание папки сохранено, проекты поставлены в очередь ping")
+        return _redirect_message("/", _ui("schedule.folder_saved_queued"))
 
-    return _redirect_message("/", "Расписание ping-проверки папки сохранено")
+    return _redirect_message("/", _ui("schedule.folder_saved"))
 
 
 @router.get("/projects/{project_id}", response_class=HTMLResponse)
@@ -846,7 +855,7 @@ def project_detail(
         },
         "filter_options": {
             "ping_statuses": [
-                {"value": "", "label": "Все статусы"},
+                {"value": "", "label": _ui("filter.all_statuses")},
                 {"value": "notest", "label": "NoTest"},
                 {"value": "ok", "label": "OK"},
                 {"value": "no", "label": "NO"},
@@ -909,11 +918,11 @@ def admin_create_user(
 ) -> RedirectResponse:
     clean_username = _clean_text(username, 80)
     if not clean_username:
-        return _redirect_error("/admin/users", "Логин не может быть пустым")
+        return _redirect_error("/admin/users", _ui("admin.username_empty"))
 
     existing = db.scalar(select(User).where(func.lower(User.username) == clean_username.lower()))
     if existing:
-        return _redirect_error("/admin/users", "Пользователь с таким логином уже существует")
+        return _redirect_error("/admin/users", _ui("admin.duplicate"))
 
     try:
         create_user(
@@ -931,7 +940,7 @@ def admin_create_user(
         )
     except IntegrityError:
         db.rollback()
-        return _redirect_error("/admin/users", "Не удалось создать пользователя: логин должен быть уникальным")
+        return _redirect_error("/admin/users", _ui("admin.create_failed_unique"))
 
     return _redirect("/admin/users")
 
@@ -954,23 +963,23 @@ def admin_update_user(
 ) -> RedirectResponse:
     user = db.get(User, user_id)
     if user is None:
-        return _redirect_error("/admin/users", "Пользователь не найден")
+        return _redirect_error("/admin/users", _ui("admin.user_not_found"))
 
     clean_username = _clean_text(username, 80)
     if not clean_username:
-        return _redirect_error("/admin/users", "Логин не может быть пустым")
+        return _redirect_error("/admin/users", _ui("admin.username_empty"))
     if user.is_admin and clean_username.lower() != user.username.lower():
-        return _redirect_error("/admin/users", "Логин администратора задается через .env")
+        return _redirect_error("/admin/users", _ui("admin.username_env"))
 
     existing = db.scalar(
         select(User).where(func.lower(User.username) == clean_username.lower(), User.id != user.id)
     )
     if existing:
-        return _redirect_error("/admin/users", "Пользователь с таким логином уже существует")
+        return _redirect_error("/admin/users", _ui("admin.duplicate"))
 
     clean_password = password.strip()
     if clean_password and len(clean_password) < 8:
-        return _redirect_error("/admin/users", "Новый пароль должен быть не короче 8 символов")
+        return _redirect_error("/admin/users", _ui("admin.password_too_short"))
 
     user.username = clean_username
     user.first_name = _clean_text(first_name, 120)
@@ -995,9 +1004,9 @@ def admin_update_user(
         db.commit()
     except IntegrityError:
         db.rollback()
-        return _redirect_error("/admin/users", "Не удалось обновить пользователя: логин должен быть уникальным")
+        return _redirect_error("/admin/users", _ui("admin.update_failed_unique"))
 
-    return _redirect_message("/admin/users", "Пользователь обновлен")
+    return _redirect_message("/admin/users", _ui("admin.updated"))
 
 
 @router.post("/admin/users/{user_id}/delete")
@@ -1008,15 +1017,15 @@ def admin_delete_user(
 ) -> RedirectResponse:
     user = db.get(User, user_id)
     if user is None:
-        return _redirect_error("/admin/users", "Пользователь не найден")
+        return _redirect_error("/admin/users", _ui("admin.user_not_found"))
     if user.is_admin:
-        return _redirect_error("/admin/users", "Администратора нельзя удалить")
+        return _redirect_error("/admin/users", _ui("admin.cannot_delete_admin"))
     if user.id == current_user.id:
-        return _redirect_error("/admin/users", "Нельзя удалить текущую учетную запись")
+        return _redirect_error("/admin/users", _ui("admin.cannot_delete_self"))
 
     db.delete(user)
     db.commit()
-    return _redirect_message("/admin/users", "Пользователь удален")
+    return _redirect_message("/admin/users", _ui("admin.deleted"))
 
 
 @router.post("/projects/{project_id}/export")
@@ -1030,7 +1039,7 @@ def export_project(
 ) -> Response:
     project = db.get(Project, project_id)
     if project is None:
-        return _redirect_error("/", "Проект не найден")
+        return _redirect_error("/", _ui("project.not_found"))
 
     ip_records = db.scalars(
         select(IPAddress).where(IPAddress.project_id == project.id).order_by(IPAddress.ordinal.asc())
@@ -1045,12 +1054,12 @@ def export_project(
 
     clean_password = password.strip()
     if not clean_password:
-        return _redirect_error(f"/projects/{project.id}", "Введите пароль для защищенного экспорта")
+        return _redirect_error(f"/projects/{project.id}", _ui("export.password_required_project"))
 
     try:
         archive = build_zip_archive({export_filename: export_content}, password=clean_password)
     except RuntimeError as exc:
-        return _redirect_error(f"/projects/{project.id}", str(exc))
+        return _redirect_error(f"/projects/{project.id}", _ui_error(str(exc)))
 
     return _zip_response(safe_export_name(project.cidr.replace("/", "_"), suffix=".zip"), archive)
 
@@ -1070,9 +1079,9 @@ def export_folder(
         .options(selectinload(Folder.projects).selectinload(Project.ip_addresses))
     )
     if folder is None:
-        return _redirect_error("/", "Папка не найдена")
+        return _redirect_error("/", _ui("folder.not_found"))
     if not folder.projects:
-        return _redirect_error("/", "В папке нет проектов для экспорта")
+        return _redirect_error("/", _ui("export.folder_empty"))
 
     files: dict[str, bytes] = {}
     clean_format = "xlsx" if export_format == "xlsx" else "csv"
@@ -1083,12 +1092,12 @@ def export_folder(
 
     clean_password = password.strip() if _checked(use_password) else ""
     if _checked(use_password) and not clean_password:
-        return _redirect_error("/", "Введите пароль для защищенного экспорта папки")
+        return _redirect_error("/", _ui("export.password_required_folder"))
 
     try:
         archive = build_zip_archive(files, password=clean_password or None)
     except RuntimeError as exc:
-        return _redirect_error("/", str(exc))
+        return _redirect_error("/", _ui_error(str(exc)))
 
     return _zip_response(safe_export_name(folder.name, suffix=".zip"), archive)
 
@@ -1102,14 +1111,14 @@ def add_custom_field(
     field_type: Annotated[str, Form()] = "text",
 ) -> RedirectResponse:
     if not current_user.can_manage_project_columns:
-        return _redirect_error(f"/projects/{project_id}", "Недостаточно прав для редактирования столбцов")
+        return _redirect_error(f"/projects/{project_id}", _ui("field.edit_denied"))
 
     if db.get(Project, project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
     clean_name = _clean_text(name, 120)
     if not clean_name:
-        return _redirect_error(f"/projects/{project_id}", "Название столбца не может быть пустым")
+        return _redirect_error(f"/projects/{project_id}", _ui("field.name_empty"))
 
     allowed_types = {"text", "number", "date"}
     clean_type = field_type if field_type in allowed_types else "text"

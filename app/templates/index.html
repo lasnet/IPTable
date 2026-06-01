@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 
-{% block title %}IPtable - проекты{% endblock %}
+{% block title %}IPtable - {{ _('search.projects') }}{% endblock %}
 
 {% block content %}
 <section class="empty-workspace">
   <div class="empty-icon">
     <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h5l2 2h9v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"/></svg>
   </div>
-  <h2>Выберите проект</h2>
-  <p>Создайте папку и проект-подсеть или выберите существующий проект в левой панели.</p>
+  <h2>{{ _('index.select_project') }}</h2>
+  <p>{{ _('index.empty_text') }}</p>
 </section>
 {% endblock %}
