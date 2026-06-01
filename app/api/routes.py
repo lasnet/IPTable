@@ -4,13 +4,12 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.models import CustomField, Folder, IPAddress, Project
-from app.services.assets import normalize_tags, tags_to_text
 from app.services.history import FieldChange, build_field_change, record_ip_address_history
 from app.services.ping import enqueue_project_ping
 
@@ -39,7 +38,6 @@ class AddressOut(BaseModel):
     os: str
     type: str
     comment: str
-    tags: list[str]
     custom_values: dict[str, Any]
     ping_status: str
     last_checked_at: datetime | None
@@ -58,7 +56,6 @@ class AddressUpdate(BaseModel):
     os: str | None = Field(default=None, max_length=120)
     type: str | None = Field(default=None, max_length=120)
     comment: str | None = Field(default=None, max_length=4000)
-    tags: list[str] | str | None = None
     custom_values: dict[str, str] | None = None
 
 
@@ -116,7 +113,6 @@ def _address_out(ip_record: IPAddress) -> AddressOut:
         os=ip_record.os,
         type=ip_record.asset_type,
         comment=ip_record.comment,
-        tags=normalize_tags(ip_record.tags),
         custom_values=ip_record.custom_values or {},
         ping_status=_ping_status(ip_record),
         last_checked_at=ip_record.last_checked_at,
@@ -133,7 +129,6 @@ def _filled_condition(custom_fields: list[CustomField]):
         _filled_value(IPAddress.os),
         _filled_value(IPAddress.asset_type),
         _filled_value(IPAddress.comment),
-        func.length(func.coalesce(cast(IPAddress.tags, String), "")) > 2,
     ]
     for field in custom_fields:
         conditions.append(_filled_value(IPAddress.custom_values[field.key].as_string()))
@@ -241,13 +236,6 @@ def update_project_address(
         if change is not None:
             changes.append(change)
         setattr(ip_record, field_name, clean_value)
-
-    if payload.tags is not None:
-        new_tags = normalize_tags(payload.tags)
-        change = build_field_change("tags", "Tags", tags_to_text(ip_record.tags), tags_to_text(new_tags))
-        if change is not None:
-            changes.append(change)
-        ip_record.tags = new_tags
 
     if payload.custom_values is not None:
         custom_fields = db.scalars(

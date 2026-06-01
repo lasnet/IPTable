@@ -10,19 +10,16 @@ from openpyxl.utils.exceptions import InvalidFileException
 import pyzipper
 
 from app.models import IPAddress, Project
-from app.services.assets import normalize_tags, tags_to_text
 from app.services.network import reserved_project_addresses
 
 BASE_COLUMNS = ["ip", "hostname", "os", "type", "comment"]
-OPTIONAL_COLUMNS = ["tags"]
-EXPORT_COLUMNS = [*BASE_COLUMNS, *OPTIONAL_COLUMNS]
+EXPORT_COLUMNS = BASE_COLUMNS
 XLSX_MAX_UNCOMPRESSED_BYTES = 20_000_000
 FIELD_LIMITS = {
     "hostname": 255,
     "os": 120,
     "type": 120,
     "comment": 4000,
-    "tags": 1000,
 }
 
 
@@ -37,7 +34,6 @@ class ImportedAsset:
     os: str
     asset_type: str
     comment: str
-    tags: list[str]
 
 
 @dataclass(frozen=True)
@@ -58,9 +54,7 @@ def _decode_csv(content: bytes) -> str:
 def _validate_headers(headers: list[str], *, source: str) -> list[str]:
     if headers == BASE_COLUMNS:
         return BASE_COLUMNS
-    if headers == EXPORT_COLUMNS:
-        return EXPORT_COLUMNS
-    expected = "ip;hostname;os;type;comment или ip;hostname;os;type;comment;tags"
+    expected = "ip;hostname;os;type;comment"
     raise CSVImportError(f"Неверный заголовок {source}. Ожидается: {expected}")
 
 
@@ -115,8 +109,6 @@ def _parse_import_rows(
             if len(normalized[field_name]) > limit:
                 raise CSVImportError(f"Строка {row_number}: поле {field_name} длиннее {limit} символов")
 
-        tags = normalize_tags(normalized["tags"])
-
         rows.append(
             ImportedAsset(
                 address=address,
@@ -124,7 +116,6 @@ def _parse_import_rows(
                 os=normalized["os"],
                 asset_type=normalized["type"],
                 comment=normalized["comment"],
-                tags=tags,
             )
         )
         parsed_addresses.append(parsed_ip)
@@ -230,7 +221,6 @@ def render_project_csv(project: Project, ip_records: list[IPAddress]) -> str:
                 ip_record.os,
                 ip_record.asset_type,
                 ip_record.comment,
-                tags_to_text(ip_record.tags),
             ]
         )
     return output.getvalue()
@@ -249,7 +239,6 @@ def render_project_xlsx(project: Project, ip_records: list[IPAddress]) -> bytes:
                 ip_record.os,
                 ip_record.asset_type,
                 ip_record.comment,
-                tags_to_text(ip_record.tags),
             ]
         )
 
@@ -259,7 +248,6 @@ def render_project_xlsx(project: Project, ip_records: list[IPAddress]) -> bytes:
         "C": 22,
         "D": 18,
         "E": 42,
-        "F": 28,
     }
     for column, width in widths.items():
         worksheet.column_dimensions[column].width = width

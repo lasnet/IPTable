@@ -12,7 +12,6 @@ from app.api.routes import api_router
 from app.core.config import get_settings
 from app.core.database import SessionLocal, init_db
 from app.services.auth import bootstrap_initial_admin
-from app.services.assets import tags_to_text
 from app.services.i18n import html_language, make_translator, normalize_language
 from app.services.inventory import normalize_project_address_rows
 from app.services.ping import ensure_default_project_schedules, run_ping_scheduler
@@ -84,7 +83,6 @@ def create_app() -> FastAPI:
     templates.env.globals["html_language"] = html_language(settings.interface_language)
     templates.env.globals["interface_language"] = normalize_language(settings.interface_language)
     templates.env.globals["csrf_input"] = csrf_input
-    templates.env.globals["tags_to_text"] = tags_to_text
     app.state.templates = templates
     app.include_router(router)
     app.include_router(api_router)

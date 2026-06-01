@@ -729,7 +729,7 @@ select:disabled {
 
 .asset-table {
   width: 100%;
-  min-width: 1350px;
+  min-width: 1170px;
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
@@ -785,10 +785,6 @@ select:disabled {
 
 .col-comment {
   width: 230px;
-}
-
-.col-tags {
-  width: 180px;
 }
 
 .col-custom {

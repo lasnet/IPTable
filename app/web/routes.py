@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, User
-from app.services.assets import normalize_tags, tags_to_text
 from app.services.auth import authenticate_user, create_user, hash_password
 from app.services.csv_io import (
     CSVImportError,
@@ -227,7 +226,6 @@ def _ip_record_filled_condition(custom_fields: list[CustomField]):
         _filled_value(IPAddress.os),
         _filled_value(IPAddress.asset_type),
         _filled_value(IPAddress.comment),
-        func.length(func.coalesce(cast(IPAddress.tags, String), "")) > 2,
     ]
     for field in custom_fields:
         conditions.append(_filled_value(IPAddress.custom_values[field.key].as_string()))
@@ -615,7 +613,6 @@ async def import_project_csv(
             ip_record.os = row.os
             ip_record.asset_type = row.asset_type
             ip_record.comment = row.comment
-            ip_record.tags = row.tags
         db.commit()
     except CSVImportError as exc:
         db.rollback()
@@ -1144,7 +1141,6 @@ async def update_ip_address(
     new_os = _clean_text(str(form.get("os", "")), 120)
     new_asset_type = _clean_text(str(form.get("asset_type", "")), 120)
     new_comment = _clean_text(str(form.get("comment", "")), 4000)
-    new_tags = normalize_tags(form.get("tags", ""))
 
     changes: list[FieldChange] = []
     for change in [
@@ -1152,7 +1148,6 @@ async def update_ip_address(
         build_field_change("os", "OS", ip_record.os, new_os),
         build_field_change("asset_type", "Type", ip_record.asset_type, new_asset_type),
         build_field_change("comment", "Comment", ip_record.comment, new_comment),
-        build_field_change("tags", "Tags", tags_to_text(ip_record.tags), tags_to_text(new_tags)),
     ]:
         if change is not None:
             changes.append(change)
@@ -1161,8 +1156,6 @@ async def update_ip_address(
     ip_record.os = new_os
     ip_record.asset_type = new_asset_type
     ip_record.comment = new_comment
-    ip_record.tags = new_tags
-
     custom_fields = db.scalars(
         select(CustomField).where(CustomField.project_id == project_id).order_by(CustomField.position.asc())
     ).all()
@@ -1273,7 +1266,6 @@ def search(
                     IPAddress.os.ilike(pattern),
                     IPAddress.asset_type.ilike(pattern),
                     IPAddress.comment.ilike(pattern),
-                    cast(IPAddress.tags, String).ilike(pattern),
                     cast(IPAddress.custom_values, String).ilike(pattern),
                 )
             )

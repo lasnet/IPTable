@@ -1,4 +1,4 @@
-"""tags and database-backed login rate limit
+"""database-backed login rate limit
 
 Revision ID: 20260528_0003
 Revises: 20260515_0002
@@ -19,22 +19,8 @@ def _table_exists(inspector: sa.Inspector, name: str) -> bool:
     return name in inspector.get_table_names()
 
 
-def _column_exists(inspector: sa.Inspector, table: str, name: str) -> bool:
-    if not _table_exists(inspector, table):
-        return False
-    return name in {column["name"] for column in inspector.get_columns(table)}
-
-
 def upgrade() -> None:
     bind = op.get_bind()
-    inspector = sa.inspect(bind)
-
-    if _table_exists(inspector, "ip_addresses") and not _column_exists(inspector, "ip_addresses", "tags"):
-        op.add_column(
-            "ip_addresses",
-            sa.Column("tags", sa.JSON(), nullable=False, server_default=sa.text("'[]'")),
-        )
-
     inspector = sa.inspect(bind)
     if not _table_exists(inspector, "login_rate_limit_events"):
         op.create_table(
@@ -59,7 +45,3 @@ def downgrade() -> None:
 
     if _table_exists(inspector, "login_rate_limit_events"):
         op.drop_table("login_rate_limit_events")
-
-    inspector = sa.inspect(bind)
-    if _table_exists(inspector, "ip_addresses") and _column_exists(inspector, "ip_addresses", "tags"):
-        op.drop_column("ip_addresses", "tags")

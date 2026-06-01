@@ -11,9 +11,9 @@ from app.models import IPAddress, Project
 class CSVImportTest(unittest.TestCase):
     def test_parse_assets_csv_detects_network(self) -> None:
         content = (
-            "ip;hostname;os;type;comment;tags\n"
-            "192.168.10.10;gw;RouterOS;Gateway;main;network,core\n"
-            "192.168.10.20;server;Linux;Server;app;linux\n"
+            "ip;hostname;os;type;comment\n"
+            "192.168.10.10;gw;RouterOS;Gateway;main\n"
+            "192.168.10.20;server;Linux;Server;app\n"
         ).encode("utf-8")
 
         result = parse_assets_csv(content, max_addresses=256)
@@ -21,7 +21,6 @@ class CSVImportTest(unittest.TestCase):
         self.assertEqual(result.cidr, "192.168.10.0/27")
         self.assertEqual(len(result.rows), 2)
         self.assertEqual(result.rows[0].hostname, "gw")
-        self.assertEqual(result.rows[0].tags, ["network", "core"])
 
     def test_parse_assets_csv_rejects_wrong_header(self) -> None:
         content = "address;hostname;os;type;comment\n192.168.1.10;gw;;;;\n".encode("utf-8")
@@ -42,9 +41,9 @@ class CSVImportTest(unittest.TestCase):
     def test_parse_assets_xlsx_detects_network(self) -> None:
         workbook = Workbook()
         worksheet = workbook.active
-        worksheet.append(["ip", "hostname", "os", "type", "comment", "tags"])
-        worksheet.append(["10.10.10.10", "cam-01", "", "Camera", "warehouse", "video,edge"])
-        worksheet.append(["10.10.10.11", "cam-02", "", "Camera", "office", "video"])
+        worksheet.append(["ip", "hostname", "os", "type", "comment"])
+        worksheet.append(["10.10.10.10", "cam-01", "", "Camera", "warehouse"])
+        worksheet.append(["10.10.10.11", "cam-02", "", "Camera", "office"])
         buffer = io.BytesIO()
         workbook.save(buffer)
 
@@ -52,9 +51,8 @@ class CSVImportTest(unittest.TestCase):
 
         self.assertEqual(result.cidr, "10.10.10.10/31")
         self.assertEqual(result.rows[0].asset_type, "Camera")
-        self.assertEqual(result.rows[0].tags, ["video", "edge"])
 
-    def test_render_project_xlsx_contains_tags(self) -> None:
+    def test_render_project_xlsx_contains_asset_fields(self) -> None:
         content = render_project_xlsx(
             Project(id=1, folder_id=1, name="LAN", cidr="192.168.1.0/24"),
             [
@@ -64,7 +62,7 @@ class CSVImportTest(unittest.TestCase):
                     ordinal=1,
                     address="192.168.1.10",
                     hostname="gw",
-                    tags=["network", "core"],
+                    asset_type="Gateway",
                 )
             ],
         )
@@ -72,7 +70,7 @@ class CSVImportTest(unittest.TestCase):
         result = parse_assets_xlsx(content, max_addresses=256)
 
         self.assertEqual(result.rows[0].address, "192.168.1.10")
-        self.assertEqual(result.rows[0].tags, ["network", "core"])
+        self.assertEqual(result.rows[0].asset_type, "Gateway")
 
     def test_build_password_zip_can_be_read_by_stdlib(self) -> None:
         archive = build_zip_archive({"asset.csv": b"ip;hostname\n192.168.1.10;gw\n"}, password="secret")

@@ -50,7 +50,7 @@
           <a class="result-row link-row" href="/projects/{{ ip.project.id }}?hide_empty=false&page={{ target_page }}&per_page={{ project_page_size }}#ip-{{ ip.id }}">
             <strong>{{ ip.address }}</strong>
             <span>{{ ip.project.folder.name }} / {{ ip.project.name }}</span>
-            <small>{{ ip.hostname }} {{ ip.os }} {{ ip.asset_type }} {{ ip.comment }} {{ tags_to_text(ip.tags) }}</small>
+            <small>{{ ip.hostname }} {{ ip.os }} {{ ip.asset_type }} {{ ip.comment }}</small>
           </a>
         {% else %}
           <p class="subtle">{{ _('search.no_results') }}</p>

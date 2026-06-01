@@ -47,7 +47,7 @@ class ProjectPaginationTest(unittest.TestCase):
         self.assertIn("type_filter=VM", pagination["prev_url"])
         self.assertIn("os_filter=Linux", pagination["next_url"])
 
-    def test_ip_record_filled_condition_counts_custom_values_without_rendering_all_rows(self) -> None:
+    def test_ip_record_filled_condition_counts_visible_fields_and_custom_values(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
         session_factory = sessionmaker(bind=engine)
@@ -67,7 +67,7 @@ class ProjectPaginationTest(unittest.TestCase):
                     IPAddress(project_id=project.id, ordinal=2, address="10.0.0.2", hostname="gw"),
                     IPAddress(project_id=project.id, ordinal=3, address="10.0.0.3", custom_values={"rack": ""}),
                     IPAddress(project_id=project.id, ordinal=4, address="10.0.0.4", custom_values={"rack": "A1"}),
-                    IPAddress(project_id=project.id, ordinal=5, address="10.0.0.5", tags=["edge"]),
+                    IPAddress(project_id=project.id, ordinal=5, address="10.0.0.5"),
                 ]
             )
             db.commit()
@@ -79,7 +79,7 @@ class ProjectPaginationTest(unittest.TestCase):
                 )
             )
 
-        self.assertEqual(filled_count, 3)
+        self.assertEqual(filled_count, 2)
 
     def test_project_table_filter_conditions_limit_by_ping_type_and_os(self) -> None:
         engine = create_engine("sqlite:///:memory:")

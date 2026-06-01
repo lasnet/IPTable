@@ -16,7 +16,6 @@
       <col class="col-os">
       <col class="col-type">
       <col class="col-comment">
-      <col class="col-tags">
       {% for field in custom_fields %}
       <col class="col-custom">
       {% endfor %}
@@ -33,7 +32,6 @@
         <th>OS</th>
         <th>Type</th>
         <th>Comment</th>
-        <th>Tags</th>
         {% for field in custom_fields %}
         <th>{{ field.name }}</th>
         {% endfor %}
@@ -55,8 +53,6 @@
             placeholder="{{ _('table.placeholder_empty') }}"></td>
         <td><textarea form="row-{{ ip.id }}" name="comment" maxlength="4000" rows="1"
             placeholder="{{ _('table.placeholder_empty') }}">{{ ip.comment }}</textarea></td>
-        <td><input form="row-{{ ip.id }}" name="tags" value="{{ tags_to_text(ip.tags) }}" maxlength="1000"
-            placeholder="{{ _('table.placeholder_empty') }}"></td>
         {% for field in custom_fields %}
         <td>
           <input form="row-{{ ip.id }}" name="custom__{{ field.key }}"
@@ -89,7 +85,7 @@
       </tr>
       {% else %}
       <tr>
-        <td class="empty-table" colspan="{{ (9 if show_number_column else 8) + custom_fields|length }}">
+        <td class="empty-table" colspan="{{ (8 if show_number_column else 7) + custom_fields|length }}">
           {{ _('table.no_records') }}
         </td>
       </tr>

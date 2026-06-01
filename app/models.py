@@ -101,7 +101,6 @@ class IPAddress(TimestampMixin, Base):
     os: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     asset_type: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     comment: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    tags: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     custom_values: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     is_reachable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

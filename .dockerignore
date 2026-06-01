@@ -8,10 +8,13 @@ __pycache__
 .ruff_cache
 .vscode
 .env
+.env.*
+!.env.example
 data
 logs
 backups
 *.sqlite
 *.sqlite3
 *.db
+*.dump
 .DS_Store
