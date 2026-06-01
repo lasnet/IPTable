@@ -1,5 +1,6 @@
 import time
 from typing import Annotated
+from ipaddress import ip_network
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -73,11 +74,22 @@ def _redirect_message(path: str, message: str) -> RedirectResponse:
 
 
 def _load_sidebar_folders(db: Session) -> list[Folder]:
-    return db.scalars(
+    folders = db.scalars(
         select(Folder)
         .options(selectinload(Folder.projects))
         .order_by(Folder.name.asc())
     ).all()
+    for folder in folders:
+        folder.projects.sort(key=_project_sidebar_sort_key)
+    return folders
+
+
+def _project_sidebar_sort_key(project: Project) -> tuple[int, int | str, int, str, int]:
+    try:
+        network = ip_network(project.cidr, strict=False)
+    except ValueError:
+        return (1, project.cidr, 0, project.name.lower(), project.id)
+    return (0, int(network.network_address), network.prefixlen, project.name.lower(), project.id)
 
 
 def _load_folder_schedules(db: Session) -> dict[int, PingSchedule]:

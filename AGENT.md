@@ -9,6 +9,8 @@ IPtable - внутреннее веб-приложение для учета IP-
 
 - Папка группирует проекты.
 - Проект - это подсеть в CIDR-формате, например `172.16.16.0/24`.
+- `Project.name` - человекочитаемое название подсети. Оно отображается в заголовке рабочей области проекта, поиске и форме редактирования; в боковой панели для компактности показывается CIDR.
+- Проекты в боковой панели сортируются по числовому значению CIDR/network address через `_project_sidebar_sort_key`, а не по `created_at` или `id`.
 - При создании проекта приложение нормализует CIDR и создает строки только для usable host-адресов. Для обычной `/24` сети адреса `.0` и `.255` не создаются.
 - Базовые поля IP-записи: порядковый номер, IP-адрес, hostname, OS, type, comment.
 - `ordinal` и `address` генерируются автоматически и не редактируются через UI.
@@ -154,6 +156,7 @@ docker compose up --build
 ```
 
 Compose сначала запускает `postgres`, затем одноразовый `migrate` с `alembic upgrade head`, после этого стартуют `web` и `worker`.
+`postgres`, `web` и `worker` имеют `restart: unless-stopped`, чтобы переживать reboot сервера. `migrate` остается одноразовым job и не должен иметь постоянный restart policy.
 
 Если Docker build не может резолвить `deb.debian.org` или `pypi.org`, проверьте DNS Docker daemon или proxy на сервере. При наличии старого успешного билда не используйте `--no-cache`, чтобы Docker мог переиспользовать cached layers.
 
@@ -309,6 +312,7 @@ hadolint Dockerfile
 - `PING_RUNNING_JOB_TIMEOUT_SECONDS` должен быть больше ожидаемого времени проверки самой большой подсети. Иначе долгий, но живой job может быть поставлен в очередь повторно.
 - В Docker capability `NET_RAW` добавлен только сервису `worker`.
 - Dockerfile и Compose содержат healthcheck. Для `migrate` healthcheck отключен, потому что это одноразовый job.
+- Если после reboot сервера `web` и `worker` постоянно рестартуют, а `postgres` имеет `Exited (0)`, значит база не поднялась автоматически. У `postgres` должен быть `restart: unless-stopped`; после обновления compose выполните `docker compose up -d`.
 - Если web или worker падают с `Run alembic upgrade head`, схема БД не применена. В Docker за это отвечает сервис `migrate`; локально выполните `alembic upgrade head`.
 - Несколько worker-экземпляров можно запускать с PostgreSQL: claim задач и обслуживание расписаний защищены advisory locks. В SQLite-режиме оставляйте один worker. При увеличении числа worker-реплик пересчитывайте общий ICMP-параллелизм: фактическая нагрузка примерно равна `PING_CONCURRENCY * количество_worker`.
 - Таблица проекта не должна рендерить все IP-записи сразу. Сохраняйте `page`, `per_page` и `hide_empty` в ссылках/формах, если добавляете новые действия внутри таблицы.
