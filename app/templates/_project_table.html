@@ -2,13 +2,12 @@
   Столбец "№" скрыт через этот флаг, чтобы не ломать colgroup и sticky IP-колонку.
   Если номер снова понадобится:
   1. Поменяйте false на true.
-  2. В app/static/styles.css разнесите sticky-offsets для .select-cell, .number-cell и .locked-col.
+  2. В app/static/styles.css задайте ширину .col-number и сместите .locked-col на эту ширину.
 #}
 {% set show_number_column = false %}
 <div class="asset-table-wrap">
   <table class="asset-table">
     <colgroup>
-      <col class="col-select">
       {% if show_number_column %}
       <col class="col-number">
       {% endif %}
@@ -26,9 +25,6 @@
     </colgroup>
     <thead>
       <tr>
-        <th class="select-head">
-          <input type="checkbox" data-bulk-select-all aria-label="Выбрать все строки на странице">
-        </th>
         {% if show_number_column %}
         <th class="number-head">№</th>
         {% endif %}
@@ -48,9 +44,6 @@
     <tbody>
       {% for ip in ip_records %}
       <tr id="ip-{{ ip.id }}" data-row-address="{{ ip.address }}">
-        <td class="select-cell">
-          <input form="bulk-edit-form" type="checkbox" name="ip_ids" value="{{ ip.id }}" data-bulk-row>
-        </td>
         {% if show_number_column %}
         <td class="number-cell">{{ ip.ordinal }}</td>
         {% endif %}
@@ -87,6 +80,9 @@
             <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
             <input type="hidden" name="page" value="{{ pagination.current_page }}">
             <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
+            <input type="hidden" name="ping_status" value="{{ table_filters.ping_status }}">
+            <input type="hidden" name="type_filter" value="{{ table_filters.type_filter }}">
+            <input type="hidden" name="os_filter" value="{{ table_filters.os_filter }}">
             <button class="row-save" type="submit">Save</button>
           </form>
         </td>
@@ -149,6 +145,9 @@
     <form class="page-size-form" action="/projects/{{ project.id }}" method="get">
       <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
       <input type="hidden" name="page" value="1">
+      <input type="hidden" name="ping_status" value="{{ table_filters.ping_status }}">
+      <input type="hidden" name="type_filter" value="{{ table_filters.type_filter }}">
+      <input type="hidden" name="os_filter" value="{{ table_filters.os_filter }}">
       <label>
         Строк:
         <select name="per_page">

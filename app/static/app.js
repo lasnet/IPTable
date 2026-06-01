@@ -36,24 +36,50 @@
     return document.querySelector("[data-project-table-region]");
   }
 
-  function updateBulkHiddenFields(url) {
-    const form = document.getElementById("bulk-edit-form");
-    if (!form) {
-      return;
+  function setFormValue(form, name, value) {
+    if (form?.elements[name]) {
+      form.elements[name].value = value;
+    }
+  }
+
+  function syncProjectControls(url) {
+    const parsedUrl = new URL(url, window.location.origin);
+    const params = parsedUrl.searchParams;
+    const hideEmpty = params.get("hide_empty") || "true";
+    const perPage = params.get("per_page") || "";
+    const pingStatus = params.get("ping_status") || "";
+    const typeFilter = params.get("type_filter") || "";
+    const osFilter = params.get("os_filter") || "";
+
+    const filterForm = document.querySelector(".table-filter-form");
+    if (filterForm) {
+      setFormValue(filterForm, "hide_empty", hideEmpty);
+      setFormValue(filterForm, "page", "1");
+      if (perPage) {
+        setFormValue(filterForm, "per_page", perPage);
+      }
+      setFormValue(filterForm, "ping_status", pingStatus);
+      setFormValue(filterForm, "type_filter", typeFilter);
+      setFormValue(filterForm, "os_filter", osFilter);
     }
 
-    const parsedUrl = new URL(url, window.location.origin);
-    const hideEmpty = parsedUrl.searchParams.get("hide_empty");
-    const page = parsedUrl.searchParams.get("page");
-    const perPage = parsedUrl.searchParams.get("per_page");
-    if (hideEmpty) {
-      form.elements.hide_empty.value = hideEmpty;
+    const hideToggle = document.querySelector("[data-hide-toggle]");
+    if (hideToggle) {
+      const nextParams = new URLSearchParams(params);
+      nextParams.set("hide_empty", hideEmpty === "true" ? "false" : "true");
+      nextParams.set("page", "1");
+      hideToggle.href = `${parsedUrl.pathname}?${nextParams.toString()}`;
     }
-    if (page) {
-      form.elements.page.value = page;
-    }
-    if (perPage) {
-      form.elements.per_page.value = perPage;
+
+    const resetLink = document.querySelector("[data-filter-reset]");
+    if (resetLink) {
+      const resetParams = new URLSearchParams();
+      resetParams.set("hide_empty", hideEmpty);
+      resetParams.set("page", "1");
+      if (perPage) {
+        resetParams.set("per_page", perPage);
+      }
+      resetLink.href = `${parsedUrl.pathname}?${resetParams.toString()}`;
     }
   }
 
@@ -98,7 +124,7 @@
     region.innerHTML = await response.text();
     dirtyRow = null;
     allowSubmit = false;
-    updateBulkHiddenFields(url);
+    syncProjectControls(url);
     if (pushState) {
       window.history.pushState(null, "", url);
     }
@@ -139,7 +165,7 @@
 
   document.addEventListener("submit", (event) => {
     const form = event.target;
-    if (form.classList.contains("page-size-form")) {
+    if (form.classList.contains("page-size-form") || form.classList.contains("table-filter-form")) {
       event.preventDefault();
       if (hasDirtyRow()) {
         warnAboutDirtyRow();
@@ -173,17 +199,8 @@
 
   document.addEventListener("change", (event) => {
     const target = event.target;
-    if (target.matches(".page-size-form select")) {
+    if (target.matches(".page-size-form select") || target.matches(".table-filter-form select")) {
       target.form.requestSubmit();
-      return;
-    }
-
-    if (target.matches("[data-bulk-select-all]")) {
-      const region = projectTableRegion();
-      const checkboxes = region ? region.querySelectorAll("[data-bulk-row]") : [];
-      checkboxes.forEach((checkbox) => {
-        checkbox.checked = target.checked;
-      });
     }
   });
 
@@ -228,6 +245,7 @@
   });
 
   scrollToHash();
+  syncProjectControls(window.location.href);
 })();
 
 (function () {

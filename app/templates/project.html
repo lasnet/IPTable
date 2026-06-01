@@ -31,7 +31,7 @@
         История
       </a>
 
-      <a class="soft-button" href="/projects/{{ project.id }}?hide_empty={{ 'false' if hide_empty else 'true' }}&page=1&per_page={{ pagination.per_page }}">
+      <a class="soft-button" href="{{ hide_toggle_url }}" data-hide-toggle>
         {% if hide_empty %}
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M17.94 17.94A10.9 10.9 0 0 1 12 20C7 20 2.73 16.89 1 12a12.2 12.2 0 0 1 5.06-5.94" />
@@ -171,22 +171,42 @@
   <p class="project-description">{{ project.description }}</p>
   {% endif %}
 
-  <form id="bulk-edit-form" class="bulk-edit-form" action="/projects/{{ project.id }}/addresses/bulk" method="post">
-    {{ csrf_input(request) }}
+  <form class="table-filter-form" action="/projects/{{ project.id }}" method="get">
     <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
-    <input type="hidden" name="page" value="{{ pagination.current_page }}">
+    <input type="hidden" name="page" value="1">
     <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
-    <div class="bulk-edit-title">Массовое редактирование</div>
-    <input name="hostname" maxlength="255" placeholder="Hostname">
-    <input name="os" maxlength="120" placeholder="OS">
-    <input name="asset_type" maxlength="120" placeholder="Type">
-    <input name="comment" maxlength="4000" placeholder="Comment">
-    <input name="tags" maxlength="1000" placeholder="Tags через запятую">
-    <select name="tags_mode" aria-label="Режим тегов">
-      <option value="append">Добавить теги</option>
-      <option value="replace">Заменить теги</option>
-    </select>
-    <button type="submit">Применить</button>
+    <label>
+      Ping
+      <select name="ping_status">
+        {% for option in filter_options.ping_statuses %}
+        <option value="{{ option.value }}" {% if option.value == table_filters.ping_status %}selected{% endif %}>
+          {{ option.label }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Type
+      <select name="type_filter">
+        <option value="">Все типы</option>
+        {% for option in filter_options.types %}
+        <option value="{{ option }}" {% if option == table_filters.type_filter %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      OS
+      <select name="os_filter">
+        <option value="">Все OS</option>
+        {% for option in filter_options.oses %}
+        <option value="{{ option }}" {% if option == table_filters.os_filter %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <a class="soft-button compact-action" data-filter-reset
+      href="/projects/{{ project.id }}?hide_empty={{ 'true' if hide_empty else 'false' }}&page=1&per_page={{ pagination.per_page }}">
+      Сбросить
+    </a>
   </form>
 
   <div class="project-table-region" data-project-table-region>

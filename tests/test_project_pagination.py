@@ -9,6 +9,7 @@ from app.web.routes import (
     _ip_record_filled_condition,
     _normalize_project_page_size,
     _pagination_context,
+    _project_table_filter_conditions,
 )
 
 
@@ -29,6 +30,22 @@ class ProjectPaginationTest(unittest.TestCase):
         self.assertEqual(pagination["offset"], 50)
         self.assertFalse(pagination["has_next"])
         self.assertTrue(pagination["has_prev"])
+
+    def test_pagination_context_preserves_table_filters(self) -> None:
+        pagination = _pagination_context(
+            42,
+            hide_empty=True,
+            page=2,
+            per_page=25,
+            total_items=61,
+            ping_status="ok",
+            type_filter="VM",
+            os_filter="Linux",
+        )
+
+        self.assertIn("ping_status=ok", pagination["prev_url"])
+        self.assertIn("type_filter=VM", pagination["prev_url"])
+        self.assertIn("os_filter=Linux", pagination["next_url"])
 
     def test_ip_record_filled_condition_counts_custom_values_without_rendering_all_rows(self) -> None:
         engine = create_engine("sqlite:///:memory:")
@@ -63,6 +80,61 @@ class ProjectPaginationTest(unittest.TestCase):
             )
 
         self.assertEqual(filled_count, 3)
+
+    def test_project_table_filter_conditions_limit_by_ping_type_and_os(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine)
+
+        with session_factory() as db:
+            folder = Folder(name="Office")
+            db.add(folder)
+            db.flush()
+            project = Project(folder_id=folder.id, name="LAN", cidr="10.0.0.0/24")
+            db.add(project)
+            db.flush()
+            db.add_all(
+                [
+                    IPAddress(
+                        project_id=project.id,
+                        ordinal=1,
+                        address="10.0.0.1",
+                        os="Linux",
+                        asset_type="VM",
+                        is_reachable=True,
+                    ),
+                    IPAddress(
+                        project_id=project.id,
+                        ordinal=2,
+                        address="10.0.0.2",
+                        os="Windows",
+                        asset_type="VM",
+                        is_reachable=True,
+                    ),
+                    IPAddress(
+                        project_id=project.id,
+                        ordinal=3,
+                        address="10.0.0.3",
+                        os="Linux",
+                        asset_type="Printer",
+                        is_reachable=False,
+                    ),
+                ]
+            )
+            db.commit()
+
+            matched = db.scalars(
+                select(IPAddress.address).where(
+                    IPAddress.project_id == project.id,
+                    *_project_table_filter_conditions(
+                        ping_status="ok",
+                        type_filter="VM",
+                        os_filter="Linux",
+                    ),
+                )
+            ).all()
+
+        self.assertEqual(matched, ["10.0.0.1"])
 
 
 if __name__ == "__main__":

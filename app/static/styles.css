@@ -573,12 +573,12 @@ select:disabled {
   background: var(--surface-soft);
 }
 
-.bulk-edit-form {
+.table-filter-form {
   flex: 0 0 auto;
-  display: grid;
-  grid-template-columns: auto repeat(5, minmax(120px, 1fr)) minmax(140px, 0.7fr) auto;
-  gap: 8px;
-  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
   margin-bottom: 12px;
   padding: 10px;
   border: 1px solid var(--line-soft);
@@ -586,32 +586,22 @@ select:disabled {
   background: var(--surface-soft);
 }
 
-.bulk-edit-title {
+.table-filter-form label {
+  display: grid;
+  gap: 5px;
   color: var(--muted);
   font-size: 13px;
   font-weight: 800;
-  white-space: nowrap;
 }
 
-.bulk-edit-form input,
-.bulk-edit-form select {
-  min-width: 0;
+.table-filter-form select {
+  min-width: 150px;
   min-height: 36px;
   padding: 7px 9px;
   border: 1px solid #cfd8e6;
   border-radius: 8px;
   background: #ffffff;
   color: var(--text);
-}
-
-.bulk-edit-form button {
-  min-height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: #ffffff;
-  font-weight: 800;
-  cursor: pointer;
 }
 
 .project-table-region {
@@ -739,7 +729,7 @@ select:disabled {
 
 .asset-table {
   width: 100%;
-  min-width: 1380px;
+  min-width: 1350px;
   table-layout: fixed;
   border-collapse: separate;
   border-spacing: 0;
@@ -775,10 +765,6 @@ select:disabled {
 
 .col-number {
   width: 74px;
-}
-
-.col-select {
-  width: 46px;
 }
 
 .col-ip {
@@ -828,28 +814,6 @@ select:disabled {
   box-shadow: 1px 0 0 var(--line);
 }
 
-.select-head,
-.select-cell {
-  position: sticky !important;
-  left: 0;
-  z-index: 9;
-  padding: 0 !important;
-  text-align: center;
-  box-shadow: 1px 0 0 var(--line);
-}
-
-.select-head {
-  z-index: 14 !important;
-}
-
-.select-head input,
-.select-cell input {
-  width: 16px;
-  height: 16px;
-  margin: 0 auto;
-  accent-color: var(--accent);
-}
-
 .ip-cell {
   padding: 0 16px !important;
   color: #111827;
@@ -859,7 +823,7 @@ select:disabled {
 
 .locked-col {
   position: sticky;
-  left: 74px;
+  left: 0;
   z-index: 7;
   box-shadow: 1px 0 0 var(--line);
 }
@@ -876,9 +840,9 @@ th.locked-col {
 }
 
 /* Столбец "№" скрыт в app/templates/_project_table.html через show_number_column = false.
-   Если включите его обратно, разнесите sticky-offsets для .select-cell, .number-cell и .locked-col. */
+   Если включите его обратно, задайте для .locked-col left: 74px. */
 .locked-col {
-  left: 46px;
+  left: 0;
 }
 
 .asset-table tr[id] {
@@ -913,15 +877,6 @@ th.locked-col {
 .asset-table input::placeholder,
 .asset-table textarea::placeholder {
   color: #a4adbb;
-}
-
-.asset-table .select-head input,
-.asset-table .select-cell input {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  accent-color: var(--accent);
 }
 
 .asset-table input:focus,
@@ -1414,12 +1369,8 @@ th.locked-col {
     grid-template-columns: 1fr;
   }
 
-  .bulk-edit-form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .bulk-edit-title {
-    grid-column: 1 / -1;
+  .table-filter-form {
+    align-items: stretch;
   }
 }
 
@@ -1481,8 +1432,11 @@ th.locked-col {
     white-space: normal;
   }
 
-  .bulk-edit-form {
-    grid-template-columns: 1fr;
+  .table-filter-form,
+  .table-filter-form label,
+  .table-filter-form select,
+  .table-filter-form .compact-action {
+    width: 100%;
   }
 
   .permission-grid {

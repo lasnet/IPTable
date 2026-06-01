@@ -39,6 +39,7 @@ router = APIRouter(dependencies=[Depends(require_csrf_token)])
 SESSION_LAST_ACTIVITY_KEY = "last_activity_at"
 PROJECT_TABLE_PAGE_SIZE_OPTIONS = (25, 50, 100, 250)
 PROJECT_TABLE_FALLBACK_PAGE_SIZE = 25
+PING_STATUS_FILTERS = {"ok", "no", "notest"}
 
 
 def _templates(request: Request):
@@ -179,8 +180,32 @@ def _safe_positive_int(value: object, default: int) -> int:
     return parsed if parsed > 0 else default
 
 
-def _project_table_url(project_id: int, *, hide_empty: bool, page: int, per_page: int) -> str:
-    return f"/projects/{project_id}?{urlencode({'hide_empty': str(hide_empty).lower(), 'page': page, 'per_page': per_page})}"
+def _clean_filter_value(value: str | None, max_len: int) -> str:
+    return (value or "").strip()[:max_len]
+
+
+def _project_table_url(
+    project_id: int,
+    *,
+    hide_empty: bool,
+    page: int,
+    per_page: int,
+    ping_status: str = "",
+    type_filter: str = "",
+    os_filter: str = "",
+) -> str:
+    params = {
+        "hide_empty": str(hide_empty).lower(),
+        "page": page,
+        "per_page": per_page,
+    }
+    if ping_status:
+        params["ping_status"] = ping_status
+    if type_filter:
+        params["type_filter"] = type_filter
+    if os_filter:
+        params["os_filter"] = os_filter
+    return f"/projects/{project_id}?{urlencode(params)}"
 
 
 def _filled_value(column):
@@ -200,7 +225,17 @@ def _ip_record_filled_condition(custom_fields: list[CustomField]):
     return or_(*conditions)
 
 
-def _pagination_context(project_id: int, *, hide_empty: bool, page: int, per_page: int, total_items: int) -> dict:
+def _pagination_context(
+    project_id: int,
+    *,
+    hide_empty: bool,
+    page: int,
+    per_page: int,
+    total_items: int,
+    ping_status: str = "",
+    type_filter: str = "",
+    os_filter: str = "",
+) -> dict:
     total_pages = max(1, (total_items + per_page - 1) // per_page)
     current_page = min(max(1, page), total_pages)
     start_item = ((current_page - 1) * per_page) + 1 if total_items else 0
@@ -216,9 +251,41 @@ def _pagination_context(project_id: int, *, hide_empty: bool, page: int, per_pag
         "offset": (current_page - 1) * per_page,
         "has_prev": current_page > 1,
         "has_next": current_page < total_pages,
-        "prev_url": _project_table_url(project_id, hide_empty=hide_empty, page=current_page - 1, per_page=per_page),
-        "next_url": _project_table_url(project_id, hide_empty=hide_empty, page=current_page + 1, per_page=per_page),
+        "prev_url": _project_table_url(
+            project_id,
+            hide_empty=hide_empty,
+            page=current_page - 1,
+            per_page=per_page,
+            ping_status=ping_status,
+            type_filter=type_filter,
+            os_filter=os_filter,
+        ),
+        "next_url": _project_table_url(
+            project_id,
+            hide_empty=hide_empty,
+            page=current_page + 1,
+            per_page=per_page,
+            ping_status=ping_status,
+            type_filter=type_filter,
+            os_filter=os_filter,
+        ),
     }
+
+
+def _project_table_filter_conditions(*, ping_status: str, type_filter: str, os_filter: str):
+    conditions = []
+    if ping_status == "ok":
+        conditions.append(IPAddress.is_reachable.is_(True))
+    elif ping_status == "no":
+        conditions.append(IPAddress.is_reachable.is_(False))
+    elif ping_status == "notest":
+        conditions.append(IPAddress.is_reachable.is_(None))
+
+    if type_filter:
+        conditions.append(func.lower(IPAddress.asset_type) == type_filter.lower())
+    if os_filter:
+        conditions.append(func.lower(IPAddress.os) == os_filter.lower())
+    return conditions
 
 
 def _csv_response(filename: str, content: bytes) -> Response:
@@ -674,6 +741,9 @@ def project_detail(
     hide_empty: bool = True,
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int | None, Query(ge=10, le=250)] = None,
+    ping_status: Annotated[str, Query(max_length=20)] = "",
+    type_filter: Annotated[str, Query(max_length=120)] = "",
+    os_filter: Annotated[str, Query(max_length=120)] = "",
     error: Annotated[str | None, Query(max_length=240)] = None,
     message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
@@ -689,12 +759,25 @@ def project_detail(
         select(CustomField).where(CustomField.project_id == project.id).order_by(CustomField.position.asc())
     ).all()
     filled_condition = _ip_record_filled_condition(list(custom_fields))
+    clean_ping_status = _clean_filter_value(ping_status, 20).lower()
+    if clean_ping_status not in PING_STATUS_FILTERS:
+        clean_ping_status = ""
+    clean_type_filter = _clean_filter_value(type_filter, 120)
+    clean_os_filter = _clean_filter_value(os_filter, 120)
+    filter_conditions = _project_table_filter_conditions(
+        ping_status=clean_ping_status,
+        type_filter=clean_type_filter,
+        os_filter=clean_os_filter,
+    )
 
     total_count = db.scalar(select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id)) or 0
     filled_total = db.scalar(
         select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, filled_condition)
     ) or 0
-    visible_count = filled_total if hide_empty else total_count
+    visible_conditions = [IPAddress.project_id == project.id, *filter_conditions]
+    if hide_empty:
+        visible_conditions.append(filled_condition)
+    visible_count = db.scalar(select(func.count(IPAddress.id)).where(*visible_conditions)) or 0
     page_size = _normalize_project_page_size(per_page, settings)
     pagination = _pagination_context(
         project.id,
@@ -702,8 +785,11 @@ def project_detail(
         page=page,
         per_page=page_size,
         total_items=visible_count,
+        ping_status=clean_ping_status,
+        type_filter=clean_type_filter,
+        os_filter=clean_os_filter,
     )
-    ip_query = select(IPAddress).where(IPAddress.project_id == project.id).order_by(IPAddress.ordinal.asc())
+    ip_query = select(IPAddress).where(IPAddress.project_id == project.id, *filter_conditions).order_by(IPAddress.ordinal.asc())
     if hide_empty:
         ip_query = ip_query.where(filled_condition)
     ip_records = db.scalars(ip_query.offset(pagination["offset"]).limit(page_size)).all()
@@ -717,29 +803,65 @@ def project_detail(
             PingSchedule.project_id == project.id,
         )
     )
+    type_options = db.scalars(
+        select(IPAddress.asset_type)
+        .where(IPAddress.project_id == project.id, _filled_value(IPAddress.asset_type))
+        .distinct()
+        .order_by(IPAddress.asset_type.asc())
+    ).all()
+    os_options = db.scalars(
+        select(IPAddress.os)
+        .where(IPAddress.project_id == project.id, _filled_value(IPAddress.os))
+        .distinct()
+        .order_by(IPAddress.os.asc())
+    ).all()
 
     context = {
-            "request": request,
-            "project": project,
-            "folders": folders,
-            "folder_schedules": _load_folder_schedules(db),
-            "default_ping_interval_minutes": _default_ping_interval_minutes(),
-            "active_project": project,
-            "current_user": current_user,
-            "custom_fields": custom_fields,
-            "project_schedule": project_schedule,
-            "project_schedule_minutes": _schedule_interval_minutes(project_schedule, settings),
-            "ip_records": ip_records,
-            "hide_empty": hide_empty,
-            "pagination": pagination,
-            "error": error,
-            "message": message,
-            "total_count": total_count,
-            "filled_count": filled_total,
-            "online_count": online_count,
-            "shown_count": len(ip_records),
-            "visible_count": visible_count,
-        }
+        "request": request,
+        "project": project,
+        "folders": folders,
+        "folder_schedules": _load_folder_schedules(db),
+        "default_ping_interval_minutes": _default_ping_interval_minutes(),
+        "active_project": project,
+        "current_user": current_user,
+        "custom_fields": custom_fields,
+        "project_schedule": project_schedule,
+        "project_schedule_minutes": _schedule_interval_minutes(project_schedule, settings),
+        "ip_records": ip_records,
+        "hide_empty": hide_empty,
+        "hide_toggle_url": _project_table_url(
+            project.id,
+            hide_empty=not hide_empty,
+            page=1,
+            per_page=pagination["per_page"],
+            ping_status=clean_ping_status,
+            type_filter=clean_type_filter,
+            os_filter=clean_os_filter,
+        ),
+        "pagination": pagination,
+        "table_filters": {
+            "ping_status": clean_ping_status,
+            "type_filter": clean_type_filter,
+            "os_filter": clean_os_filter,
+        },
+        "filter_options": {
+            "ping_statuses": [
+                {"value": "", "label": "Все статусы"},
+                {"value": "notest", "label": "NoTest"},
+                {"value": "ok", "label": "OK"},
+                {"value": "no", "label": "NO"},
+            ],
+            "types": [item for item in type_options if item],
+            "oses": [item for item in os_options if item],
+        },
+        "error": error,
+        "message": message,
+        "total_count": total_count,
+        "filled_count": filled_total,
+        "online_count": online_count,
+        "shown_count": len(ip_records),
+        "visible_count": visible_count,
+    }
     template_name = "_project_table.html" if request.headers.get("x-requested-with") == "XMLHttpRequest" else "project.html"
     return _templates(request).TemplateResponse(request, template_name, context)
 
@@ -995,88 +1117,6 @@ def add_custom_field(
     return _redirect(f"/projects/{project_id}?hide_empty=false")
 
 
-@router.post("/projects/{project_id}/addresses/bulk")
-async def bulk_update_ip_addresses(
-    project_id: int,
-    request: Request,
-    db: Annotated[Session, Depends(get_db)],
-    settings: Annotated[Settings, Depends(get_settings)],
-    current_user: Annotated[User, Depends(require_user)],
-) -> RedirectResponse:
-    if db.get(Project, project_id) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    form = await request.form()
-    selected_ids: list[int] = []
-    for raw_id in form.getlist("ip_ids"):
-        try:
-            selected_ids.append(int(str(raw_id)))
-        except ValueError:
-            continue
-
-    if not selected_ids:
-        return _redirect_error(f"/projects/{project_id}", "Выберите строки для массового редактирования")
-
-    field_updates = {
-        "hostname": _clean_text(str(form.get("hostname", "")), 255),
-        "os": _clean_text(str(form.get("os", "")), 120),
-        "asset_type": _clean_text(str(form.get("asset_type", "")), 120),
-        "comment": _clean_text(str(form.get("comment", "")), 4000),
-    }
-    tag_updates = normalize_tags(form.get("tags", ""))
-    tags_mode = str(form.get("tags_mode", "append"))
-
-    if not any(field_updates.values()) and not tag_updates:
-        return _redirect_error(f"/projects/{project_id}", "Заполните хотя бы одно поле для массового изменения")
-
-    ip_records = db.scalars(
-        select(IPAddress)
-        .where(IPAddress.project_id == project_id, IPAddress.id.in_(selected_ids))
-        .order_by(IPAddress.ordinal.asc())
-    ).all()
-    if not ip_records:
-        return _redirect_error(f"/projects/{project_id}", "Выбранные строки не найдены")
-
-    labels = {
-        "hostname": "Hostname",
-        "os": "OS",
-        "asset_type": "Type",
-        "comment": "Comment",
-    }
-    for ip_record in ip_records:
-        changes: list[FieldChange] = []
-        for field_name, new_value in field_updates.items():
-            if not new_value:
-                continue
-            old_value = getattr(ip_record, field_name)
-            change = build_field_change(field_name, labels[field_name], old_value, new_value)
-            if change is not None:
-                changes.append(change)
-            setattr(ip_record, field_name, new_value)
-
-        if tag_updates:
-            old_tags = normalize_tags(ip_record.tags)
-            if tags_mode == "replace":
-                new_tags = tag_updates
-            else:
-                new_tags = normalize_tags([*old_tags, *tag_updates])
-            change = build_field_change("tags", "Tags", tags_to_text(old_tags), tags_to_text(new_tags))
-            if change is not None:
-                changes.append(change)
-            ip_record.tags = new_tags
-
-        record_ip_address_history(db, ip_record=ip_record, user=current_user, changes=changes)
-
-    db.commit()
-    hide_empty = form.get("hide_empty") == "true"
-    page = _safe_positive_int(form.get("page"), 1)
-    per_page = _normalize_project_page_size(_safe_positive_int(form.get("per_page"), 0), settings)
-    return _redirect_message(
-        _project_table_url(project_id, hide_empty=hide_empty, page=page, per_page=per_page),
-        f"Обновлено строк: {len(ip_records)}",
-    )
-
-
 @router.post("/projects/{project_id}/addresses/{ip_id}")
 async def update_ip_address(
     project_id: int,
@@ -1132,7 +1172,22 @@ async def update_ip_address(
     hide_empty = form.get("hide_empty") == "true"
     page = _safe_positive_int(form.get("page"), 1)
     per_page = _normalize_project_page_size(_safe_positive_int(form.get("per_page"), 0), settings)
-    return _redirect(f"{_project_table_url(project_id, hide_empty=hide_empty, page=page, per_page=per_page)}#ip-{ip_id}")
+    ping_status = _clean_filter_value(str(form.get("ping_status", "")), 20).lower()
+    if ping_status not in PING_STATUS_FILTERS:
+        ping_status = ""
+    type_filter = _clean_filter_value(str(form.get("type_filter", "")), 120)
+    os_filter = _clean_filter_value(str(form.get("os_filter", "")), 120)
+    return _redirect(
+        f"{_project_table_url(
+            project_id,
+            hide_empty=hide_empty,
+            page=page,
+            per_page=per_page,
+            ping_status=ping_status,
+            type_filter=type_filter,
+            os_filter=os_filter,
+        )}#ip-{ip_id}"
+    )
 
 
 @router.get("/projects/{project_id}/history", response_class=HTMLResponse)
