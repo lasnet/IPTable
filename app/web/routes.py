@@ -1242,6 +1242,45 @@ def project_history(
     )
 
 
+@router.get("/folders/{folder_id}/history", response_class=HTMLResponse)
+def folder_history(
+    folder_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> HTMLResponse:
+    folder = db.get(Folder, folder_id)
+    if folder is None:
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    history_items = db.scalars(
+        select(IPAddressHistory)
+        .join(Project, IPAddressHistory.project_id == Project.id)
+        .where(Project.folder_id == folder.id)
+        .options(selectinload(IPAddressHistory.project))
+        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
+        .limit(200)
+    ).all()
+
+    return _templates(request).TemplateResponse(
+        request,
+        "history.html",
+        {
+            "request": request,
+            "history_title": _ui("history.title"),
+            "history_subtitle": folder.name,
+            "history_back_url": "/",
+            "history_items": history_items,
+            "show_history_project": True,
+            "folders": _load_sidebar_folders(db),
+            "folder_schedules": _load_folder_schedules(db),
+            "default_ping_interval_minutes": _default_ping_interval_minutes(),
+            "active_folder_id": folder.id,
+            "current_user": current_user,
+        },
+    )
+
+
 @router.get("/search", response_class=HTMLResponse)
 def search(
     request: Request,

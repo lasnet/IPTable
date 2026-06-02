@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}{{ _('history.title') }} {{ project.cidr }} - IPtable{% endblock %}
+{% set history_page_title = history_title | default(_('history.title')) %}
+{% set history_page_subtitle = history_subtitle | default(project.cidr if project is defined else '') %}
+{% set history_page_back_url = history_back_url | default('/projects/' ~ project.id if project is defined else '/') %}
+
+{% block title %}{{ history_page_title }} {{ history_page_subtitle }} - IPtable{% endblock %}
 
 {% block content %}
 <section class="project-card history-card">
@@ -14,13 +18,13 @@
         </svg>
       </div>
       <div>
-        <h2>{{ _('history.title') }}</h2>
-        <p class="subtle">{{ project.cidr }}</p>
+        <h2>{{ history_page_title }}</h2>
+        <p class="subtle">{{ history_page_subtitle }}</p>
       </div>
     </div>
 
     <div class="project-actions">
-      <a class="soft-button" href="/projects/{{ project.id }}">
+      <a class="soft-button" href="{{ history_page_back_url }}">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
         </svg>
@@ -35,6 +39,9 @@
       <div class="history-meta">
         <strong>{{ item.address }}</strong>
         <span>{{ item.field_label }}</span>
+        {% if show_history_project %}
+        <span>{{ item.project.cidr }}</span>
+        {% endif %}
       </div>
       <div class="history-change">
         <div>
