@@ -20,7 +20,6 @@
       <col class="col-custom">
       {% endfor %}
       <col class="col-status">
-      <col class="col-action">
     </colgroup>
     <thead>
       <tr>
@@ -36,28 +35,43 @@
         <th>{{ field.name }}</th>
         {% endfor %}
         <th>{{ _('table.status_ping') }}</th>
-        <th class="save-head"></th>
       </tr>
     </thead>
     <tbody>
       {% for ip in ip_records %}
-      <tr id="ip-{{ ip.id }}" data-ip-id="{{ ip.id }}" data-row-address="{{ ip.address }}">
+      <tr id="ip-{{ ip.id }}"
+        data-ip-id="{{ ip.id }}"
+        data-row-address="{{ ip.address }}"
+        data-update-url="/projects/{{ project.id }}/addresses/{{ ip.id }}"
+        data-clear-url="/projects/{{ project.id }}/addresses/{{ ip.id }}/clear"
+        data-history-url="/projects/{{ project.id }}/history?address={{ ip.address | urlencode }}"
+        data-hide-empty="{{ 'true' if hide_empty else 'false' }}"
+        data-page="{{ pagination.current_page }}"
+        data-per-page="{{ pagination.per_page }}"
+        data-ping-status-filter="{{ table_filters.ping_status }}"
+        data-type-filter="{{ table_filters.type_filter }}"
+        data-os-filter="{{ table_filters.os_filter }}">
         {% if show_number_column %}
         <td class="number-cell">{{ ip.ordinal }}</td>
         {% endif %}
         <td class="ip-cell locked-col" data-detail-field="address">{{ ip.address }}</td>
-        <td data-detail-field="hostname"><input form="row-{{ ip.id }}" name="hostname" value="{{ ip.hostname }}" maxlength="255"
-            placeholder="{{ _('table.placeholder_empty') }}"></td>
-        <td data-detail-field="os"><input form="row-{{ ip.id }}" name="os" value="{{ ip.os }}" maxlength="120" placeholder="{{ _('table.placeholder_empty') }}"></td>
-        <td data-detail-field="asset_type"><input form="row-{{ ip.id }}" name="asset_type" value="{{ ip.asset_type }}" maxlength="120"
-            placeholder="{{ _('table.placeholder_empty') }}"></td>
-        <td data-detail-field="comment"><textarea form="row-{{ ip.id }}" name="comment" maxlength="4000" rows="1"
-            placeholder="{{ _('table.placeholder_empty') }}">{{ ip.comment }}</textarea></td>
+        <td data-detail-field="hostname" data-detail-value="{{ ip.hostname }}">
+          <span class="{{ 'table-empty-value' if not ip.hostname else '' }}">{{ ip.hostname if ip.hostname else _('table.placeholder_empty') }}</span>
+        </td>
+        <td data-detail-field="os" data-detail-value="{{ ip.os }}">
+          <span class="{{ 'table-empty-value' if not ip.os else '' }}">{{ ip.os if ip.os else _('table.placeholder_empty') }}</span>
+        </td>
+        <td data-detail-field="asset_type" data-detail-value="{{ ip.asset_type }}">
+          <span class="{{ 'table-empty-value' if not ip.asset_type else '' }}">{{ ip.asset_type if ip.asset_type else _('table.placeholder_empty') }}</span>
+        </td>
+        <td data-detail-field="comment" data-detail-value="{{ ip.comment }}">
+          <span class="{{ 'table-empty-value' if not ip.comment else '' }}">{{ ip.comment if ip.comment else _('table.placeholder_empty') }}</span>
+        </td>
         {% for field in custom_fields %}
-        <td data-custom-label="{{ field.name }}">
-          <input form="row-{{ ip.id }}" name="custom__{{ field.key }}"
-            value="{{ (ip.custom_values or {}).get(field.key, '') }}" maxlength="1000" placeholder="{{ _('table.placeholder_empty') }}" {% if
-            field.field_type in ['number', 'date' ] %}type="{{ field.field_type }}" {% endif %}>
+        {% set custom_value = (ip.custom_values or {}).get(field.key, '') %}
+        <td data-custom-label="{{ field.name }}" data-custom-name="custom__{{ field.key }}" data-custom-type="{{ field.field_type }}"
+          data-custom-value="{{ custom_value }}">
+          <span class="{{ 'table-empty-value' if not custom_value else '' }}">{{ custom_value if custom_value else _('table.placeholder_empty') }}</span>
         </td>
         {% endfor %}
         <td class="status-cell">
@@ -69,43 +83,10 @@
           <span class="status-pill unknown" data-ping-status="NoTest"><span></span>NoTest</span>
           {% endif %}
         </td>
-        <td class="save-cell">
-          <div class="row-actions">
-            <form id="row-{{ ip.id }}" class="asset-row-form" action="/projects/{{ project.id }}/addresses/{{ ip.id }}"
-              method="post">
-              {{ csrf_input(request) }}
-              <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
-              <input type="hidden" name="page" value="{{ pagination.current_page }}">
-              <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
-              <input type="hidden" name="ping_status" value="{{ table_filters.ping_status }}">
-              <input type="hidden" name="type_filter" value="{{ table_filters.type_filter }}">
-              <input type="hidden" name="os_filter" value="{{ table_filters.os_filter }}">
-              <button class="row-save" type="submit">Save</button>
-            </form>
-            <details class="node-menu row-action-menu">
-              <summary class="node-menu-button" title="{{ _('table.row_actions') }}" aria-label="{{ _('table.row_actions') }}">⋯</summary>
-              <div class="node-menu-panel">
-                <button class="node-menu-item" type="button" data-row-edit="ip-{{ ip.id }}">{{ _('button.edit') }}</button>
-                <form action="/projects/{{ project.id }}/addresses/{{ ip.id }}/clear" method="post"
-                  data-confirm="{{ _('confirm.clear_ip', address=ip.address) }}">
-                  {{ csrf_input(request) }}
-                  <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
-                  <input type="hidden" name="page" value="{{ pagination.current_page }}">
-                  <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
-                  <input type="hidden" name="ping_status" value="{{ table_filters.ping_status }}">
-                  <input type="hidden" name="type_filter" value="{{ table_filters.type_filter }}">
-                  <input type="hidden" name="os_filter" value="{{ table_filters.os_filter }}">
-                  <button class="node-menu-item danger-menu-item" type="submit">{{ _('button.clear') }}</button>
-                </form>
-                <a class="node-menu-item" href="/projects/{{ project.id }}/history?address={{ ip.address | urlencode }}">{{ _('history.view') }}</a>
-              </div>
-            </details>
-          </div>
-        </td>
       </tr>
       {% else %}
       <tr>
-        <td class="empty-table" colspan="{{ (8 if show_number_column else 7) + custom_fields|length }}">
+        <td class="empty-table" colspan="{{ (7 if show_number_column else 6) + custom_fields|length }}">
           {{ _('table.no_records') }}
         </td>
       </tr>

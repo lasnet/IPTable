@@ -2,7 +2,7 @@
   let dirtyRow = null;
   let allowSubmit = false;
 
-  const editableSelector = ".asset-table input:not([type='hidden']):not([type='checkbox']), .asset-table textarea, .asset-table select";
+  const editableSelector = ".host-drawer [data-drawer-editable]";
   const i18n = document.body.dataset;
 
   function formatMessage(template, values) {
@@ -13,7 +13,11 @@
   }
 
   function rowFor(element) {
-    return element.closest("tr");
+    const drawer = element.closest?.("[data-host-drawer]");
+    if (drawer?.dataset.rowId) {
+      return document.getElementById(drawer.dataset.rowId);
+    }
+    return element.closest?.("tr");
   }
 
   function rowAddress(row) {
@@ -21,7 +25,11 @@
   }
 
   function firstEditable(row) {
-    return row?.querySelector(editableSelector);
+    const drawer = document.querySelector("[data-host-drawer]");
+    if (!drawer || drawer.dataset.rowId !== row?.id) {
+      return null;
+    }
+    return drawer.querySelector("[data-drawer-editable]:not([disabled])");
   }
 
   function hasDirtyRow() {
@@ -114,22 +122,47 @@
     }, 50);
   }
 
-  function closeHostDrawer() {
+  function clearDirtyState() {
+    dirtyRow?.classList.remove("row-dirty", "row-saving");
+    dirtyRow = null;
+    allowSubmit = false;
+    document.querySelector("[data-host-drawer]")?.classList.remove("drawer-dirty");
+  }
+
+  function setDrawerEditMode(drawer, enabled) {
+    drawer.classList.toggle("editing", enabled);
+    drawer.querySelectorAll("[data-drawer-editable]").forEach((field) => {
+      field.disabled = !enabled;
+    });
+    const editButton = drawer.querySelector("[data-host-drawer-edit]");
+    const saveButton = drawer.querySelector("[data-host-drawer-save]");
+    if (editButton) {
+      editButton.hidden = enabled;
+    }
+    if (saveButton) {
+      saveButton.hidden = !enabled;
+    }
+  }
+
+  function closeHostDrawer(force = false) {
     const drawer = document.querySelector("[data-host-drawer]");
     if (!drawer) {
       return;
     }
+    if (!force && hasDirtyRow()) {
+      warnAboutDirtyRow();
+      return;
+    }
     drawer.classList.remove("open");
     drawer.setAttribute("aria-hidden", "true");
+    setDrawerEditMode(drawer, false);
+    clearDirtyState();
     document.querySelector(".asset-table tr.row-selected")?.classList.remove("row-selected");
   }
 
   function tableCellValue(row, fieldName) {
-    const field = row.querySelector(`[name="${fieldName}"]`);
-    if (field) {
-      return field.value || "";
-    }
-    return row.querySelector(`[data-detail-field="${fieldName}"]`)?.textContent?.trim() || "";
+    const cell = row.querySelector(`[data-detail-field="${fieldName}"]`);
+    return cell?.dataset.detailValue || "";
   }
 
   function drawerValue(value) {
@@ -140,9 +173,24 @@
   function setDrawerField(drawer, name, value) {
     const target = drawer.querySelector(`[data-drawer-field="${name}"]`);
     if (target) {
-      target.textContent = drawerValue(value);
+      target.value = value || "";
+      target.placeholder = drawerValue("");
       target.classList.toggle("empty-value", !String(value || "").trim());
     }
+  }
+
+  function syncDrawerHiddenFields(drawer, row) {
+    const values = {
+      hide_empty: row.dataset.hideEmpty || "true",
+      page: row.dataset.page || "1",
+      per_page: row.dataset.perPage || "",
+      ping_status: row.dataset.pingStatusFilter || "",
+      type_filter: row.dataset.typeFilter || "",
+      os_filter: row.dataset.osFilter || "",
+    };
+    drawer.querySelectorAll("[data-drawer-hidden]").forEach((field) => {
+      field.value = values[field.dataset.drawerHidden] || "";
+    });
   }
 
   function openHostDrawer(row) {
@@ -153,7 +201,18 @@
 
     const address = row.dataset.rowAddress || "";
     drawer.dataset.rowId = row.id;
+    setDrawerEditMode(drawer, false);
+    clearDirtyState();
     drawer.querySelector("[data-drawer-ip-title]").textContent = address;
+    drawer.querySelector("[data-host-drawer-form]").action = row.dataset.updateUrl || "";
+    const clearForm = drawer.querySelector("[data-host-drawer-clear-form]");
+    clearForm.action = row.dataset.clearUrl || "";
+    if (clearForm.dataset.confirmTemplate) {
+      clearForm.dataset.confirm = formatMessage(clearForm.dataset.confirmTemplate, { address });
+    }
+    const historyLink = drawer.querySelector("[data-host-drawer-history]");
+    historyLink.href = row.dataset.historyUrl || "#";
+    syncDrawerHiddenFields(drawer, row);
     setDrawerField(drawer, "address", address);
     setDrawerField(drawer, "hostname", tableCellValue(row, "hostname"));
     setDrawerField(drawer, "os", tableCellValue(row, "os"));
@@ -170,23 +229,24 @@
     const customTarget = drawer.querySelector("[data-drawer-custom]");
     customTarget.innerHTML = "";
     const customCells = Array.from(row.querySelectorAll("[data-custom-label]"));
-    if (customCells.length) {
-      const title = document.createElement("h4");
-      title.textContent = i18n.i18nCustomFields || "Additional fields";
-      customTarget.append(title);
-      customCells.forEach((cell) => {
-        const item = document.createElement("div");
-        const label = document.createElement("dt");
-        const value = document.createElement("dd");
-        const input = cell.querySelector("input, textarea, select");
-        const cleanValue = input?.value || "";
-        label.textContent = cell.dataset.customLabel || "";
-        value.textContent = drawerValue(cleanValue);
-        value.classList.toggle("empty-value", !String(cleanValue).trim());
-        item.append(label, value);
-        customTarget.append(item);
-      });
-    }
+    customCells.forEach((cell) => {
+      const label = document.createElement("label");
+      const labelText = document.createElement("span");
+      const input = document.createElement("input");
+      const fieldType = cell.dataset.customType || "text";
+      const cleanValue = cell.dataset.customValue || "";
+      labelText.textContent = cell.dataset.customLabel || "";
+      input.name = cell.dataset.customName || "";
+      input.type = ["number", "date"].includes(fieldType) ? fieldType : "text";
+      input.maxLength = 1000;
+      input.value = cleanValue;
+      input.placeholder = drawerValue("");
+      input.disabled = true;
+      input.dataset.drawerEditable = "";
+      input.classList.toggle("empty-value", !String(cleanValue).trim());
+      label.append(labelText, input);
+      customTarget.append(label);
+    });
 
     document.querySelector(".asset-table tr.row-selected")?.classList.remove("row-selected");
     row.classList.add("row-selected");
@@ -198,8 +258,11 @@
     if (!row) {
       return;
     }
-    row.scrollIntoView({ block: "center", inline: "nearest" });
-    closeHostDrawer();
+    const drawer = document.querySelector("[data-host-drawer]");
+    if (!drawer || drawer.dataset.rowId !== row.id) {
+      openHostDrawer(row);
+    }
+    setDrawerEditMode(document.querySelector("[data-host-drawer]"), true);
     const target = firstEditable(row);
     if (target) {
       window.setTimeout(() => target.focus(), 0);
@@ -223,9 +286,7 @@
     }
 
     region.innerHTML = await response.text();
-    dirtyRow = null;
-    allowSubmit = false;
-    closeHostDrawer();
+    closeHostDrawer(true);
     syncProjectControls(url);
     if (pushState) {
       window.history.pushState(null, "", url);
@@ -263,6 +324,7 @@
 
     dirtyRow = row;
     row.classList.add("row-dirty");
+    target.closest("[data-host-drawer]")?.classList.add("drawer-dirty");
   });
 
   document.addEventListener("submit", (event) => {
@@ -279,7 +341,7 @@
       return;
     }
 
-    const formRow = document.querySelector(`tr [form="${form.id}"]`)?.closest("tr") || form.closest("tr");
+    const formRow = rowFor(form);
 
     if (hasDirtyRow() && form.classList.contains("asset-row-form") && formRow === dirtyRow) {
       allowSubmit = true;
@@ -307,18 +369,6 @@
   });
 
   document.addEventListener("click", (event) => {
-    const rowEditTrigger = event.target.closest("[data-row-edit]");
-    if (rowEditTrigger) {
-      event.preventDefault();
-      const row = document.getElementById(rowEditTrigger.dataset.rowEdit);
-      if (hasDirtyRow() && row !== dirtyRow) {
-        warnAboutDirtyRow();
-        return;
-      }
-      editRow(row);
-      return;
-    }
-
     if (event.target.closest("[data-host-drawer-close]")) {
       closeHostDrawer();
       return;
@@ -336,11 +386,25 @@
       const row = event.target.closest(".asset-table tbody tr[data-row-address]");
       const interactive = event.target.closest("button, input, textarea, select, label, summary, details, .node-menu");
       if (row && !interactive) {
-        if (hasDirtyRow() && row !== dirtyRow) {
-          warnAboutDirtyRow();
+        if (hasDirtyRow()) {
+          if (row !== dirtyRow) {
+            warnAboutDirtyRow();
+            return;
+          }
+          focusDirtyRow();
           return;
         }
         openHostDrawer(row);
+      }
+      return;
+    }
+
+    if (link.closest("[data-host-drawer-history]") && hasDirtyRow()) {
+      const leaveTemplate = i18n.i18nUnsavedLeave || "There are unsaved changes in row {row}. Leave without saving?";
+      const allowLeave = window.confirm(formatMessage(leaveTemplate, { row: rowAddress(dirtyRow) }));
+      if (!allowLeave) {
+        event.preventDefault();
+        focusDirtyRow();
       }
       return;
     }

@@ -209,37 +209,61 @@
       </div>
       <button class="modal-close" type="button" data-host-drawer-close aria-label="{{ _('button.cancel') }}">×</button>
     </div>
-    <dl class="host-drawer-fields">
-      <div>
-        <dt>{{ _('table.ip_address') }}</dt>
-        <dd data-drawer-field="address"></dd>
+    <form class="host-drawer-form asset-row-form" method="post" data-host-drawer-form>
+      {{ csrf_input(request) }}
+      <input type="hidden" name="hide_empty" data-drawer-hidden="hide_empty">
+      <input type="hidden" name="page" data-drawer-hidden="page">
+      <input type="hidden" name="per_page" data-drawer-hidden="per_page">
+      <input type="hidden" name="ping_status" data-drawer-hidden="ping_status">
+      <input type="hidden" name="type_filter" data-drawer-hidden="type_filter">
+      <input type="hidden" name="os_filter" data-drawer-hidden="os_filter">
+      <div class="host-drawer-fields">
+        <label>
+          {{ _('table.ip_address') }}
+          <input name="address_display" data-drawer-field="address" disabled readonly>
+        </label>
+        <label>
+          Hostname
+          <input name="hostname" maxlength="255" data-drawer-field="hostname" data-drawer-editable disabled>
+        </label>
+        <label>
+          OS
+          <input name="os" maxlength="120" data-drawer-field="os" data-drawer-editable disabled>
+        </label>
+        <label>
+          Type
+          <input name="asset_type" maxlength="120" data-drawer-field="asset_type" data-drawer-editable disabled>
+        </label>
+        <label>
+          Comment
+          <textarea name="comment" maxlength="4000" rows="4" data-drawer-field="comment" data-drawer-editable disabled></textarea>
+        </label>
       </div>
-      <div>
-        <dt>Hostname</dt>
-        <dd data-drawer-field="hostname"></dd>
+      <div class="host-drawer-custom" data-drawer-custom></div>
+      <div class="host-drawer-status-field">
+        <span>{{ _('table.status_ping') }}</span>
+        <div class="host-drawer-status" data-drawer-status></div>
       </div>
-      <div>
-        <dt>OS</dt>
-        <dd data-drawer-field="os"></dd>
+      <div class="host-drawer-actions">
+        <button class="soft-button" type="button" data-host-drawer-edit>{{ _('button.edit') }}</button>
+        <button class="soft-button drawer-save-button" type="submit" data-host-drawer-save hidden>{{ _('button.save') }}</button>
+        <button class="soft-button" type="button" data-host-drawer-close>{{ _('button.cancel') }}</button>
       </div>
-      <div>
-        <dt>Type</dt>
-        <dd data-drawer-field="asset_type"></dd>
+    </form>
+    <form class="host-drawer-clear-form" method="post" data-host-drawer-clear-form
+      data-confirm-template="{{ _('confirm.clear_ip', address='{address}') }}">
+      {{ csrf_input(request) }}
+      <input type="hidden" name="hide_empty" data-drawer-hidden="hide_empty">
+      <input type="hidden" name="page" data-drawer-hidden="page">
+      <input type="hidden" name="per_page" data-drawer-hidden="per_page">
+      <input type="hidden" name="ping_status" data-drawer-hidden="ping_status">
+      <input type="hidden" name="type_filter" data-drawer-hidden="type_filter">
+      <input type="hidden" name="os_filter" data-drawer-hidden="os_filter">
+      <div class="host-drawer-secondary-actions">
+        <button class="soft-button danger-soft-button" type="submit" data-host-drawer-clear>{{ _('button.clear') }}</button>
+        <a class="soft-button" href="#" data-host-drawer-history>{{ _('history.view') }}</a>
       </div>
-      <div>
-        <dt>Comment</dt>
-        <dd data-drawer-field="comment"></dd>
-      </div>
-      <div>
-        <dt>{{ _('table.status_ping') }}</dt>
-        <dd class="host-drawer-status" data-drawer-status></dd>
-      </div>
-    </dl>
-    <div class="host-drawer-custom" data-drawer-custom></div>
-    <div class="host-drawer-actions">
-      <button class="soft-button" type="button" data-host-drawer-edit>{{ _('button.edit') }}</button>
-      <button class="soft-button" type="button" data-host-drawer-close>{{ _('button.cancel') }}</button>
-    </div>
+    </form>
   </aside>
 </section>
 {% endblock %}
