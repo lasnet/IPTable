@@ -118,6 +118,20 @@ def _login_redirect(message: str | None = None) -> HTTPException:
     return HTTPException(status_code=303, headers={"Location": location})
 
 
+def _session_idle_expired(request: Request, settings: Settings, *, now: int | None = None) -> bool:
+    if not request.session.get("user_id"):
+        return False
+
+    last_activity = request.session.get(SESSION_LAST_ACTIVITY_KEY)
+    try:
+        last_activity_at = int(last_activity)
+    except (TypeError, ValueError):
+        return True
+
+    current_time = int(time.time()) if now is None else now
+    return current_time - last_activity_at > settings.session_idle_timeout_seconds
+
+
 def require_user(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
@@ -128,13 +142,7 @@ def require_user(
         raise _login_redirect()
 
     now = int(time.time())
-    last_activity = request.session.get(SESSION_LAST_ACTIVITY_KEY)
-    try:
-        last_activity_at = int(last_activity)
-    except (TypeError, ValueError):
-        last_activity_at = now
-
-    if now - last_activity_at > settings.session_idle_timeout_seconds:
+    if _session_idle_expired(request, settings, now=now):
         request.session.clear()
         raise _login_redirect(_ui("session.expired"))
 
@@ -348,10 +356,15 @@ def health() -> dict[str, str]:
 @router.get("/login", response_class=HTMLResponse)
 def login_page(
     request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
     error: Annotated[str | None, Query(max_length=240)] = None,
 ) -> Response:
     if request.session.get("user_id"):
-        return _redirect("/")
+        if _session_idle_expired(request, settings):
+            request.session.clear()
+            error = error or _ui("session.expired")
+        else:
+            return _redirect("/")
 
     return _templates(request).TemplateResponse(
         request,

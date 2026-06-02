@@ -1,5 +1,6 @@
 import os
 import re
+from types import SimpleNamespace
 import unittest
 from datetime import datetime
 from unittest.mock import patch
@@ -23,6 +24,7 @@ from app.services.security import (
     require_csrf_token,
     reset_login_failures,
 )
+from app.web.routes import SESSION_LAST_ACTIVITY_KEY, _session_idle_expired
 
 
 class SecurityTest(unittest.TestCase):
@@ -141,6 +143,24 @@ class SecurityTest(unittest.TestCase):
             remaining_events = db.scalars(select(LoginRateLimitEvent)).all()
 
         self.assertEqual(remaining_events, [])
+
+    def test_session_idle_timeout_expires_old_activity(self) -> None:
+        request = SimpleNamespace(session={"user_id": 1, SESSION_LAST_ACTIVITY_KEY: 100})
+        settings = Settings(initial_admin_password="x", session_idle_timeout_seconds=60)
+
+        self.assertTrue(_session_idle_expired(request, settings, now=161))
+
+    def test_session_idle_timeout_rejects_missing_activity(self) -> None:
+        request = SimpleNamespace(session={"user_id": 1})
+        settings = Settings(initial_admin_password="x", session_idle_timeout_seconds=60)
+
+        self.assertTrue(_session_idle_expired(request, settings, now=100))
+
+    def test_session_idle_timeout_keeps_recent_activity(self) -> None:
+        request = SimpleNamespace(session={"user_id": 1, SESSION_LAST_ACTIVITY_KEY: 100})
+        settings = Settings(initial_admin_password="x", session_idle_timeout_seconds=60)
+
+        self.assertFalse(_session_idle_expired(request, settings, now=160))
 
 
 if __name__ == "__main__":

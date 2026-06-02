@@ -300,7 +300,7 @@ hadolint Dockerfile
 - Столбец `№` скрыт в `app/templates/project.html` через `show_number_column = false`. Если включаете его обратно, проверьте комментарий рядом с флагом и верните sticky offset `.locked-col` на `74px`.
 - `INITIAL_ADMIN_PASSWORD` используется только при создании нового пользователя. Изменение переменной не сбрасывает пароль уже созданного пользователя.
 - Изменение `INITIAL_ADMIN_USERNAME` переносит роль администратора на новый env-логин; старый админ теряет `is_admin` и явные права, которые выдавались bootstrap-ом.
-- `SESSION_IDLE_TIMEOUT_SECONDS` управляет idle-timeout и cookie `max_age`; при каждом авторизованном запросе обновляется `last_activity_at` в session cookie.
+- `SESSION_IDLE_TIMEOUT_SECONDS` управляет idle-timeout и cookie `max_age`; при каждом авторизованном запросе обновляется `last_activity_at` в session cookie. Cookie с отсутствующим или битым `last_activity_at` считается просроченной. После изменения `.env` в Docker нужно пересоздать web/worker контейнеры, потому что `docker compose start` не перечитывает env.
 - Если `SECRET_KEY` не задан в `APP_ENV=production`, приложение не стартует. В local-режиме без секрета будет временный ключ на процесс, поэтому сессии сбросятся после перезапуска.
 - OpenAPI UI доступен только вне production. При `APP_ENV=production` `/docs`, `/redoc` и `/openapi.json` отключены.
 - Ошибка Docker build `Temporary failure in name resolution` означает, что контейнер сборки не видит DNS для Debian/PyPI. Это не проблема версии `fastapi`; настройте Docker DNS/proxy на сервере.
