@@ -281,25 +281,33 @@ select:disabled {
   align-content: start;
   gap: 14px;
   margin-top: 14px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
   padding-right: 4px;
 }
 
 .folder-node {
+  position: relative;
   display: grid;
   gap: 8px;
 }
 
 .folder-line {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px;
-  gap: 8px;
+  display: flex;
   align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 32px;
+  padding-right: 38px;
+  color: var(--text);
+  font-weight: 750;
+  list-style: none;
+  cursor: pointer;
 }
 
 .tree-folder {
+  width: 100%;
   min-width: 0;
 }
 
@@ -311,8 +319,18 @@ select:disabled {
   transition: opacity 0.12s ease;
 }
 
-.folder-line:hover > .node-menu,
-.folder-line:focus-within > .node-menu,
+.folder-node > .folder-node-menu {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  z-index: 22;
+}
+
+.folder-node:has(> .tree-folder > .folder-line:hover) > .folder-node-menu,
+.folder-node:has(> .tree-folder > .folder-line:focus) > .folder-node-menu,
+.folder-node > .folder-node-menu:hover,
+.folder-node > .folder-node-menu:focus-within,
+.folder-node > .folder-node-menu[open],
 .tree-project-row:hover > .node-menu,
 .tree-project-row:focus-within > .node-menu,
 .node-menu[open] {
@@ -360,6 +378,17 @@ select:disabled {
   box-shadow: var(--shadow);
 }
 
+.node-menu-panel.floating {
+  position: fixed;
+  top: var(--node-menu-top, 0);
+  left: var(--node-menu-left, 0);
+  right: auto;
+  z-index: 1000;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+
 .node-menu-panel form {
   margin: 0;
 }
@@ -398,14 +427,6 @@ select:disabled {
 
 .tree-folder > summary {
   display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
-  min-height: 32px;
-  color: var(--text);
-  font-weight: 750;
-  list-style: none;
-  cursor: pointer;
 }
 
 .tree-folder > summary span {

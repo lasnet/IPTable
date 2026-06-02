@@ -5,8 +5,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}IPtable{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260601-i18n">
-  <script src="{{ url_for('static', path='/app.js') }}?v=20260601-i18n" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260602-sidebar-menu">
+  <script src="{{ url_for('static', path='/app.js') }}?v=20260602-sidebar-menu" defer></script>
 </head>
 
 <body data-i18n-selected-row="{{ _('js.selected_row') }}"
@@ -65,67 +65,65 @@
       <nav class="tree">
         {% for folder in folders %}
         <div class="folder-node">
-          <div class="folder-line">
-            <details class="tree-folder" {% if (active_project and active_project.folder_id == folder.id) or (active_folder_id is defined and active_folder_id == folder.id) %}open{% endif %}>
-              <summary>
-                <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="m9 18 6-6-6-6" />
-                </svg>
-                <svg class="folder-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 6h5l2 2h9v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" />
-                </svg>
-                <span>{{ folder.name }}</span>
-              </summary>
-              <div class="tree-projects">
-                {% for item in folder.projects %}
-                <div class="tree-project-row {% if active_project and active_project.id == item.id %}active{% endif %}">
-                  <a class="tree-project" href="/projects/{{ item.id }}">
-                    <svg class="network-icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 3v5" />
-                      <path d="M5 21v-3a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v3" />
-                      <path d="M8 8h8v5H8z" />
-                      <path d="M3 21h18" />
-                      <path d="M7 21v-3" />
-                      <path d="M17 21v-3" />
-                    </svg>
-                    <span>{{ item.cidr }}</span>
-                  </a>
-                  <details class="node-menu project-node-menu">
-                    <summary class="node-menu-button" title="{{ _('project.menu') }}" aria-label="{{ _('project.menu') }}">⋯</summary>
-                    <div class="node-menu-panel">
-                      <a class="node-menu-item" href="/projects/{{ item.id }}">{{ _('project.open') }}</a>
-                      <a class="node-menu-item" href="/projects/{{ item.id }}/history">{{ _('history.title') }}</a>
-                    </div>
-                  </details>
-                </div>
-                {% else %}
-                <span class="tree-empty">{{ _('folder.no_projects') }}</span>
-                {% endfor %}
+          <details class="tree-folder" {% if (active_project and active_project.folder_id == folder.id) or (active_folder_id is defined and active_folder_id == folder.id) %}open{% endif %}>
+            <summary class="folder-line">
+              <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+              <svg class="folder-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 6h5l2 2h9v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" />
+              </svg>
+              <span>{{ folder.name }}</span>
+            </summary>
+            <div class="tree-projects">
+              {% for item in folder.projects %}
+              <div class="tree-project-row {% if active_project and active_project.id == item.id %}active{% endif %}">
+                <a class="tree-project" href="/projects/{{ item.id }}">
+                  <svg class="network-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3v5" />
+                    <path d="M5 21v-3a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v3" />
+                    <path d="M8 8h8v5H8z" />
+                    <path d="M3 21h18" />
+                    <path d="M7 21v-3" />
+                    <path d="M17 21v-3" />
+                  </svg>
+                  <span>{{ item.cidr }}</span>
+                </a>
+                <details class="node-menu project-node-menu">
+                  <summary class="node-menu-button" title="{{ _('project.menu') }}" aria-label="{{ _('project.menu') }}">⋯</summary>
+                  <div class="node-menu-panel">
+                    <a class="node-menu-item" href="/projects/{{ item.id }}">{{ _('project.open') }}</a>
+                    <a class="node-menu-item" href="/projects/{{ item.id }}/history">{{ _('history.title') }}</a>
+                  </div>
+                </details>
               </div>
-            </details>
-            <details class="node-menu folder-node-menu">
-              <summary class="node-menu-button" title="{{ _('folder.menu') }}" aria-label="{{ _('folder.menu') }}">⋯</summary>
-              <div class="node-menu-panel">
-                {% if current_user.can_create_inventory %}
-                <a class="node-menu-item" href="{{ request.url.path }}?new_project_folder={{ folder.id }}">{{ _('project.add') }}</a>
-                {% endif %}
-                {% if current_user.can_edit_inventory %}
-                <a class="node-menu-item" href="{{ request.url.path }}?edit_folder={{ folder.id }}">{{ _('folder.rename') }}</a>
-                {% endif %}
-                <a class="node-menu-item" href="/folders/{{ folder.id }}/history">{{ _('history.title') }}</a>
-                {% if current_user.is_admin %}
-                <a class="node-menu-item" href="{{ request.url.path }}?schedule_folder={{ folder.id }}">{{ _('folder.schedule') }}</a>
-                <a class="node-menu-item" href="{{ request.url.path }}?export_folder={{ folder.id }}">{{ _('export.folder') }}</a>
-                {% endif %}
-                {% if current_user.can_delete_inventory %}
-                <form action="/folders/{{ folder.id }}/delete" method="post" data-confirm="{{ _('confirm.delete_folder') }}">
-                  {{ csrf_input(request) }}
-                  <button class="node-menu-item danger-menu-item" type="submit">{{ _('folder.delete') }}</button>
-                </form>
-                {% endif %}
-              </div>
-            </details>
-          </div>
+              {% else %}
+              <span class="tree-empty">{{ _('folder.no_projects') }}</span>
+              {% endfor %}
+            </div>
+          </details>
+          <details class="node-menu folder-node-menu">
+            <summary class="node-menu-button" title="{{ _('folder.menu') }}" aria-label="{{ _('folder.menu') }}">⋯</summary>
+            <div class="node-menu-panel">
+              {% if current_user.can_create_inventory %}
+              <a class="node-menu-item" href="{{ request.url.path }}?new_project_folder={{ folder.id }}">{{ _('project.add') }}</a>
+              {% endif %}
+              {% if current_user.can_edit_inventory %}
+              <a class="node-menu-item" href="{{ request.url.path }}?edit_folder={{ folder.id }}">{{ _('folder.rename') }}</a>
+              {% endif %}
+              <a class="node-menu-item" href="/folders/{{ folder.id }}/history">{{ _('history.title') }}</a>
+              {% if current_user.is_admin %}
+              <a class="node-menu-item" href="{{ request.url.path }}?schedule_folder={{ folder.id }}">{{ _('folder.schedule') }}</a>
+              <a class="node-menu-item" href="{{ request.url.path }}?export_folder={{ folder.id }}">{{ _('export.folder') }}</a>
+              {% endif %}
+              {% if current_user.can_delete_inventory %}
+              <form action="/folders/{{ folder.id }}/delete" method="post" data-confirm="{{ _('confirm.delete_folder') }}">
+                {{ csrf_input(request) }}
+                <button class="node-menu-item danger-menu-item" type="submit">{{ _('folder.delete') }}</button>
+              </form>
+              {% endif %}
+            </div>
+          </details>
           {% if current_user.is_admin and request.query_params.get('schedule_folder') == folder.id|string %}
           {% set folder_schedule = folder_schedules.get(folder.id) if folder_schedules is defined else none %}
           <div class="sidebar-form compact-form">

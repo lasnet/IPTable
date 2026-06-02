@@ -257,6 +257,104 @@
 })();
 
 (function () {
+  const menus = Array.from(document.querySelectorAll(".node-menu"));
+  if (!menus.length) {
+    return;
+  }
+
+  function panelFor(menu) {
+    return menu.querySelector(".node-menu-panel");
+  }
+
+  function closeMenu(menu) {
+    const panel = panelFor(menu);
+    menu.open = false;
+    if (panel) {
+      panel.classList.remove("floating");
+      panel.style.removeProperty("--node-menu-top");
+      panel.style.removeProperty("--node-menu-left");
+      panel.style.removeProperty("visibility");
+    }
+  }
+
+  function closeOtherMenus(activeMenu) {
+    menus.forEach((menu) => {
+      if (menu !== activeMenu) {
+        closeMenu(menu);
+      }
+    });
+  }
+
+  function positionMenu(menu) {
+    const button = menu.querySelector(".node-menu-button");
+    const panel = panelFor(menu);
+    if (!button || !panel) {
+      return;
+    }
+
+    panel.classList.add("floating");
+    panel.style.visibility = "hidden";
+    panel.style.setProperty("--node-menu-top", "0px");
+    panel.style.setProperty("--node-menu-left", "0px");
+
+    const buttonRect = button.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+    const sidebarRect = menu.closest(".sidebar")?.getBoundingClientRect();
+    const viewportPadding = 12;
+    const sidebarPadding = 8;
+
+    const minLeft = sidebarRect ? sidebarRect.left + sidebarPadding : viewportPadding;
+    const maxLeft = sidebarRect
+      ? sidebarRect.right - panelRect.width - sidebarPadding
+      : window.innerWidth - panelRect.width - viewportPadding;
+
+    let left = buttonRect.right - panelRect.width;
+    if (maxLeft >= minLeft) {
+      left = Math.min(Math.max(left, minLeft), maxLeft);
+    } else {
+      left = Math.min(Math.max(left, viewportPadding), window.innerWidth - panelRect.width - viewportPadding);
+    }
+
+    let top = buttonRect.bottom + 6;
+    if (top + panelRect.height > window.innerHeight - viewportPadding) {
+      top = buttonRect.top - panelRect.height - 6;
+    }
+    top = Math.max(viewportPadding, top);
+
+    panel.style.setProperty("--node-menu-top", `${top}px`);
+    panel.style.setProperty("--node-menu-left", `${left}px`);
+    panel.style.removeProperty("visibility");
+  }
+
+  menus.forEach((menu) => {
+    menu.addEventListener("toggle", () => {
+      if (menu.open) {
+        closeOtherMenus(menu);
+        positionMenu(menu);
+      } else {
+        closeMenu(menu);
+      }
+    });
+  });
+
+  document.addEventListener("click", (event) => {
+    if (event.target.closest(".node-menu")) {
+      return;
+    }
+    menus.forEach(closeMenu);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      menus.forEach(closeMenu);
+    }
+  });
+
+  window.addEventListener("resize", () => menus.forEach(closeMenu));
+  document.querySelector(".tree")?.addEventListener("scroll", () => menus.forEach(closeMenu));
+})();
+
+(function () {
   const forms = document.querySelectorAll(".export-form");
   forms.forEach((form) => {
     const toggle = form.querySelector("[data-password-toggle]");
