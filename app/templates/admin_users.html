@@ -64,12 +64,20 @@
       <div class="users-list">
         {% for user in users %}
         <article class="user-row">
-          <div>
-            <strong>{{ user.username }}</strong>
-            {% if user.is_admin %}<span class="role-badge">admin</span>{% endif %}
-            {% if not user.is_active %}<span class="status-badge inactive">{{ _('admin.disabled') }}</span>{% endif %}
+          <div class="user-main">
+            <div class="user-title-line">
+              <strong>{{ user.username }}</strong>
+              {% if user.is_admin %}<span class="role-badge">admin</span>{% endif %}
+              {% if user.is_active %}
+              <span class="status-badge active">{{ _('admin.active') }}</span>
+              {% else %}
+              <span class="status-badge inactive">{{ _('admin.inactive') }}</span>
+              {% endif %}
+            </div>
             {% if user.first_name or user.last_name %}
             <p>{{ user.first_name }} {{ user.last_name }}</p>
+            {% else %}
+            <p class="muted-text">-</p>
             {% endif %}
             {% if user.description %}<small>{{ user.description }}</small>{% endif %}
           </div>
@@ -79,82 +87,11 @@
             <span class="{{ 'enabled' if user.can_delete_inventory else '' }}">{{ _('admin.permission_delete') }}</span>
             <span class="{{ 'enabled' if user.can_manage_project_columns else '' }}">{{ _('admin.permission_columns') }}</span>
           </div>
-          <details class="user-editor">
-            <summary class="soft-button compact-action">{{ _('admin.edit') }}</summary>
-            {% if user.is_admin %}
-            <div class="form-hint">
-              {{ _('admin.hint') }}
-            </div>
-            <form class="admin-form" action="/admin/users/{{ user.id }}/update" method="post">
-              {{ csrf_input(request) }}
-              <div class="form-grid">
-                <label>
-                  {{ _('common.username') }}
-                  <input name="username" minlength="3" maxlength="80" required readonly value="{{ user.username }}">
-                </label>
-                <label>
-                  {{ _('admin.new_password') }}
-                  <input name="password" type="password" minlength="8" maxlength="200" placeholder="{{ _('password.keep_empty') }}">
-                </label>
-                <label>
-                  {{ _('admin.first_name') }}
-                  <input name="first_name" maxlength="120" value="{{ user.first_name }}">
-                </label>
-                <label>
-                  {{ _('admin.last_name') }}
-                  <input name="last_name" maxlength="120" value="{{ user.last_name }}">
-                </label>
-              </div>
-              <label>
-                {{ _('common.description') }}
-                <textarea name="description" maxlength="2000" rows="3">{{ user.description }}</textarea>
-              </label>
-              <div class="permission-grid">
-                <label><input type="checkbox" checked disabled> {{ _('admin.active_admin') }}</label>
-              </div>
-              <button type="submit">{{ _('admin.save_admin') }}</button>
-            </form>
-            {% else %}
-            <form class="admin-form" action="/admin/users/{{ user.id }}/update" method="post">
-              {{ csrf_input(request) }}
-              <div class="form-grid">
-                <label>
-                  {{ _('common.username') }}
-                  <input name="username" minlength="3" maxlength="80" required value="{{ user.username }}">
-                </label>
-                <label>
-                  {{ _('admin.new_password') }}
-                  <input name="password" type="password" minlength="8" maxlength="200" placeholder="{{ _('password.keep_empty') }}">
-                </label>
-                <label>
-                  {{ _('admin.first_name') }}
-                  <input name="first_name" maxlength="120" value="{{ user.first_name }}">
-                </label>
-                <label>
-                  {{ _('admin.last_name') }}
-                  <input name="last_name" maxlength="120" value="{{ user.last_name }}">
-                </label>
-              </div>
-              <label>
-                {{ _('common.description') }}
-                <textarea name="description" maxlength="2000" rows="3">{{ user.description }}</textarea>
-              </label>
-              <div class="permission-grid">
-                <label><input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %}> {{ _('admin.user_active') }}</label>
-                <label><input type="checkbox" name="can_create" {% if user.can_create %}checked{% endif %}> {{ _('admin.allow_create') }}</label>
-                <label><input type="checkbox" name="can_edit" {% if user.can_edit %}checked{% endif %}> {{ _('admin.allow_edit') }}</label>
-                <label><input type="checkbox" name="can_delete" {% if user.can_delete %}checked{% endif %}> {{ _('admin.allow_delete') }}</label>
-                <label><input type="checkbox" name="can_manage_columns" {% if user.can_manage_columns %}checked{% endif %}> {{ _('admin.edit_columns') }}</label>
-              </div>
-              <button type="submit">{{ _('admin.save_user') }}</button>
-            </form>
-            <form class="delete-user-form" action="/admin/users/{{ user.id }}/delete" method="post"
-              data-confirm="{{ _('confirm.delete_user', username=user.username) }}">
-              {{ csrf_input(request) }}
-              <button class="danger-button" type="submit">{{ _('admin.delete_user') }}</button>
-            </form>
-            {% endif %}
-          </details>
+          <div class="user-actions">
+            <button class="soft-button compact-action" type="button" data-modal-target="user-edit-modal-{{ user.id }}">
+              {{ _('admin.edit') }}
+            </button>
+          </div>
         </article>
         {% else %}
         <div class="empty-table">{{ _('admin.no_users') }}</div>
@@ -163,4 +100,98 @@
     </section>
   </div>
 </section>
+{% endblock %}
+
+{% block modals %}
+{{ super() }}
+{% for user in users %}
+<dialog class="modal-dialog admin-user-modal" id="user-edit-modal-{{ user.id }}">
+  <form class="modal-form admin-form admin-edit-form" action="/admin/users/{{ user.id }}/update" method="post">
+    {{ csrf_input(request) }}
+    <div class="modal-head">
+      <div>
+        <h2>{{ _('admin.edit_user') }}</h2>
+        <p>{{ user.username }}</p>
+      </div>
+      <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
+    </div>
+    {% if user.is_admin %}
+    <div class="form-hint">
+      {{ _('admin.hint') }}
+    </div>
+    {% endif %}
+
+    <section class="admin-form-block">
+      <h4>{{ _('admin.account') }}</h4>
+      <div class="form-grid">
+        <label>
+          {{ _('common.username') }}
+          <input name="username" minlength="3" maxlength="80" required
+            {% if user.is_admin %}readonly{% endif %} value="{{ user.username }}">
+        </label>
+        <label>
+          {{ _('admin.new_password') }}
+          <input name="password" type="password" minlength="8" maxlength="200" placeholder="{{ _('password.keep_empty') }}">
+        </label>
+      </div>
+    </section>
+
+    <section class="admin-form-block">
+      <h4>{{ _('admin.profile') }}</h4>
+      <div class="form-grid">
+        <label>
+          {{ _('admin.first_name') }}
+          <input name="first_name" maxlength="120" value="{{ user.first_name }}">
+        </label>
+        <label>
+          {{ _('admin.last_name') }}
+          <input name="last_name" maxlength="120" value="{{ user.last_name }}">
+        </label>
+      </div>
+      <label>
+        {{ _('common.description') }}
+        <textarea name="description" maxlength="2000" rows="3">{{ user.description }}</textarea>
+      </label>
+    </section>
+
+    <section class="admin-form-block">
+      <h4>{{ _('admin.permissions') }}</h4>
+      {% if user.is_admin %}
+      <div class="permission-grid structured-permissions">
+        <label><input type="checkbox" checked disabled> {{ _('admin.active_admin') }}</label>
+        <label><input type="checkbox" checked disabled> {{ _('admin.allow_create') }}</label>
+        <label><input type="checkbox" checked disabled> {{ _('admin.allow_edit') }}</label>
+        <label><input type="checkbox" checked disabled> {{ _('admin.allow_delete') }}</label>
+        <label><input type="checkbox" checked disabled> {{ _('admin.edit_columns') }}</label>
+      </div>
+      {% else %}
+      <div class="permission-grid structured-permissions">
+        <label><input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %}> {{ _('admin.user_active') }}</label>
+        <label><input type="checkbox" name="can_create" {% if user.can_create %}checked{% endif %}> {{ _('admin.allow_create') }}</label>
+        <label><input type="checkbox" name="can_edit" {% if user.can_edit %}checked{% endif %}> {{ _('admin.allow_edit') }}</label>
+        <label><input type="checkbox" name="can_delete" {% if user.can_delete %}checked{% endif %}> {{ _('admin.allow_delete') }}</label>
+        <label><input type="checkbox" name="can_manage_columns" {% if user.can_manage_columns %}checked{% endif %}> {{ _('admin.edit_columns') }}</label>
+      </div>
+      {% endif %}
+    </section>
+
+    <div class="modal-actions admin-modal-actions">
+      {% if not user.is_admin %}
+      <button class="danger-button" type="submit" form="delete-user-form-{{ user.id }}"
+        data-confirm="{{ _('confirm.delete_user', username=user.username) }}">
+        {{ _('admin.delete_user') }}
+      </button>
+      {% endif %}
+      <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+      <button type="submit">{{ _('admin.save_user') if not user.is_admin else _('admin.save_admin') }}</button>
+    </div>
+  </form>
+  {% if not user.is_admin %}
+  <form id="delete-user-form-{{ user.id }}" action="/admin/users/{{ user.id }}/delete" method="post" hidden
+    data-confirm="{{ _('confirm.delete_user', username=user.username) }}">
+    {{ csrf_input(request) }}
+  </form>
+  {% endif %}
+</dialog>
+{% endfor %}
 {% endblock %}

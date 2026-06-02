@@ -1699,13 +1699,20 @@ th.locked-col {
 
 .user-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.8fr);
-  gap: 16px;
-  align-items: start;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 0.9fr) auto;
+  gap: 14px;
+  align-items: center;
   padding: 14px;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
   background: #ffffff;
+}
+
+.user-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
 }
 
 .user-row strong {
@@ -1723,11 +1730,14 @@ th.locked-col {
   color: var(--muted);
 }
 
+.muted-text {
+  color: #98a2b3 !important;
+}
+
 .role-badge {
   display: inline-flex;
   align-items: center;
   min-height: 22px;
-  margin-left: 8px;
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--accent-soft);
@@ -1740,11 +1750,15 @@ th.locked-col {
   display: inline-flex;
   align-items: center;
   min-height: 22px;
-  margin-left: 8px;
   padding: 2px 8px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 850;
+}
+
+.status-badge.active {
+  background: var(--green-bg);
+  color: var(--green);
 }
 
 .status-badge.inactive {
@@ -1775,33 +1789,51 @@ th.locked-col {
   color: var(--green);
 }
 
-.user-editor {
-  grid-column: 1 / -1;
+.user-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
-.user-editor > summary {
-  width: fit-content;
-  list-style: none;
+.admin-user-modal {
+  width: min(720px, calc(100vw - 32px));
 }
 
-.user-editor > summary::-webkit-details-marker {
-  display: none;
+.admin-edit-form {
+  gap: 12px;
 }
 
-.user-editor[open] {
+.admin-form-block {
   display: grid;
-  gap: 14px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line-soft);
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface-soft);
 }
 
-.delete-user-form {
-  display: grid;
-  justify-items: start;
+.admin-form-block h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
 }
 
-.delete-user-form .danger-button {
+.structured-permissions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.structured-permissions label {
+  background: #ffffff;
+}
+
+.admin-modal-actions {
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.admin-modal-actions .danger-button {
   width: auto;
+  margin-right: auto;
   padding: 0 14px;
 }
 
@@ -1911,5 +1943,15 @@ th.locked-col {
 
   .permission-grid {
     grid-template-columns: 1fr;
+  }
+
+  .user-actions,
+  .admin-modal-actions {
+    justify-content: flex-start;
+  }
+
+  .admin-modal-actions .danger-button {
+    width: 100%;
+    margin-right: 0;
   }
 }
