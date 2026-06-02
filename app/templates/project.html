@@ -147,29 +147,6 @@
   <p class="project-description">{{ project.description }}</p>
   {% endif %}
 
-  <div class="project-summary" aria-label="{{ _('summary.title') }}">
-    <div class="summary-item">
-      <span>{{ _('summary.total_ips') }}</span>
-      <strong>{{ total_count }}</strong>
-    </div>
-    <div class="summary-item">
-      <span>{{ _('summary.used') }}</span>
-      <strong>{{ filled_count }}</strong>
-    </div>
-    <div class="summary-item">
-      <span>{{ _('summary.empty_hidden') }}</span>
-      <strong>{{ empty_count }}</strong>
-    </div>
-    <div class="summary-item summary-ok">
-      <span>{{ _('summary.ping_ok') }}</span>
-      <strong>{{ online_count }}</strong>
-    </div>
-    <div class="summary-item summary-no">
-      <span>{{ _('summary.ping_no') }}</span>
-      <strong>{{ offline_count }}</strong>
-    </div>
-  </div>
-
   <form class="table-filter-form" action="/projects/{{ project.id }}" method="get">
     <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
     <input type="hidden" name="page" value="1">
@@ -206,6 +183,28 @@
       href="/projects/{{ project.id }}?hide_empty={{ 'true' if hide_empty else 'false' }}&page=1&per_page={{ pagination.per_page }}">
       {{ _('button.reset') }}
     </a>
+    <div class="project-summary" aria-label="{{ _('summary.title') }}">
+      <div class="summary-item">
+        <span>{{ _('summary.total_ips') }}</span>
+        <strong>{{ total_count }}</strong>
+      </div>
+      <div class="summary-item">
+        <span>{{ _('summary.used') }}</span>
+        <strong>{{ filled_count }}</strong>
+      </div>
+      <div class="summary-item">
+        <span>{{ _('summary.empty_hidden') }}</span>
+        <strong>{{ empty_count }}</strong>
+      </div>
+      <div class="summary-item summary-ok">
+        <span>{{ _('summary.ping_ok') }}</span>
+        <strong>{{ online_count }}</strong>
+      </div>
+      <div class="summary-item summary-no">
+        <span>{{ _('summary.ping_no') }}</span>
+        <strong>{{ offline_count }}</strong>
+      </div>
+    </div>
   </form>
 
   <div class="project-table-region" data-project-table-region>
