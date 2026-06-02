@@ -73,58 +73,22 @@
       {% endif %}
 
       {% if current_user.is_admin %}
-      <details class="field-details">
-        <summary class="soft-button">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 8v5l3 2" />
-            <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-          </svg>
-          Ping
-        </summary>
-        <form class="floating-form" action="/projects/{{ project.id }}/schedule" method="post">
-          {{ csrf_input(request) }}
-          <label class="checkbox-line">
-            <input type="checkbox" name="enabled" {% if not project_schedule or project_schedule.enabled %}checked{% endif %}>
-            {{ _('schedule.enabled') }}
-          </label>
-          <label>
-            {{ _('schedule.interval_minutes') }}
-            <input type="number" name="interval_minutes" min="5" max="10080" value="{{ project_schedule_minutes }}" required>
-          </label>
-          <label class="checkbox-line">
-            <input type="checkbox" name="run_now">
-            {{ _('schedule.run_now') }}
-          </label>
-          <button type="submit">{{ _('button.save') }}</button>
-        </form>
-      </details>
+      <button class="soft-button" type="button" data-modal-target="project-schedule-modal-{{ project.id }}">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 8v5l3 2" />
+          <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+        </svg>
+        Ping
+      </button>
 
-      <details class="field-details">
-        <summary class="soft-button">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 3v12" />
-            <path d="m7 10 5 5 5-5" />
-            <path d="M5 21h14" />
-          </svg>
-          {{ _('export.project') }}
-        </summary>
-        <form class="floating-form export-form" action="/projects/{{ project.id }}/export" method="post">
-          {{ csrf_input(request) }}
-          <label>
-            {{ _('common.format') }}
-            <select name="export_format">
-              <option value="csv">CSV</option>
-              <option value="xlsx">XLSX</option>
-            </select>
-          </label>
-          <label class="checkbox-line">
-            <input type="checkbox" name="use_password" checked data-password-toggle>
-            {{ _('export.set_password') }}
-          </label>
-          <input type="password" name="password" maxlength="200" placeholder="{{ _('export.password_placeholder') }}" data-password-input>
-          <button type="submit">{{ _('export.project') }}</button>
-        </form>
-      </details>
+      <button class="soft-button" type="button" data-modal-target="project-export-modal-{{ project.id }}">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3v12" />
+          <path d="m7 10 5 5 5-5" />
+          <path d="M5 21h14" />
+        </svg>
+        {{ _('export.project') }}
+      </button>
       {% endif %}
 
       {% if current_user.can_edit_inventory or current_user.can_delete_inventory %}
@@ -214,4 +178,73 @@
     {% include "_project_table.html" %}
   </div>
 </section>
+{% endblock %}
+
+{% block modals %}
+{{ super() }}
+{% if current_user.is_admin %}
+<dialog class="modal-dialog" id="project-schedule-modal-{{ project.id }}">
+  <form class="modal-form" action="/projects/{{ project.id }}/schedule" method="post">
+    {{ csrf_input(request) }}
+    <div class="modal-head">
+      <div>
+        <h2>{{ _('schedule.project_title') }}</h2>
+        <p>{{ project.name }} / {{ project.cidr }}</p>
+      </div>
+      <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
+    </div>
+    <div class="form-hint">
+      {{ _('schedule.project_hint') }}
+    </div>
+    <label class="checkbox-line">
+      <input type="checkbox" name="enabled" {% if not project_schedule or project_schedule.enabled %}checked{% endif %}>
+      {{ _('schedule.enabled') }}
+    </label>
+    <label>
+      {{ _('schedule.interval_minutes') }}
+      <input type="number" name="interval_minutes" min="5" max="10080" value="{{ project_schedule_minutes }}" required>
+    </label>
+    <label class="checkbox-line">
+      <input type="checkbox" name="run_now">
+      {{ _('schedule.run_now') }}
+    </label>
+    <div class="modal-actions">
+      <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+      <button type="submit">{{ _('schedule.save') }}</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="modal-dialog" id="project-export-modal-{{ project.id }}" {% if request.query_params.get('export_project') == 'true' %}data-open-on-load{% endif %}>
+  <form class="modal-form export-form" action="/projects/{{ project.id }}/export" method="post">
+    {{ csrf_input(request) }}
+    <div class="modal-head">
+      <div>
+        <h2>{{ _('export.project') }}</h2>
+        <p>{{ project.name }} / {{ project.cidr }}</p>
+      </div>
+      <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
+    </div>
+    <div class="form-hint">
+      {{ _('export.project_hint') }}
+    </div>
+    <label>
+      {{ _('common.format') }}
+      <select name="export_format">
+        <option value="csv">CSV</option>
+        <option value="xlsx">XLSX</option>
+      </select>
+    </label>
+    <label class="checkbox-line">
+      <input type="checkbox" name="use_password" checked data-password-toggle>
+      {{ _('export.set_password') }}
+    </label>
+    <input type="password" name="password" maxlength="200" placeholder="{{ _('export.password_placeholder') }}" data-password-input>
+    <div class="modal-actions">
+      <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+      <button type="submit">{{ _('export.project') }}</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
 {% endblock %}

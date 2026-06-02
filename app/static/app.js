@@ -355,6 +355,87 @@
 })();
 
 (function () {
+  const dialogs = Array.from(document.querySelectorAll(".modal-dialog"));
+  if (!dialogs.length) {
+    return;
+  }
+  const canUseNativeDialog = typeof HTMLDialogElement !== "undefined";
+
+  function openDialog(dialog) {
+    if (!canUseNativeDialog || !(dialog instanceof HTMLDialogElement)) {
+      return;
+    }
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+    window.setTimeout(() => {
+      const focusTarget = dialog.querySelector("input:not([type='hidden']), select, textarea, button");
+      focusTarget?.focus();
+    }, 0);
+  }
+
+  function closeDialog(dialog) {
+    if (dialog?.open) {
+      dialog.close();
+    }
+  }
+
+  document.addEventListener("click", (event) => {
+    const trigger = event.target.closest("[data-modal-target]");
+    if (!trigger) {
+      return;
+    }
+
+    event.preventDefault();
+    trigger.closest(".node-menu")?.removeAttribute("open");
+    const dialog = document.getElementById(trigger.dataset.modalTarget);
+    if (canUseNativeDialog && dialog instanceof HTMLDialogElement) {
+      openDialog(dialog);
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    const closeButton = event.target.closest("[data-modal-close]");
+    if (!closeButton) {
+      return;
+    }
+    closeDialog(closeButton.closest(".modal-dialog"));
+  });
+
+  dialogs.forEach((dialog) => {
+    dialog.addEventListener("click", (event) => {
+      if (event.target !== dialog) {
+        return;
+      }
+      const rect = dialog.getBoundingClientRect();
+      const clickedInside =
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom;
+      if (!clickedInside) {
+        closeDialog(dialog);
+      }
+    });
+
+    if (dialog.dataset.openOnLoad !== undefined && canUseNativeDialog && dialog instanceof HTMLDialogElement) {
+      openDialog(dialog);
+    }
+  });
+
+  document.addEventListener("submit", (event) => {
+    const form = event.target;
+    if (!form.classList.contains("project-create-form")) {
+      return;
+    }
+
+    const fileInput = form.querySelector("input[type='file'][name='csv_file']");
+    const hasFile = fileInput?.files?.length > 0;
+    form.action = hasFile ? form.dataset.importAction : form.dataset.manualAction;
+  }, true);
+})();
+
+(function () {
   const forms = document.querySelectorAll(".export-form");
   forms.forEach((form) => {
     const toggle = form.querySelector("[data-password-toggle]");

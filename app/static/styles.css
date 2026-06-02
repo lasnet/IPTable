@@ -195,9 +195,13 @@ button {
   justify-content: center;
   width: 34px;
   height: 34px;
+  padding: 0;
+  border: 0;
   border-radius: 8px;
+  background: transparent;
   color: var(--accent);
   text-decoration: none;
+  cursor: pointer;
   transition: background 0.15s ease;
 }
 
@@ -226,6 +230,9 @@ button {
 .floating-form input,
 .floating-form select,
 .floating-form textarea,
+.modal-form input,
+.modal-form select,
+.modal-form textarea,
 .login-form input,
 .admin-form input,
 .admin-form textarea {
@@ -241,12 +248,14 @@ button {
 
 .sidebar-form textarea,
 .floating-form textarea,
+.modal-form textarea,
 .admin-form textarea {
   resize: vertical;
 }
 
 .sidebar-form button,
 .floating-form button,
+.modal-form button,
 .login-form button,
 .admin-form button {
   min-height: 38px;
@@ -255,6 +264,90 @@ button {
   color: #ffffff;
   font-weight: 750;
   cursor: pointer;
+}
+
+.modal-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 32px));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text);
+  box-shadow: 0 24px 70px rgba(16, 24, 40, 0.22);
+  overflow: hidden;
+}
+
+.modal-dialog::backdrop {
+  background: rgba(16, 24, 40, 0.34);
+  backdrop-filter: blur(3px);
+}
+
+.modal-form {
+  display: grid;
+  gap: 14px;
+  max-height: min(760px, calc(100vh - 32px));
+  padding: 22px;
+  overflow-y: auto;
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.modal-head h2 {
+  margin: 0;
+  font-size: 21px;
+  letter-spacing: 0;
+}
+
+.modal-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.modal-close {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  min-height: 34px !important;
+  padding: 0;
+  border: 1px solid #cfd8e6 !important;
+  border-radius: 8px;
+  background: #ffffff !important;
+  color: #50617b !important;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.modal-form label {
+  display: grid;
+  gap: 7px;
+  color: #344054;
+  font-weight: 750;
+}
+
+.modal-form .checkbox-line {
+  display: flex;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.modal-actions .soft-button {
+  min-height: 40px;
+  padding: 0 14px;
+  background: #ffffff !important;
+  border-color: #cfd8e6 !important;
+  color: var(--text) !important;
 }
 
 .stack-form {

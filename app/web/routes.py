@@ -442,23 +442,24 @@ def create_folder(
     current_user: Annotated[User, Depends(require_user)],
     name: Annotated[str, Form(min_length=1, max_length=120)],
 ) -> RedirectResponse:
+    error_path = "/?new_folder=true"
     if not current_user.can_create_inventory:
         return _redirect_error("/", _ui("folder.create_denied"))
 
     clean_name = _clean_text(name, 120)
     if not clean_name:
-        return _redirect_error("/", _ui("folder.name_empty"))
+        return _redirect_error(error_path, _ui("folder.name_empty"))
 
     existing = db.scalar(select(Folder).where(func.lower(Folder.name) == clean_name.lower()))
     if existing:
-        return _redirect_error("/", _ui("folder.duplicate"))
+        return _redirect_error(error_path, _ui("folder.duplicate"))
 
     db.add(Folder(name=clean_name))
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-        return _redirect_error("/", _ui("folder.duplicate"))
+        return _redirect_error(error_path, _ui("folder.duplicate"))
     return _redirect("/")
 
 
@@ -469,6 +470,7 @@ def update_folder(
     current_user: Annotated[User, Depends(require_user)],
     name: Annotated[str, Form(min_length=1, max_length=120)],
 ) -> RedirectResponse:
+    error_path = f"/?edit_folder={folder_id}"
     if not current_user.can_edit_inventory:
         return _redirect_error("/", _ui("folder.edit_denied"))
 
@@ -478,14 +480,14 @@ def update_folder(
 
     clean_name = _clean_text(name, 120)
     if not clean_name:
-        return _redirect_error("/", _ui("folder.name_empty"))
+        return _redirect_error(error_path, _ui("folder.name_empty"))
 
     folder.name = clean_name
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-        return _redirect_error("/", _ui("folder.duplicate"))
+        return _redirect_error(error_path, _ui("folder.duplicate"))
     return _redirect("/")
 
 
@@ -523,20 +525,21 @@ async def create_project(
     folder = db.get(Folder, folder_id)
     if folder is None:
         return _redirect_error("/", _ui("folder.not_found"))
+    error_path = f"/?new_project_folder={folder.id}"
 
     clean_name = _clean_text(name, 160)
     if not clean_name:
-        return _redirect_error("/", _ui("project.name_empty"))
+        return _redirect_error(error_path, _ui("project.name_empty"))
 
     clean_cidr = _clean_text(cidr, 64)
     if not clean_cidr:
-        return _redirect_error("/", _ui("project.cidr_required"))
+        return _redirect_error(error_path, _ui("project.cidr_required"))
 
     existing = db.scalar(
         select(Project).where(Project.folder_id == folder.id, func.lower(Project.name) == clean_name.lower())
     )
     if existing:
-        return _redirect_error("/", _ui("project.duplicate"))
+        return _redirect_error(error_path, _ui("project.duplicate"))
 
     try:
         project = create_project_with_addresses(
@@ -548,10 +551,10 @@ async def create_project(
             max_addresses=settings.max_project_addresses,
         )
     except NetworkValidationError as exc:
-        return _redirect_error("/", _ui_error(str(exc)))
+        return _redirect_error(error_path, _ui_error(str(exc)))
     except IntegrityError:
         db.rollback()
-        return _redirect_error("/", _ui("project.create_failed_unique"))
+        return _redirect_error(error_path, _ui("project.create_failed_unique"))
 
     ensure_project_ping_schedule(db, project.id, settings)
     enqueue_project_ping(db, project.id, reason="project-created")
@@ -1063,12 +1066,12 @@ def export_project(
 
     clean_password = password.strip()
     if not clean_password:
-        return _redirect_error(f"/projects/{project.id}", _ui("export.password_required_project"))
+        return _redirect_error(f"/projects/{project.id}?export_project=true", _ui("export.password_required_project"))
 
     try:
         archive = build_zip_archive({export_filename: export_content}, password=clean_password)
     except RuntimeError as exc:
-        return _redirect_error(f"/projects/{project.id}", _ui_error(str(exc)))
+        return _redirect_error(f"/projects/{project.id}?export_project=true", _ui_error(str(exc)))
 
     return _zip_response(safe_export_name(project.cidr.replace("/", "_"), suffix=".zip"), archive)
 
@@ -1089,8 +1092,9 @@ def export_folder(
     )
     if folder is None:
         return _redirect_error("/", _ui("folder.not_found"))
+    error_path = f"/?export_folder={folder.id}"
     if not folder.projects:
-        return _redirect_error("/", _ui("export.folder_empty"))
+        return _redirect_error(error_path, _ui("export.folder_empty"))
 
     files: dict[str, bytes] = {}
     clean_format = "xlsx" if export_format == "xlsx" else "csv"
@@ -1101,12 +1105,12 @@ def export_folder(
 
     clean_password = password.strip() if _checked(use_password) else ""
     if _checked(use_password) and not clean_password:
-        return _redirect_error("/", _ui("export.password_required_folder"))
+        return _redirect_error(error_path, _ui("export.password_required_folder"))
 
     try:
         archive = build_zip_archive(files, password=clean_password or None)
     except RuntimeError as exc:
-        return _redirect_error("/", _ui_error(str(exc)))
+        return _redirect_error(error_path, _ui_error(str(exc)))
 
     return _zip_response(safe_export_name(folder.name, suffix=".zip"), archive)
 

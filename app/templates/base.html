@@ -5,8 +5,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}IPtable{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260602-sidebar-menu">
-  <script src="{{ url_for('static', path='/app.js') }}?v=20260602-sidebar-menu" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260602-modal-actions">
+  <script src="{{ url_for('static', path='/app.js') }}?v=20260602-modal-actions" defer></script>
 </head>
 
 <body data-i18n-selected-row="{{ _('js.selected_row') }}"
@@ -44,23 +44,15 @@
       <div class="folders-title">
         <span>{{ _('folder.title') }}</span>
         {% if current_user.can_create_inventory %}
-        <a class="add-link" href="{{ request.url.path }}?new_folder=true" title="{{ _('folder.add') }}"
+        <button class="add-link" type="button" data-modal-target="folder-create-modal" title="{{ _('folder.add') }}"
           aria-label="{{ _('folder.add') }}">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14" />
             <path d="M5 12h14" />
           </svg>
-        </a>
+        </button>
         {% endif %}
       </div>
-
-      {% if current_user.can_create_inventory and request.query_params.get('new_folder') == 'true' %}
-      <form class="sidebar-form compact-form" action="/folders" method="post">
-        {{ csrf_input(request) }}
-        <input name="name" maxlength="120" required placeholder="{{ _('folder.name_placeholder') }}">
-        <button type="submit">{{ _('button.create') }}</button>
-      </form>
-      {% endif %}
 
       <nav class="tree">
         {% for folder in folders %}
@@ -106,15 +98,15 @@
             <summary class="node-menu-button" title="{{ _('folder.menu') }}" aria-label="{{ _('folder.menu') }}">⋯</summary>
             <div class="node-menu-panel">
               {% if current_user.can_create_inventory %}
-              <a class="node-menu-item" href="{{ request.url.path }}?new_project_folder={{ folder.id }}">{{ _('project.add') }}</a>
+              <button class="node-menu-item" type="button" data-modal-target="project-create-modal-{{ folder.id }}">{{ _('project.add') }}</button>
               {% endif %}
               {% if current_user.can_edit_inventory %}
-              <a class="node-menu-item" href="{{ request.url.path }}?edit_folder={{ folder.id }}">{{ _('folder.rename') }}</a>
+              <button class="node-menu-item" type="button" data-modal-target="folder-rename-modal-{{ folder.id }}">{{ _('folder.rename') }}</button>
               {% endif %}
               <a class="node-menu-item" href="/folders/{{ folder.id }}/history">{{ _('history.title') }}</a>
               {% if current_user.is_admin %}
-              <a class="node-menu-item" href="{{ request.url.path }}?schedule_folder={{ folder.id }}">{{ _('folder.schedule') }}</a>
-              <a class="node-menu-item" href="{{ request.url.path }}?export_folder={{ folder.id }}">{{ _('export.folder') }}</a>
+              <button class="node-menu-item" type="button" data-modal-target="folder-schedule-modal-{{ folder.id }}">{{ _('folder.schedule') }}</button>
+              <button class="node-menu-item" type="button" data-modal-target="folder-export-modal-{{ folder.id }}">{{ _('export.folder') }}</button>
               {% endif %}
               {% if current_user.can_delete_inventory %}
               <form action="/folders/{{ folder.id }}/delete" method="post" data-confirm="{{ _('confirm.delete_folder') }}">
@@ -124,89 +116,6 @@
               {% endif %}
             </div>
           </details>
-          {% if current_user.is_admin and request.query_params.get('schedule_folder') == folder.id|string %}
-          {% set folder_schedule = folder_schedules.get(folder.id) if folder_schedules is defined else none %}
-          <div class="sidebar-form compact-form">
-            <div class="form-hint">
-              {{ _('folder.schedule_hint') }}
-            </div>
-            <form class="stack-form" action="/folders/{{ folder.id }}/schedule" method="post">
-              {{ csrf_input(request) }}
-              <label class="checkbox-line">
-                <input type="checkbox" name="enabled" {% if not folder_schedule or folder_schedule.enabled %}checked{% endif %}>
-                {{ _('schedule.enabled') }}
-              </label>
-              <input type="number" name="interval_minutes" min="5" max="10080"
-                value="{{ ((folder_schedule.interval_seconds if folder_schedule else default_ping_interval_minutes * 60) / 60) | round | int }}"
-                required>
-              <label class="checkbox-line">
-                <input type="checkbox" name="run_now">
-                {{ _('schedule.run_now') }}
-              </label>
-              <button type="submit">{{ _('schedule.save') }}</button>
-            </form>
-          </div>
-          {% endif %}
-          {% if current_user.can_create_inventory and request.query_params.get('new_project_folder') == folder.id|string %}
-          <form class="sidebar-form compact-form project-form" action="/projects" method="post" enctype="multipart/form-data">
-            {{ csrf_input(request) }}
-            <input type="hidden" name="folder_id" value="{{ folder.id }}">
-            <input name="name" maxlength="160" required placeholder="{{ _('project.name_placeholder') }}">
-            <input name="cidr" maxlength="64" placeholder="172.16.16.0/24">
-            <textarea name="description" maxlength="2000" rows="3" placeholder="{{ _('project.description_placeholder') }}"></textarea>
-            {% if current_user.is_admin or (current_user.can_create and current_user.can_edit) %}
-            <details class="import-details">
-              <summary class="soft-button compact-action">{{ _('import.open') }}</summary>
-              <div class="form-hint">
-                {{ _('import.hint') }}
-              </div>
-              <input type="file" name="csv_file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-              <button type="submit" formaction="/folders/{{ folder.id }}/projects/import">{{ _('import.create_from_file') }}</button>
-            </details>
-            {% endif %}
-            <button type="submit">{{ _('button.create') }}</button>
-          </form>
-          {% endif %}
-          {% if current_user.is_admin and request.query_params.get('export_folder') == folder.id|string %}
-          <div class="sidebar-form compact-form">
-            <div class="form-hint">
-              {{ _('export.folder_hint') }}
-            </div>
-            <form class="stack-form export-form" action="/folders/{{ folder.id }}/export" method="post">
-              {{ csrf_input(request) }}
-              <label>
-                {{ _('common.format') }}
-                <select name="export_format">
-                  <option value="csv">CSV</option>
-                  <option value="xlsx">XLSX</option>
-                </select>
-              </label>
-              <label class="checkbox-line">
-                <input type="checkbox" name="use_password" checked data-password-toggle>
-                {{ _('export.set_password') }}
-              </label>
-              <input type="password" name="password" maxlength="200" placeholder="{{ _('export.password_placeholder') }}" data-password-input>
-              <button type="submit">{{ _('export.folder') }}</button>
-            </form>
-          </div>
-          {% endif %}
-          {% if (current_user.can_edit_inventory or current_user.can_delete_inventory) and request.query_params.get('edit_folder') == folder.id|string %}
-          <div class="sidebar-form compact-form">
-            {% if current_user.can_edit_inventory %}
-            <form class="stack-form" action="/folders/{{ folder.id }}/update" method="post">
-              {{ csrf_input(request) }}
-              <input name="name" maxlength="120" required value="{{ folder.name }}">
-              <button type="submit">{{ _('button.save') }}</button>
-            </form>
-            {% endif %}
-            {% if current_user.can_delete_inventory %}
-            <form action="/folders/{{ folder.id }}/delete" method="post" data-confirm="{{ _('confirm.delete_folder') }}">
-              {{ csrf_input(request) }}
-              <button class="danger-button" type="submit">{{ _('folder.delete') }}</button>
-            </form>
-            {% endif %}
-          </div>
-          {% endif %}
         </div>
         {% else %}
         <div class="tree-empty-state">{{ _('folder.create_first') }}</div>
@@ -224,6 +133,167 @@
       {% block content %}{% endblock %}
     </section>
   </main>
+
+  {% if current_user.can_create_inventory %}
+  <dialog class="modal-dialog" id="folder-create-modal" {% if request.query_params.get('new_folder') == 'true' %}data-open-on-load{% endif %}>
+    <form class="modal-form" action="/folders" method="post">
+      {{ csrf_input(request) }}
+      <div class="modal-head">
+        <div>
+          <h2>{{ _('folder.add') }}</h2>
+          <p>{{ _('folder.modal_hint') }}</p>
+        </div>
+        <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
+      </div>
+      <label>
+        {{ _('folder.name_label') }}
+        <input name="name" maxlength="120" required placeholder="{{ _('folder.name_placeholder') }}">
+      </label>
+      <div class="modal-actions">
+        <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+        <button type="submit">{{ _('button.create') }}</button>
+      </div>
+    </form>
+  </dialog>
+  {% endif %}
+
+  {% for folder in folders %}
+  {% if current_user.can_create_inventory %}
+  <dialog class="modal-dialog" id="project-create-modal-{{ folder.id }}" {% if request.query_params.get('new_project_folder') == folder.id|string %}data-open-on-load{% endif %}>
+    <form class="modal-form project-create-form" action="/projects" method="post" enctype="multipart/form-data"
+      data-manual-action="/projects" data-import-action="/folders/{{ folder.id }}/projects/import">
+      {{ csrf_input(request) }}
+      <input type="hidden" name="folder_id" value="{{ folder.id }}">
+      <div class="modal-head">
+        <div>
+          <h2>{{ _('project.create_title') }}</h2>
+          <p>{{ folder.name }}</p>
+        </div>
+        <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
+      </div>
+      <div class="form-hint">
+        {{ _('import.hint') }}
+      </div>
+      <label>
+        {{ _('project.name_label') }}
+        <input name="name" maxlength="160" required placeholder="{{ _('project.name_placeholder') }}">
+      </label>
+      <label>
+        {{ _('project.cidr_label') }}
+        <input name="cidr" maxlength="64" placeholder="172.16.16.0/24">
+      </label>
+      <label>
+        {{ _('project.comment_label') }}
+        <textarea name="description" maxlength="2000" rows="3" placeholder="{{ _('project.description_placeholder') }}"></textarea>
+      </label>
+      {% if current_user.is_admin or (current_user.can_create and current_user.can_edit) %}
+      <label>
+        {{ _('import.open') }}
+        <input type="file" name="csv_file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+      </label>
+      {% endif %}
+      <div class="modal-actions">
+        <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+        <button type="submit">{{ _('project.create_submit') }}</button>
+      </div>
+    </form>
+  </dialog>
+  {% endif %}
+
+  {% if current_user.can_edit_inventory %}
+  <dialog class="modal-dialog" id="folder-rename-modal-{{ folder.id }}" {% if request.query_params.get('edit_folder') == folder.id|string %}data-open-on-load{% endif %}>
+    <form class="modal-form" action="/folders/{{ folder.id }}/update" method="post">
+      {{ csrf_input(request) }}
+      <div class="modal-head">
+        <div>
+          <h2>{{ _('folder.rename') }}</h2>
+          <p>{{ folder.name }}</p>
+        </div>
+        <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
+      </div>
+      <label>
+        {{ _('folder.name_label') }}
+        <input name="name" maxlength="120" required value="{{ folder.name }}">
+      </label>
+      <div class="modal-actions">
+        <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+        <button type="submit">{{ _('button.save') }}</button>
+      </div>
+    </form>
+  </dialog>
+  {% endif %}
+
+  {% if current_user.is_admin %}
+  {% set folder_schedule = folder_schedules.get(folder.id) if folder_schedules is defined else none %}
+  <dialog class="modal-dialog" id="folder-schedule-modal-{{ folder.id }}" {% if request.query_params.get('schedule_folder') == folder.id|string %}data-open-on-load{% endif %}>
+    <form class="modal-form" action="/folders/{{ folder.id }}/schedule" method="post">
+      {{ csrf_input(request) }}
+      <div class="modal-head">
+        <div>
+          <h2>{{ _('folder.schedule') }}</h2>
+          <p>{{ folder.name }}</p>
+        </div>
+        <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
+      </div>
+      <div class="form-hint">
+        {{ _('folder.schedule_hint') }}
+      </div>
+      <label class="checkbox-line">
+        <input type="checkbox" name="enabled" {% if not folder_schedule or folder_schedule.enabled %}checked{% endif %}>
+        {{ _('schedule.enabled') }}
+      </label>
+      <label>
+        {{ _('schedule.interval_minutes') }}
+        <input type="number" name="interval_minutes" min="5" max="10080"
+          value="{{ ((folder_schedule.interval_seconds if folder_schedule else default_ping_interval_minutes * 60) / 60) | round | int }}"
+          required>
+      </label>
+      <label class="checkbox-line">
+        <input type="checkbox" name="run_now">
+        {{ _('schedule.run_now') }}
+      </label>
+      <div class="modal-actions">
+        <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+        <button type="submit">{{ _('schedule.save') }}</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="modal-dialog" id="folder-export-modal-{{ folder.id }}" {% if request.query_params.get('export_folder') == folder.id|string %}data-open-on-load{% endif %}>
+    <form class="modal-form export-form" action="/folders/{{ folder.id }}/export" method="post">
+      {{ csrf_input(request) }}
+      <div class="modal-head">
+        <div>
+          <h2>{{ _('export.folder') }}</h2>
+          <p>{{ folder.name }}</p>
+        </div>
+        <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
+      </div>
+      <div class="form-hint">
+        {{ _('export.folder_hint') }}
+      </div>
+      <label>
+        {{ _('common.format') }}
+        <select name="export_format">
+          <option value="csv">CSV</option>
+          <option value="xlsx">XLSX</option>
+        </select>
+      </label>
+      <label class="checkbox-line">
+        <input type="checkbox" name="use_password" checked data-password-toggle>
+        {{ _('export.set_password') }}
+      </label>
+      <input type="password" name="password" maxlength="200" placeholder="{{ _('export.password_placeholder') }}" data-password-input>
+      <div class="modal-actions">
+        <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+        <button type="submit">{{ _('export.folder') }}</button>
+      </div>
+    </form>
+  </dialog>
+  {% endif %}
+  {% endfor %}
+
+  {% block modals %}{% endblock %}
   {% else %}
   {% block auth_content %}{% endblock %}
   {% endif %}
