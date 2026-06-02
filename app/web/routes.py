@@ -817,6 +817,9 @@ def project_detail(
     online_count = db.scalar(
         select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, IPAddress.is_reachable.is_(True))
     ) or 0
+    offline_count = db.scalar(
+        select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, IPAddress.is_reachable.is_(False))
+    ) or 0
     folders = _load_sidebar_folders(db)
     project_schedule = db.scalar(
         select(PingSchedule).where(
@@ -879,7 +882,9 @@ def project_detail(
         "message": message,
         "total_count": total_count,
         "filled_count": filled_total,
+        "empty_count": max(total_count - filled_total, 0),
         "online_count": online_count,
+        "offline_count": offline_count,
         "shown_count": len(ip_records),
         "visible_count": visible_count,
     }
@@ -1208,12 +1213,76 @@ async def update_ip_address(
     )
 
 
+@router.post("/projects/{project_id}/addresses/{ip_id}/clear")
+async def clear_ip_address(
+    project_id: int,
+    ip_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    ip_record = db.scalar(select(IPAddress).where(IPAddress.id == ip_id, IPAddress.project_id == project_id))
+    if ip_record is None:
+        raise HTTPException(status_code=404, detail="IP address not found")
+
+    custom_fields = db.scalars(
+        select(CustomField).where(CustomField.project_id == project_id).order_by(CustomField.position.asc())
+    ).all()
+    custom_values = dict(ip_record.custom_values or {})
+    changes: list[FieldChange] = []
+    for change in [
+        build_field_change("hostname", "Hostname", ip_record.hostname, ""),
+        build_field_change("os", "OS", ip_record.os, ""),
+        build_field_change("asset_type", "Type", ip_record.asset_type, ""),
+        build_field_change("comment", "Comment", ip_record.comment, ""),
+    ]:
+        if change is not None:
+            changes.append(change)
+    for field in custom_fields:
+        old_value = custom_values.get(field.key, "")
+        change = build_field_change(f"custom.{field.key}", field.name, old_value, "")
+        if change is not None:
+            changes.append(change)
+        custom_values[field.key] = ""
+
+    ip_record.hostname = ""
+    ip_record.os = ""
+    ip_record.asset_type = ""
+    ip_record.comment = ""
+    ip_record.custom_values = custom_values
+    record_ip_address_history(db, ip_record=ip_record, user=current_user, changes=changes)
+    db.commit()
+
+    form = await request.form()
+    hide_empty = form.get("hide_empty") == "true"
+    page = _safe_positive_int(form.get("page"), 1)
+    per_page = _normalize_project_page_size(_safe_positive_int(form.get("per_page"), 0), settings)
+    ping_status = _clean_filter_value(str(form.get("ping_status", "")), 20).lower()
+    if ping_status not in PING_STATUS_FILTERS:
+        ping_status = ""
+    type_filter = _clean_filter_value(str(form.get("type_filter", "")), 120)
+    os_filter = _clean_filter_value(str(form.get("os_filter", "")), 120)
+    return _redirect(
+        f"{_project_table_url(
+            project_id,
+            hide_empty=hide_empty,
+            page=page,
+            per_page=per_page,
+            ping_status=ping_status,
+            type_filter=type_filter,
+            os_filter=os_filter,
+        )}#ip-{ip_id}"
+    )
+
+
 @router.get("/projects/{project_id}/history", response_class=HTMLResponse)
 def project_history(
     project_id: int,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_user)],
+    address: Annotated[str, Query(max_length=64)] = "",
 ) -> HTMLResponse:
     project = db.scalar(
         select(Project)
@@ -1223,9 +1292,13 @@ def project_history(
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    clean_address = _clean_text(address, 64)
+    history_conditions = [IPAddressHistory.project_id == project.id]
+    if clean_address:
+        history_conditions.append(IPAddressHistory.address == clean_address)
     history_items = db.scalars(
         select(IPAddressHistory)
-        .where(IPAddressHistory.project_id == project.id)
+        .where(*history_conditions)
         .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
         .limit(200)
     ).all()
@@ -1236,6 +1309,7 @@ def project_history(
         {
             "request": request,
             "project": project,
+            "history_subtitle": f"{project.cidr} / {clean_address}" if clean_address else project.cidr,
             "history_items": history_items,
             "folders": _load_sidebar_folders(db),
             "folder_schedules": _load_folder_schedules(db),

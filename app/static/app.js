@@ -114,6 +114,98 @@
     }, 50);
   }
 
+  function closeHostDrawer() {
+    const drawer = document.querySelector("[data-host-drawer]");
+    if (!drawer) {
+      return;
+    }
+    drawer.classList.remove("open");
+    drawer.setAttribute("aria-hidden", "true");
+    document.querySelector(".asset-table tr.row-selected")?.classList.remove("row-selected");
+  }
+
+  function tableCellValue(row, fieldName) {
+    const field = row.querySelector(`[name="${fieldName}"]`);
+    if (field) {
+      return field.value || "";
+    }
+    return row.querySelector(`[data-detail-field="${fieldName}"]`)?.textContent?.trim() || "";
+  }
+
+  function drawerValue(value) {
+    const cleanValue = String(value || "").trim();
+    return cleanValue || i18n.i18nEmptyValue || "empty";
+  }
+
+  function setDrawerField(drawer, name, value) {
+    const target = drawer.querySelector(`[data-drawer-field="${name}"]`);
+    if (target) {
+      target.textContent = drawerValue(value);
+      target.classList.toggle("empty-value", !String(value || "").trim());
+    }
+  }
+
+  function openHostDrawer(row) {
+    const drawer = document.querySelector("[data-host-drawer]");
+    if (!drawer || !row) {
+      return;
+    }
+
+    const address = row.dataset.rowAddress || "";
+    drawer.dataset.rowId = row.id;
+    drawer.querySelector("[data-drawer-ip-title]").textContent = address;
+    setDrawerField(drawer, "address", address);
+    setDrawerField(drawer, "hostname", tableCellValue(row, "hostname"));
+    setDrawerField(drawer, "os", tableCellValue(row, "os"));
+    setDrawerField(drawer, "asset_type", tableCellValue(row, "asset_type"));
+    setDrawerField(drawer, "comment", tableCellValue(row, "comment"));
+
+    const statusTarget = drawer.querySelector("[data-drawer-status]");
+    const status = row.querySelector(".status-pill");
+    statusTarget.innerHTML = "";
+    if (status) {
+      statusTarget.append(status.cloneNode(true));
+    }
+
+    const customTarget = drawer.querySelector("[data-drawer-custom]");
+    customTarget.innerHTML = "";
+    const customCells = Array.from(row.querySelectorAll("[data-custom-label]"));
+    if (customCells.length) {
+      const title = document.createElement("h4");
+      title.textContent = i18n.i18nCustomFields || "Additional fields";
+      customTarget.append(title);
+      customCells.forEach((cell) => {
+        const item = document.createElement("div");
+        const label = document.createElement("dt");
+        const value = document.createElement("dd");
+        const input = cell.querySelector("input, textarea, select");
+        const cleanValue = input?.value || "";
+        label.textContent = cell.dataset.customLabel || "";
+        value.textContent = drawerValue(cleanValue);
+        value.classList.toggle("empty-value", !String(cleanValue).trim());
+        item.append(label, value);
+        customTarget.append(item);
+      });
+    }
+
+    document.querySelector(".asset-table tr.row-selected")?.classList.remove("row-selected");
+    row.classList.add("row-selected");
+    drawer.classList.add("open");
+    drawer.setAttribute("aria-hidden", "false");
+  }
+
+  function editRow(row) {
+    if (!row) {
+      return;
+    }
+    row.scrollIntoView({ block: "center", inline: "nearest" });
+    closeHostDrawer();
+    const target = firstEditable(row);
+    if (target) {
+      window.setTimeout(() => target.focus(), 0);
+    }
+  }
+
   async function loadTablePage(url, pushState = true) {
     const region = projectTableRegion();
     if (!region) {
@@ -133,6 +225,7 @@
     region.innerHTML = await response.text();
     dirtyRow = null;
     allowSubmit = false;
+    closeHostDrawer();
     syncProjectControls(url);
     if (pushState) {
       window.history.pushState(null, "", url);
@@ -214,8 +307,41 @@
   });
 
   document.addEventListener("click", (event) => {
+    const rowEditTrigger = event.target.closest("[data-row-edit]");
+    if (rowEditTrigger) {
+      event.preventDefault();
+      const row = document.getElementById(rowEditTrigger.dataset.rowEdit);
+      if (hasDirtyRow() && row !== dirtyRow) {
+        warnAboutDirtyRow();
+        return;
+      }
+      editRow(row);
+      return;
+    }
+
+    if (event.target.closest("[data-host-drawer-close]")) {
+      closeHostDrawer();
+      return;
+    }
+
+    const drawerEdit = event.target.closest("[data-host-drawer-edit]");
+    if (drawerEdit) {
+      const drawer = drawerEdit.closest("[data-host-drawer]");
+      editRow(document.getElementById(drawer?.dataset.rowId || ""));
+      return;
+    }
+
     const link = event.target.closest("a");
     if (!link) {
+      const row = event.target.closest(".asset-table tbody tr[data-row-address]");
+      const interactive = event.target.closest("button, input, textarea, select, label, summary, details, .node-menu");
+      if (row && !interactive) {
+        if (hasDirtyRow() && row !== dirtyRow) {
+          warnAboutDirtyRow();
+          return;
+        }
+        openHostDrawer(row);
+      }
       return;
     }
 
@@ -257,9 +383,12 @@
 })();
 
 (function () {
-  const menus = Array.from(document.querySelectorAll(".node-menu"));
-  if (!menus.length) {
+  if (!document.querySelector(".node-menu")) {
     return;
+  }
+
+  function allMenus() {
+    return Array.from(document.querySelectorAll(".node-menu"));
   }
 
   function panelFor(menu) {
@@ -278,7 +407,7 @@
   }
 
   function closeOtherMenus(activeMenu) {
-    menus.forEach((menu) => {
+    allMenus().forEach((menu) => {
       if (menu !== activeMenu) {
         closeMenu(menu);
       }
@@ -326,32 +455,34 @@
     panel.style.removeProperty("visibility");
   }
 
-  menus.forEach((menu) => {
-    menu.addEventListener("toggle", () => {
-      if (menu.open) {
-        closeOtherMenus(menu);
-        positionMenu(menu);
-      } else {
-        closeMenu(menu);
-      }
-    });
-  });
+  document.addEventListener("toggle", (event) => {
+    const menu = event.target;
+    if (!menu.matches(".node-menu")) {
+      return;
+    }
+    if (menu.open) {
+      closeOtherMenus(menu);
+      positionMenu(menu);
+    } else {
+      closeMenu(menu);
+    }
+  }, true);
 
   document.addEventListener("click", (event) => {
     if (event.target.closest(".node-menu")) {
       return;
     }
-    menus.forEach(closeMenu);
+    allMenus().forEach(closeMenu);
   });
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
-      menus.forEach(closeMenu);
+      allMenus().forEach(closeMenu);
     }
   });
 
-  window.addEventListener("resize", () => menus.forEach(closeMenu));
-  document.querySelector(".tree")?.addEventListener("scroll", () => menus.forEach(closeMenu));
+  window.addEventListener("resize", () => allMenus().forEach(closeMenu));
+  document.querySelector(".tree")?.addEventListener("scroll", () => allMenus().forEach(closeMenu));
 })();
 
 (function () {

@@ -136,6 +136,29 @@
   <p class="project-description">{{ project.description }}</p>
   {% endif %}
 
+  <div class="project-summary" aria-label="{{ _('summary.title') }}">
+    <div class="summary-item">
+      <span>{{ _('summary.total_ips') }}</span>
+      <strong>{{ total_count }}</strong>
+    </div>
+    <div class="summary-item">
+      <span>{{ _('summary.used') }}</span>
+      <strong>{{ filled_count }}</strong>
+    </div>
+    <div class="summary-item">
+      <span>{{ _('summary.empty_hidden') }}</span>
+      <strong>{{ empty_count }}</strong>
+    </div>
+    <div class="summary-item summary-ok">
+      <span>{{ _('summary.ping_ok') }}</span>
+      <strong>{{ online_count }}</strong>
+    </div>
+    <div class="summary-item summary-no">
+      <span>{{ _('summary.ping_no') }}</span>
+      <strong>{{ offline_count }}</strong>
+    </div>
+  </div>
+
   <form class="table-filter-form" action="/projects/{{ project.id }}" method="get">
     <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
     <input type="hidden" name="page" value="1">
@@ -177,6 +200,47 @@
   <div class="project-table-region" data-project-table-region>
     {% include "_project_table.html" %}
   </div>
+
+  <aside class="host-drawer" data-host-drawer aria-hidden="true">
+    <div class="host-drawer-head">
+      <div>
+        <span class="drawer-eyebrow">{{ _('drawer.title') }}</span>
+        <h3 data-drawer-ip-title></h3>
+      </div>
+      <button class="modal-close" type="button" data-host-drawer-close aria-label="{{ _('button.cancel') }}">×</button>
+    </div>
+    <dl class="host-drawer-fields">
+      <div>
+        <dt>{{ _('table.ip_address') }}</dt>
+        <dd data-drawer-field="address"></dd>
+      </div>
+      <div>
+        <dt>Hostname</dt>
+        <dd data-drawer-field="hostname"></dd>
+      </div>
+      <div>
+        <dt>OS</dt>
+        <dd data-drawer-field="os"></dd>
+      </div>
+      <div>
+        <dt>Type</dt>
+        <dd data-drawer-field="asset_type"></dd>
+      </div>
+      <div>
+        <dt>Comment</dt>
+        <dd data-drawer-field="comment"></dd>
+      </div>
+      <div>
+        <dt>{{ _('table.status_ping') }}</dt>
+        <dd class="host-drawer-status" data-drawer-status></dd>
+      </div>
+    </dl>
+    <div class="host-drawer-custom" data-drawer-custom></div>
+    <div class="host-drawer-actions">
+      <button class="soft-button" type="button" data-host-drawer-edit>{{ _('button.edit') }}</button>
+      <button class="soft-button" type="button" data-host-drawer-close>{{ _('button.cancel') }}</button>
+    </div>
+  </aside>
 </section>
 {% endblock %}
 
