@@ -59,6 +59,10 @@ def _ui_error(message: str) -> str:
     return translate_error_message(get_settings().interface_language, message)
 
 
+def _import_error_message(detail: str) -> str:
+    return _ui("import.error_message", detail=detail)
+
+
 def _redirect(path: str) -> RedirectResponse:
     return RedirectResponse(path, status_code=303)
 
@@ -597,23 +601,23 @@ async def import_project_csv(
 
     clean_name = _clean_text(name, 160)
     if not clean_name:
-        return _redirect_error(error_path, _ui("import.name_required"))
+        return _redirect_error(error_path, _import_error_message(_ui("import.name_required")))
 
     if not csv_file.filename:
-        return _redirect_error(error_path, _ui("import.file_required"))
+        return _redirect_error(error_path, _import_error_message(_ui("import.file_required")))
 
     content = await csv_file.read(settings.csv_import_max_bytes + 1)
     if len(content) > settings.csv_import_max_bytes:
         return _redirect_error(
             error_path,
-            _ui("import.file_too_large", max_bytes=settings.csv_import_max_bytes),
+            _import_error_message(_ui("import.file_too_large", max_bytes=settings.csv_import_max_bytes)),
         )
 
     existing = db.scalar(
         select(Project).where(Project.folder_id == folder.id, func.lower(Project.name) == clean_name.lower())
     )
     if existing:
-        return _redirect_error(error_path, _ui("project.duplicate"))
+        return _redirect_error(error_path, _import_error_message(_ui("project.duplicate")))
 
     try:
         import_result = parse_assets_file(
@@ -636,7 +640,14 @@ async def import_project_csv(
         for row in import_result.rows:
             ip_record = records_by_address.get(row.address)
             if ip_record is None:
-                raise CSVImportError(_ui("import.ip_outside_subnet", address=row.address, cidr=import_result.cidr))
+                raise CSVImportError(
+                    _ui(
+                        "import.ip_outside_subnet",
+                        row=row.row_number,
+                        address=row.address,
+                        cidr=import_result.cidr,
+                    )
+                )
             ip_record.hostname = row.hostname
             ip_record.os = row.os
             ip_record.asset_type = row.asset_type
@@ -644,13 +655,13 @@ async def import_project_csv(
         db.commit()
     except CSVImportError as exc:
         db.rollback()
-        return _redirect_error(error_path, _ui_error(str(exc)))
+        return _redirect_error(error_path, _import_error_message(_ui_error(str(exc))))
     except NetworkValidationError as exc:
         db.rollback()
-        return _redirect_error(error_path, _ui_error(str(exc)))
+        return _redirect_error(error_path, _import_error_message(_ui_error(str(exc))))
     except IntegrityError:
         db.rollback()
-        return _redirect_error(error_path, _ui("import.failed_unique"))
+        return _redirect_error(error_path, _import_error_message(_ui("import.failed_unique")))
 
     ensure_project_ping_schedule(db, project.id, settings)
     enqueue_project_ping(db, project.id, reason="project-imported")

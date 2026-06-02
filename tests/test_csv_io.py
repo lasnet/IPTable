@@ -28,6 +28,14 @@ class CSVImportTest(unittest.TestCase):
         with self.assertRaises(CSVImportError):
             parse_assets_csv(content, max_addresses=256)
 
+    def test_parse_assets_csv_error_mentions_row_and_column(self) -> None:
+        content = "ip;hostname;os;type;comment\n;gw;RouterOS;Gateway;main\n".encode("utf-8")
+
+        with self.assertRaises(CSVImportError) as context:
+            parse_assets_csv(content, max_addresses=256)
+
+        self.assertIn("Строка 2, колонка ip", str(context.exception))
+
     def test_parse_assets_csv_rejects_duplicate_ip(self) -> None:
         content = (
             "ip;hostname;os;type;comment\n"

@@ -23,11 +23,15 @@ class InterfaceLanguageTest(unittest.TestCase):
             translate("EN", "login.rate_limited", minutes=3),
             "Too many login attempts. Try again in 3 min.",
         )
+        self.assertEqual(
+            translate("EN", "import.error_message", detail="Row 2, column ip: value is required"),
+            "Import error: Row 2, column ip: value is required",
+        )
 
     def test_translate_error_message_handles_service_errors(self) -> None:
         self.assertEqual(
-            translate_error_message("EN", "Строка 7: поле ip обязательно"),
-            "Row 7: ip field is required",
+            translate_error_message("EN", "Строка 7, колонка ip: обязательное значение"),
+            "Row 7, column ip: value is required",
         )
         self.assertEqual(
             translate_error_message("EN", "Подсеть содержит 8192 адресов, лимит: 4096"),

@@ -5,6 +5,7 @@
   2. Set .col-number width and move .locked-col by the same width in app/static/styles.css.
 #}
 {% set show_number_column = false %}
+{% set table_colspan = (7 if show_number_column else 6) + custom_fields|length %}
 <div class="asset-table-wrap">
   <table class="asset-table">
     <colgroup>
@@ -86,8 +87,31 @@
       </tr>
       {% else %}
       <tr>
-        <td class="empty-table" colspan="{{ (7 if show_number_column else 6) + custom_fields|length }}">
+        <td class="empty-table {% if hide_empty and filled_count == 0 %}empty-project-cell{% endif %}"
+          colspan="{{ table_colspan }}">
+          {% if hide_empty and filled_count == 0 %}
+          <div class="table-empty-state">
+            <div class="empty-state-icon">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3v5" />
+                <path d="M5 21v-3a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v3" />
+                <path d="M8 8h8v5H8z" />
+                <path d="M3 21h18" />
+                <path d="M7 21v-3" />
+                <path d="M17 21v-3" />
+              </svg>
+            </div>
+            <div>
+              <h3>{{ _('project.empty_assets_title') }}</h3>
+              <p>{{ _('project.empty_assets_text') }}</p>
+            </div>
+            <a class="soft-button compact-action" href="{{ hide_toggle_url }}" data-hide-toggle>
+              {{ _('table.show_hidden') }}
+            </a>
+          </div>
+          {% else %}
           {{ _('table.no_records') }}
+          {% endif %}
         </td>
       </tr>
       {% endfor %}

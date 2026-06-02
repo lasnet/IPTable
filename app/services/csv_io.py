@@ -29,6 +29,7 @@ class CSVImportError(ValueError):
 
 @dataclass(frozen=True)
 class ImportedAsset:
+    row_number: int
     address: str
     hostname: str
     os: str
@@ -88,29 +89,30 @@ def _parse_import_rows(
 
         raw_ip = normalized["ip"]
         if not raw_ip:
-            raise CSVImportError(f"Строка {row_number}: поле ip обязательно")
+            raise CSVImportError(f"Строка {row_number}, колонка ip: обязательное значение")
 
         try:
             parsed_ip = ip_address(raw_ip)
         except ValueError as exc:
-            raise CSVImportError(f"Строка {row_number}: неверный IPv4-адрес") from exc
+            raise CSVImportError(f"Строка {row_number}, колонка ip: неверный IPv4-адрес") from exc
 
         if not isinstance(parsed_ip, IPv4Address):
-            raise CSVImportError(f"Строка {row_number}: поддерживаются только IPv4-адреса")
+            raise CSVImportError(f"Строка {row_number}, колонка ip: поддерживаются только IPv4-адреса")
 
         address = str(parsed_ip)
         if address in seen_addresses:
             raise CSVImportError(
-                f"Строка {row_number}: IP {address} уже указан в строке {seen_addresses[address]}"
+                f"Строка {row_number}, колонка ip: IP {address} уже указан в строке {seen_addresses[address]}"
             )
         seen_addresses[address] = row_number
 
         for field_name, limit in FIELD_LIMITS.items():
             if len(normalized[field_name]) > limit:
-                raise CSVImportError(f"Строка {row_number}: поле {field_name} длиннее {limit} символов")
+                raise CSVImportError(f"Строка {row_number}, колонка {field_name}: значение длиннее {limit} символов")
 
         rows.append(
             ImportedAsset(
+                row_number=row_number,
                 address=address,
                 hostname=normalized["hostname"],
                 os=normalized["os"],
@@ -155,7 +157,7 @@ def parse_assets_csv(content: bytes, *, max_addresses: int) -> CSVImportResult:
     rows_with_numbers: list[tuple[int, dict[str, str]]] = []
     for row_number, raw_row in enumerate(reader, start=2):
         if None in raw_row:
-            raise CSVImportError(f"Строка {row_number}: слишком много столбцов")
+            raise CSVImportError(f"Строка {row_number}, колонка после comment: слишком много столбцов")
         rows_with_numbers.append((row_number, {key: _cell_text(raw_row.get(key)) for key in columns}))
 
     return _parse_import_rows(rows_with_numbers, max_addresses=max_addresses)
@@ -189,7 +191,7 @@ def parse_assets_xlsx(content: bytes, *, max_addresses: int) -> CSVImportResult:
     for row_number, values in enumerate(rows_iter, start=2):
         row_values = list(values[: len(columns)])
         if len(values) > len(columns) and any(_cell_text(item) for item in values[len(columns):]):
-            raise CSVImportError(f"Строка {row_number}: слишком много столбцов")
+            raise CSVImportError(f"Строка {row_number}, колонка после comment: слишком много столбцов")
         rows_with_numbers.append(
             (
                 row_number,

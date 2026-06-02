@@ -53,6 +53,42 @@
     return document.querySelector("[data-project-table-region]");
   }
 
+  function tableSkeletonHtml() {
+    return `
+      <div class="asset-table-wrap table-skeleton" aria-hidden="true">
+        <div class="skeleton-table-head">
+          <span class="skeleton-line wide"></span>
+          <span class="skeleton-line medium"></span>
+          <span class="skeleton-line medium"></span>
+          <span class="skeleton-line short"></span>
+          <span class="skeleton-line wide"></span>
+          <span class="skeleton-line short"></span>
+        </div>
+        ${Array.from({ length: 8 }, () => `
+          <div class="skeleton-table-row">
+            <span class="skeleton-line medium"></span>
+            <span class="skeleton-line wide"></span>
+            <span class="skeleton-line wide"></span>
+            <span class="skeleton-line medium"></span>
+            <span class="skeleton-line wide"></span>
+            <span class="skeleton-pill"></span>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
+  function setTableLoading(region, enabled) {
+    if (!region) {
+      return;
+    }
+    region.toggleAttribute("aria-busy", enabled);
+    region.classList.toggle("is-loading", enabled);
+    if (enabled) {
+      region.innerHTML = tableSkeletonHtml();
+    }
+  }
+
   function setFormValue(form, name, value) {
     if (form?.elements[name]) {
       form.elements[name].value = value;
@@ -80,13 +116,12 @@
       setFormValue(filterForm, "os_filter", osFilter);
     }
 
-    const hideToggle = document.querySelector("[data-hide-toggle]");
-    if (hideToggle) {
+    document.querySelectorAll("[data-hide-toggle]").forEach((hideToggle) => {
       const nextParams = new URLSearchParams(params);
       nextParams.set("hide_empty", hideEmpty === "true" ? "false" : "true");
       nextParams.set("page", "1");
       hideToggle.href = `${parsedUrl.pathname}?${nextParams.toString()}`;
-    }
+    });
 
     const resetLink = document.querySelector("[data-filter-reset]");
     if (resetLink) {
@@ -276,16 +311,24 @@
       return;
     }
 
-    const response = await window.fetch(url, {
-      headers: { "X-Requested-With": "XMLHttpRequest" },
-      credentials: "same-origin",
-    });
+    setTableLoading(region, true);
+    let response;
+    try {
+      response = await window.fetch(url, {
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        credentials: "same-origin",
+      });
+    } catch (error) {
+      window.location.href = url;
+      return;
+    }
     if (!response.ok) {
       window.location.href = url;
       return;
     }
 
     region.innerHTML = await response.text();
+    setTableLoading(region, false);
     closeHostDrawer(true);
     syncProjectControls(url);
     if (pushState) {
@@ -444,6 +487,58 @@
 
   scrollToHash();
   syncProjectControls(window.location.href);
+})();
+
+(function () {
+  function setGlobalLoading(enabled) {
+    document.body.classList.toggle("is-loading", enabled);
+    document.querySelector(".tree")?.toggleAttribute("hidden", enabled);
+    document.querySelector(".tree-loading")?.toggleAttribute("hidden", !enabled);
+    document.querySelectorAll("button").forEach((button) => {
+      if (enabled) {
+        button.dataset.wasDisabled = button.disabled ? "true" : "false";
+        button.disabled = true;
+      } else if (button.dataset.wasDisabled === "false") {
+        button.disabled = false;
+        delete button.dataset.wasDisabled;
+      }
+    });
+  }
+
+  document.addEventListener("submit", (event) => {
+    if (event.defaultPrevented) {
+      return;
+    }
+    const form = event.target;
+    if (
+      form.classList.contains("page-size-form") ||
+      form.classList.contains("table-filter-form") ||
+      form.classList.contains("export-form")
+    ) {
+      return;
+    }
+    window.setTimeout(() => setGlobalLoading(true), 0);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented) {
+      return;
+    }
+    const link = event.target.closest("a");
+    if (!link || link.target || link.hasAttribute("download")) {
+      return;
+    }
+    if (link.closest("[data-host-drawer-history]") || link.closest(".pagination-controls")) {
+      return;
+    }
+    const href = link.getAttribute("href") || "";
+    if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) {
+      return;
+    }
+    window.setTimeout(() => setGlobalLoading(true), 0);
+  });
+
+  window.addEventListener("pageshow", () => setGlobalLoading(false));
 })();
 
 (function () {

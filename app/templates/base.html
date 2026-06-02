@@ -5,8 +5,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}IPtable{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260602-admin-modal">
-  <script src="{{ url_for('static', path='/app.js') }}?v=20260602-admin-modal" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260602-ui-states">
+  <script src="{{ url_for('static', path='/app.js') }}?v=20260602-ui-states" defer></script>
 </head>
 
 <body data-i18n-selected-row="{{ _('js.selected_row') }}"
@@ -91,7 +91,13 @@
                 </details>
               </div>
               {% else %}
-              <span class="tree-empty">{{ _('folder.no_projects') }}</span>
+              <div class="folder-empty-state">
+                <p>{{ _('folder.no_projects_yet') }}</p>
+                {% if current_user.can_create_inventory %}
+                <button class="soft-button compact-action" type="button"
+                  data-modal-target="project-create-modal-{{ folder.id }}">{{ _('project.add') }}</button>
+                {% endif %}
+              </div>
               {% endfor %}
             </div>
           </details>
@@ -122,6 +128,13 @@
         <div class="tree-empty-state">{{ _('folder.create_first') }}</div>
         {% endfor %}
       </nav>
+      <div class="tree-loading" hidden aria-hidden="true">
+        <span class="skeleton-line wide"></span>
+        <span class="skeleton-line medium"></span>
+        <span class="skeleton-line short"></span>
+        <span class="skeleton-line wide"></span>
+        <span class="skeleton-line medium"></span>
+      </div>
     </aside>
 
     <section class="workspace">
