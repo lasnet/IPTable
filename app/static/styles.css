@@ -24,6 +24,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   min-width: 0;
@@ -706,7 +710,9 @@ select:disabled {
 
 .project-actions {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -744,6 +750,57 @@ select:disabled {
   position: relative;
 }
 
+.project-action-button {
+  width: 168px;
+  min-height: 46px;
+}
+
+.project-field-details > summary {
+  width: 168px;
+}
+
+.project-action-menu {
+  flex: 0 0 auto;
+}
+
+.project-action-panel .node-menu-item {
+  gap: 9px;
+  min-height: 40px;
+  padding: 8px 10px;
+}
+
+.project-action-panel .node-menu-item .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.project-menu-primary {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.project-settings-details > summary {
+  list-style: none;
+}
+
+.project-settings-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.project-menu-form {
+  display: grid;
+  gap: 9px;
+  margin: 6px 0 8px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.project-menu-delete-form {
+  margin: 0;
+}
+
 .floating-form {
   position: absolute;
   top: 54px;
@@ -757,6 +814,12 @@ select:disabled {
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow);
+}
+
+.floating-form.project-action-panel {
+  width: 320px;
+  gap: 6px;
+  padding: 10px;
 }
 
 .project-settings {
@@ -1290,7 +1353,7 @@ th.locked-col {
 
 .host-drawer-fields label,
 .host-drawer-custom label,
-.host-drawer-status-field span {
+.host-drawer-status-field > span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 850;
@@ -1305,8 +1368,17 @@ th.locked-col {
   background: transparent;
   color: var(--text);
   outline: 0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 16px;
   font-weight: 700;
+  line-height: 1.45;
   resize: vertical;
+}
+
+.host-drawer [data-drawer-field="address"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 17px;
+  font-weight: 800;
 }
 
 .host-drawer textarea {
@@ -1802,6 +1874,13 @@ th.locked-col {
 
   .project-actions {
     flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .project-action-button,
+  .project-field-details > summary {
+    width: auto;
+    min-width: 154px;
   }
 
   .table-pagination {

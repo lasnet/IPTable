@@ -23,16 +23,7 @@
     </div>
 
     <div class="project-actions">
-      <a class="soft-button" href="/projects/{{ project.id }}/history">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M3 3v5h5" />
-          <path d="M3.05 13A9 9 0 1 0 5.6 6.6L3 8" />
-          <path d="M12 7v5l3 2" />
-        </svg>
-        {{ _('history.title') }}
-      </a>
-
-      <a class="soft-button" href="{{ hide_toggle_url }}" data-hide-toggle>
+      <a class="soft-button project-action-button" href="{{ hide_toggle_url }}" data-hide-toggle>
         {% if hide_empty %}
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M17.94 17.94A10.9 10.9 0 0 1 12 20C7 20 2.73 16.89 1 12a12.2 12.2 0 0 1 5.06-5.94" />
@@ -51,8 +42,8 @@
       </a>
 
       {% if current_user.can_manage_project_columns %}
-      <details class="field-details">
-        <summary class="soft-button">
+      <details class="field-details project-field-details">
+        <summary class="soft-button project-action-button">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14" />
             <path d="M5 12h14" />
@@ -72,63 +63,83 @@
       </details>
       {% endif %}
 
-      {% if current_user.is_admin %}
-      <button class="soft-button" type="button" data-modal-target="project-schedule-modal-{{ project.id }}">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 8v5l3 2" />
-          <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-        </svg>
-        Ping
-      </button>
-
-      <button class="soft-button" type="button" data-modal-target="project-export-modal-{{ project.id }}">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 3v12" />
-          <path d="m7 10 5 5 5-5" />
-          <path d="M5 21h14" />
-        </svg>
-        {{ _('export.project') }}
-      </button>
-      {% endif %}
-
-      {% if current_user.can_edit_inventory or current_user.can_delete_inventory %}
-      <details class="field-details">
-        <summary class="icon-button" aria-label="{{ _('project.settings') }}">
+      <details class="field-details project-action-menu">
+        <summary class="icon-button project-menu-button" aria-label="{{ _('project.menu') }}">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 12h.01" />
             <path d="M12 5h.01" />
             <path d="M12 19h.01" />
           </svg>
         </summary>
-        <div class="floating-form project-settings">
-          {% if current_user.can_edit_inventory %}
-          <form class="stack-form" action="/projects/{{ project.id }}/update" method="post">
-            {{ csrf_input(request) }}
-            <input name="name" maxlength="160" required value="{{ project.name }}">
-            <textarea name="description" maxlength="2000" rows="4"
-              placeholder="{{ _('common.description') }}">{{ project.description }}</textarea>
-            <button type="submit">{{ _('button.save') }}</button>
-          </form>
+        <div class="floating-form project-action-panel">
+          {% if current_user.is_admin %}
+          <button class="node-menu-item project-menu-primary" type="button"
+            data-modal-target="project-schedule-modal-{{ project.id }}">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 8v5l3 2" />
+              <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            Ping
+          </button>
           {% endif %}
+
+          <a class="node-menu-item" href="/projects/{{ project.id }}/history">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 3v5h5" />
+              <path d="M3.05 13A9 9 0 1 0 5.6 6.6L3 8" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+            {{ _('history.title') }}
+          </a>
+
+          {% if current_user.is_admin %}
+          <button class="node-menu-item" type="button" data-modal-target="project-export-modal-{{ project.id }}">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v12" />
+              <path d="m7 10 5 5 5-5" />
+              <path d="M5 21h14" />
+            </svg>
+            {{ _('export.project') }}
+          </button>
+          {% endif %}
+
+          {% if current_user.can_edit_inventory %}
+          <details class="project-settings-details">
+            <summary class="node-menu-item">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21a2 2 0 0 1-4 0v-.08A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 0 1 0-4h.08A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 0 1 4 0v.08A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 0 1 0 4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
+              </svg>
+              {{ _('project.settings') }}
+            </summary>
+            <form class="stack-form project-menu-form" action="/projects/{{ project.id }}/update" method="post">
+              {{ csrf_input(request) }}
+              <input name="name" maxlength="160" required value="{{ project.name }}">
+              <textarea name="description" maxlength="2000" rows="4"
+                placeholder="{{ _('common.description') }}">{{ project.description }}</textarea>
+              <button type="submit">{{ _('button.save') }}</button>
+            </form>
+          </details>
+          {% endif %}
+
           {% if current_user.can_delete_inventory %}
-          <form action="/projects/{{ project.id }}/delete" method="post"
+          <form class="project-menu-delete-form" action="/projects/{{ project.id }}/delete" method="post"
             data-confirm="{{ _('confirm.delete_project') }}">
             {{ csrf_input(request) }}
-            <button class="danger-button" type="submit">{{ _('project.delete') }}</button>
+            <button class="node-menu-item danger-menu-item" type="submit">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="M19 6l-1 14H6L5 6" />
+                <path d="M10 11v5" />
+                <path d="M14 11v5" />
+              </svg>
+              {{ _('project.delete') }}
+            </button>
           </form>
           {% endif %}
         </div>
       </details>
-      {% endif %}
-      {% if not (current_user.can_edit_inventory or current_user.can_delete_inventory) %}
-      <button class="icon-button" type="button" aria-label="{{ _('project.menu') }}">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 12h.01" />
-          <path d="M12 5h.01" />
-          <path d="M12 19h.01" />
-        </svg>
-      </button>
-      {% endif %}
     </div>
   </div>
 

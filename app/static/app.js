@@ -583,6 +583,7 @@
 
     event.preventDefault();
     trigger.closest(".node-menu")?.removeAttribute("open");
+    trigger.closest(".field-details")?.removeAttribute("open");
     const dialog = document.getElementById(trigger.dataset.modalTarget);
     if (canUseNativeDialog && dialog instanceof HTMLDialogElement) {
       openDialog(dialog);
