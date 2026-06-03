@@ -765,7 +765,7 @@ body.is-loading button {
 .tree-project-row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   min-height: 36px;
   border-radius: var(--radius);
@@ -1007,19 +1007,20 @@ body.is-loading button {
 }
 
 .project-action-panel .node-menu-item:hover {
-  border-color: var(--line-hover);
-  background: var(--accent-hover);
-  color: var(--accent);
+  border-color: var(--line-soft);
+  background: #ffffff;
+  color: var(--text);
 }
 
 .project-action-panel .danger-menu-item {
-  border-color: var(--danger-border);
-  color: var(--danger);
+  border-color: var(--line-soft);
+  color: var(--text);
 }
 
 .project-action-panel .danger-menu-item:hover {
-  background: var(--danger-bg);
-  color: var(--danger);
+  border-color: var(--line-soft);
+  background: #ffffff;
+  color: var(--text);
 }
 
 .project-action-panel .node-menu-item .icon {

@@ -433,10 +433,6 @@ def index(
     message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> Response:
     folders = _load_sidebar_folders(db)
-    first_project = next((project for folder in folders for project in folder.projects), None)
-    if first_project is not None and error is None:
-        return _redirect(f"/projects/{first_project.id}")
-
     return _templates(request).TemplateResponse(
         request,
         "index.html",
@@ -445,7 +441,7 @@ def index(
             "folders": folders,
             "folder_schedules": _load_folder_schedules(db),
             "default_ping_interval_minutes": _default_ping_interval_minutes(),
-            "active_project": first_project,
+            "active_project": None,
             "current_user": current_user,
             "error": error,
             "message": message,
