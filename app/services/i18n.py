@@ -117,7 +117,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "import.file_required": "Выберите CSV или XLSX-файл для импорта",
         "import.file_too_large": "Файл импорта слишком большой. Лимит: {max_bytes} байт",
         "import.failed_unique": "Не удалось импортировать файл: проверьте уникальность проекта",
-        "import.hint": "CSV: ip;hostname;os;type;comment, разделитель - точка с запятой. XLSX: те же заголовки в первой строке. IP-адреса должны быть IPv4, без дублей, без network/broadcast адресов. Подсеть будет рассчитана автоматически.",
+        "import.hint": "CSV/XLSX: порядок колонок ip;hostname;os;type;comment. Заголовок можно добавить первой строкой, но он не обязателен. CSV использует разделитель точка с запятой. IP-адреса должны быть IPv4, без дублей, без network/broadcast адресов. Подсеть будет рассчитана автоматически.",
         "import.ip_outside_subnet": "Строка {row}, колонка ip: IP {address} не входит в рассчитанную подсеть {cidr}",
         "import.name_required": "Название проекта обязательно для импорта",
         "import.open": "Импортировать из CSV/XLSX",
@@ -310,7 +310,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "import.file_required": "Choose a CSV or XLSX file to import",
         "import.file_too_large": "Import file is too large. Limit: {max_bytes} bytes",
         "import.failed_unique": "Could not import file: check project uniqueness",
-        "import.hint": "CSV: ip;hostname;os;type;comment, separator is a semicolon. XLSX: the same headers in the first row. IP addresses must be IPv4, without duplicates and without network/broadcast addresses. The subnet will be calculated automatically.",
+        "import.hint": "CSV/XLSX: column order is ip;hostname;os;type;comment. A header row is supported but optional. CSV uses semicolon as the separator. IP addresses must be IPv4, without duplicates and without network/broadcast addresses. The subnet will be calculated automatically.",
         "import.ip_outside_subnet": "Row {row}, column ip: IP {address} is outside the calculated subnet {cidr}",
         "import.name_required": "Project name is required for import",
         "import.open": "Import from CSV/XLSX",
@@ -413,6 +413,9 @@ ERROR_TRANSLATIONS = {
     "CSV-файл пустой или не содержит заголовок": {
         "EN": "CSV file is empty or has no header",
     },
+    "CSV-файл пустой или не содержит строк с IP-адресами": {
+        "EN": "CSV file is empty or has no IP address rows",
+    },
     "Не удалось прочитать XLSX-файл": {
         "EN": "Could not read the XLSX file",
     },
@@ -421,6 +424,9 @@ ERROR_TRANSLATIONS = {
     },
     "XLSX-файл пустой или не содержит заголовок": {
         "EN": "XLSX file is empty or has no header",
+    },
+    "XLSX-файл пустой или не содержит строк с IP-адресами": {
+        "EN": "XLSX file is empty or has no IP address rows",
     },
     "Поддерживаются только файлы .csv и .xlsx": {
         "EN": "Only .csv and .xlsx files are supported",

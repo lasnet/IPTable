@@ -342,7 +342,7 @@ button {
 }
 
 .sidebar-form button,
-.floating-form button,
+.floating-form button:not(.node-menu-item),
 .modal-form button,
 .login-form button,
 .admin-form button {
@@ -1000,6 +1000,26 @@ body.is-loading button {
   gap: 9px;
   min-height: 40px;
   padding: 8px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: #ffffff;
+  color: var(--text);
+}
+
+.project-action-panel .node-menu-item:hover {
+  border-color: var(--line-hover);
+  background: var(--accent-hover);
+  color: var(--accent);
+}
+
+.project-action-panel .danger-menu-item {
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.project-action-panel .danger-menu-item:hover {
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .project-action-panel .node-menu-item .icon {
@@ -1008,8 +1028,8 @@ body.is-loading button {
 }
 
 .project-menu-primary {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: #ffffff;
+  color: var(--text);
 }
 
 .project-settings-details > summary {
@@ -1445,8 +1465,9 @@ th.locked-col {
 }
 
 .table-empty-value {
-  color: var(--placeholder);
-  font-weight: 650;
+  color: var(--muted);
+  font-weight: 600;
+  opacity: 0.42;
 }
 
 .status-cell {
@@ -1880,6 +1901,17 @@ th.locked-col {
 .result-row:hover {
   border-color: var(--line-strong);
   background: var(--accent-hover);
+}
+
+.search-exact-result {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.search-exact-result:hover {
+  border-color: var(--accent);
+  background: #dfeeff;
 }
 
 .link-row {

@@ -47,7 +47,8 @@
         <h3>{{ _('search.ip_records') }}</h3>
         {% for ip in ip_records %}
           {% set target_page = ((ip.ordinal - 1) // project_page_size) + 1 %}
-          <a class="result-row link-row" href="/projects/{{ ip.project.id }}?hide_empty=false&page={{ target_page }}&per_page={{ project_page_size }}#ip-{{ ip.id }}">
+          <a class="result-row link-row {% if ip.address == q %}search-exact-result{% endif %}"
+            href="/projects/{{ ip.project.id }}?hide_empty=false&page={{ target_page }}&per_page={{ project_page_size }}#ip-{{ ip.id }}">
             <strong>{{ ip.address }}</strong>
             <span>{{ ip.project.folder.name }} / {{ ip.project.name }}</span>
             <small>{{ ip.hostname }} {{ ip.os }} {{ ip.asset_type }} {{ ip.comment }}</small>

@@ -52,17 +52,24 @@ def _decode_csv(content: bytes) -> str:
     raise CSVImportError("Не удалось прочитать файл: используйте UTF-8 или Windows-1251")
 
 
-def _validate_headers(headers: list[str], *, source: str) -> list[str]:
-    if headers == BASE_COLUMNS:
-        return BASE_COLUMNS
-    expected = "ip;hostname;os;type;comment"
-    raise CSVImportError(f"Неверный заголовок {source}. Ожидается: {expected}")
-
-
 def _cell_text(value: object) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def _is_expected_header(values: list[object]) -> bool:
+    headers = [_cell_text(item).lower() for item in values if _cell_text(item)]
+    return headers == BASE_COLUMNS
+
+
+def _import_row_mapping(values: list[object], *, row_number: int) -> dict[str, str]:
+    if len(values) > len(EXPORT_COLUMNS) and any(_cell_text(item) for item in values[len(EXPORT_COLUMNS):]):
+        raise CSVImportError(f"Строка {row_number}, колонка после comment: слишком много столбцов")
+    return {
+        column: _cell_text(values[index]) if index < len(values) else ""
+        for index, column in enumerate(EXPORT_COLUMNS)
+    }
 
 
 def _smallest_network(addresses: list[IPv4Address]) -> IPv4Network:
@@ -147,18 +154,21 @@ def _parse_import_rows(
 
 def parse_assets_csv(content: bytes, *, max_addresses: int) -> CSVImportResult:
     text = _decode_csv(content)
-    reader = csv.DictReader(io.StringIO(text, newline=""), delimiter=";")
-    if reader.fieldnames is None:
-        raise CSVImportError("CSV-файл пустой или не содержит заголовок")
-
-    headers = [header.strip().lower() for header in reader.fieldnames]
-    columns = _validate_headers(headers, source="CSV")
+    reader = csv.reader(io.StringIO(text, newline=""), delimiter=";")
+    try:
+        first_row = next(reader)
+    except StopIteration as exc:
+        raise CSVImportError("CSV-файл пустой или не содержит строк с IP-адресами") from exc
 
     rows_with_numbers: list[tuple[int, dict[str, str]]] = []
-    for row_number, raw_row in enumerate(reader, start=2):
-        if None in raw_row:
-            raise CSVImportError(f"Строка {row_number}, колонка после comment: слишком много столбцов")
-        rows_with_numbers.append((row_number, {key: _cell_text(raw_row.get(key)) for key in columns}))
+    if _is_expected_header(first_row):
+        start_row_number = 2
+    else:
+        rows_with_numbers.append((1, _import_row_mapping(first_row, row_number=1)))
+        start_row_number = 2
+
+    for row_number, values in enumerate(reader, start=start_row_number):
+        rows_with_numbers.append((row_number, _import_row_mapping(list(values), row_number=row_number)))
 
     return _parse_import_rows(rows_with_numbers, max_addresses=max_addresses)
 
@@ -180,24 +190,19 @@ def parse_assets_xlsx(content: bytes, *, max_addresses: int) -> CSVImportResult:
     worksheet = workbook.worksheets[0]
     rows_iter = worksheet.iter_rows(values_only=True)
     try:
-        header_row = next(rows_iter)
+        first_row = list(next(rows_iter))
     except StopIteration as exc:
-        raise CSVImportError("XLSX-файл пустой или не содержит заголовок") from exc
-
-    headers = [_cell_text(item).lower() for item in header_row if _cell_text(item)]
-    columns = _validate_headers(headers, source="XLSX")
+        raise CSVImportError("XLSX-файл пустой или не содержит строк с IP-адресами") from exc
 
     rows_with_numbers: list[tuple[int, dict[str, str]]] = []
-    for row_number, values in enumerate(rows_iter, start=2):
-        row_values = list(values[: len(columns)])
-        if len(values) > len(columns) and any(_cell_text(item) for item in values[len(columns):]):
-            raise CSVImportError(f"Строка {row_number}, колонка после comment: слишком много столбцов")
-        rows_with_numbers.append(
-            (
-                row_number,
-                {column: _cell_text(row_values[index]) if index < len(row_values) else "" for index, column in enumerate(columns)},
-            )
-        )
+    if _is_expected_header(first_row):
+        start_row_number = 2
+    else:
+        rows_with_numbers.append((1, _import_row_mapping(first_row, row_number=1)))
+        start_row_number = 2
+
+    for row_number, values in enumerate(rows_iter, start=start_row_number):
+        rows_with_numbers.append((row_number, _import_row_mapping(list(values), row_number=row_number)))
 
     return _parse_import_rows(rows_with_numbers, max_addresses=max_addresses)
 

@@ -22,6 +22,18 @@ class CSVImportTest(unittest.TestCase):
         self.assertEqual(len(result.rows), 2)
         self.assertEqual(result.rows[0].hostname, "gw")
 
+    def test_parse_assets_csv_accepts_missing_header(self) -> None:
+        content = (
+            "192.168.10.10;gw;RouterOS;Gateway;main\n"
+            "192.168.10.20;server;Linux;Server;app\n"
+        ).encode("utf-8")
+
+        result = parse_assets_csv(content, max_addresses=256)
+
+        self.assertEqual(result.cidr, "192.168.10.0/27")
+        self.assertEqual(result.rows[0].row_number, 1)
+        self.assertEqual(result.rows[0].hostname, "gw")
+
     def test_parse_assets_csv_rejects_wrong_header(self) -> None:
         content = "address;hostname;os;type;comment\n192.168.1.10;gw;;;;\n".encode("utf-8")
 
@@ -58,6 +70,20 @@ class CSVImportTest(unittest.TestCase):
         result = parse_assets_xlsx(buffer.getvalue(), max_addresses=256)
 
         self.assertEqual(result.cidr, "10.10.10.10/31")
+        self.assertEqual(result.rows[0].asset_type, "Camera")
+
+    def test_parse_assets_xlsx_accepts_missing_header(self) -> None:
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.append(["10.10.10.10", "cam-01", "", "Camera", "warehouse"])
+        worksheet.append(["10.10.10.11", "cam-02", "", "Camera", "office"])
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+
+        result = parse_assets_xlsx(buffer.getvalue(), max_addresses=256)
+
+        self.assertEqual(result.cidr, "10.10.10.10/31")
+        self.assertEqual(result.rows[0].row_number, 1)
         self.assertEqual(result.rows[0].asset_type, "Camera")
 
     def test_render_project_xlsx_contains_asset_fields(self) -> None:
