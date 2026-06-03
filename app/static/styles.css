@@ -1007,20 +1007,20 @@ body.is-loading button {
 }
 
 .project-action-panel .node-menu-item:hover {
-  border-color: var(--line-soft);
-  background: #ffffff;
-  color: var(--text);
+  border-color: var(--accent-border);
+  background: var(--accent-hover);
+  color: var(--accent);
 }
 
 .project-action-panel .danger-menu-item {
-  border-color: var(--line-soft);
-  color: var(--text);
+  border-color: var(--danger-border);
+  color: var(--danger);
 }
 
 .project-action-panel .danger-menu-item:hover {
-  border-color: var(--line-soft);
-  background: #ffffff;
-  color: var(--text);
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .project-action-panel .node-menu-item .icon {
