@@ -355,7 +355,7 @@ button {
 }
 
 .sidebar-form button:not(.soft-button):not(.danger-button):hover,
-.floating-form button:not(.soft-button):not(.danger-button):hover,
+.floating-form button:not(.node-menu-item):not(.soft-button):not(.danger-button):hover,
 .modal-form button:not(.soft-button):not(.danger-button):not(.modal-close):hover,
 .login-form button:not(.soft-button):not(.danger-button):hover,
 .admin-form button:not(.soft-button):not(.danger-button):hover {
