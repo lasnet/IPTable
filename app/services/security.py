@@ -1,4 +1,3 @@
-import html
 import hashlib
 import math
 import secrets
@@ -28,8 +27,9 @@ def ensure_csrf_token(request: Request) -> str:
 
 
 def csrf_input(request: Request) -> Markup:
-    token = html.escape(ensure_csrf_token(request), quote=True)
-    return Markup(f'<input type="hidden" name="{CSRF_FORM_FIELD}" value="{token}">')
+    return Markup('<input type="hidden" name="{name}" value="{token}">').format(
+        name=CSRF_FORM_FIELD, token=ensure_csrf_token(request)
+    )
 
 
 async def require_csrf_token(request: Request) -> None:

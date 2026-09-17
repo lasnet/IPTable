@@ -1,5 +1,7 @@
 import os
 import re
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
 from datetime import datetime
@@ -18,6 +20,7 @@ from app.main import create_app
 from app.models import Base, LoginRateLimitEvent
 from app.services.security import (
     LoginRateLimiter,
+    csrf_input,
     ensure_csrf_token,
     login_rate_limit_retry_after,
     record_login_failure,
@@ -31,9 +34,31 @@ class SecurityTest(unittest.TestCase):
     def tearDown(self) -> None:
         get_settings.cache_clear()
 
+    def test_shared_dotenv_accepts_compose_variables(self) -> None:
+        with TemporaryDirectory() as directory:
+            env_file = Path(directory) / ".env"
+            env_file.write_text(
+                "APP_PORT=8000\nPOSTGRES_USER=iptable\nPOSTGRES_DB=iptable\n"
+                "POSTGRES_PASSWORD=\nSESSION_IDLE_TIMEOUT_SECONDS=8640\n",
+                encoding="utf-8",
+            )
+            with patch.dict(os.environ, {}, clear=True):
+                settings = Settings(_env_file=env_file)
+                self.assertEqual(settings.session_idle_timeout_seconds, 8640)
+
+            env_file.write_text("PING_CONCURRENCY=0\n", encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=True), self.assertRaises(ValidationError):
+                Settings(_env_file=env_file)
+
     def test_production_requires_secret_key(self) -> None:
         with self.assertRaises(ValidationError):
             Settings(app_env="production", secret_key="")
+
+    def test_csrf_input_escapes_session_token(self) -> None:
+        request = SimpleNamespace(session={"csrf_token": '\"><script>alert(1)</script>'})
+        markup = str(csrf_input(request))
+        self.assertNotIn("<script>", markup)
+        self.assertIn("&lt;script&gt;", markup)
 
     def test_production_disables_openapi_routes(self) -> None:
         with patch.dict(

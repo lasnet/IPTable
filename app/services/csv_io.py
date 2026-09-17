@@ -2,8 +2,10 @@ import csv
 import io
 import re
 import zipfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv4Network, ip_address
+from xml.etree.ElementTree import ParseError
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
@@ -59,7 +61,9 @@ def _cell_text(value: object) -> str:
 
 
 def _is_expected_header(values: list[object]) -> bool:
-    headers = [_cell_text(item).lower() for item in values if _cell_text(item)]
+    headers = [_cell_text(item).lower() for item in values]
+    while headers and not headers[-1]:
+        headers.pop()
     return headers == BASE_COLUMNS
 
 
@@ -81,7 +85,7 @@ def _smallest_network(addresses: list[IPv4Address]) -> IPv4Network:
 
 
 def _parse_import_rows(
-    rows_with_numbers: list[tuple[int, dict[str, str]]],
+    rows_with_numbers: Iterable[tuple[int, dict[str, str]]],
     *,
     max_addresses: int,
 ) -> CSVImportResult:
@@ -152,25 +156,25 @@ def _parse_import_rows(
     return CSVImportResult(cidr=str(network), rows=rows)
 
 
+def _mapped_rows(rows: Iterable[Iterable[object]]) -> Iterable[tuple[int, dict[str, str]]]:
+    first_nonempty = True
+    for row_number, raw_values in enumerate(rows, start=1):
+        values = list(raw_values)
+        if not any(_cell_text(value) for value in values):
+            continue
+        if first_nonempty:
+            first_nonempty = False
+            if _is_expected_header(values):
+                continue
+        yield row_number, _import_row_mapping(values, row_number=row_number)
+
+
 def parse_assets_csv(content: bytes, *, max_addresses: int) -> CSVImportResult:
-    text = _decode_csv(content)
-    reader = csv.reader(io.StringIO(text, newline=""), delimiter=";")
+    reader = csv.reader(io.StringIO(_decode_csv(content), newline=""), delimiter=";", strict=True)
     try:
-        first_row = next(reader)
-    except StopIteration as exc:
-        raise CSVImportError("CSV-файл пустой или не содержит строк с IP-адресами") from exc
-
-    rows_with_numbers: list[tuple[int, dict[str, str]]] = []
-    if _is_expected_header(first_row):
-        start_row_number = 2
-    else:
-        rows_with_numbers.append((1, _import_row_mapping(first_row, row_number=1)))
-        start_row_number = 2
-
-    for row_number, values in enumerate(reader, start=start_row_number):
-        rows_with_numbers.append((row_number, _import_row_mapping(list(values), row_number=row_number)))
-
-    return _parse_import_rows(rows_with_numbers, max_addresses=max_addresses)
+        return _parse_import_rows(_mapped_rows(reader), max_addresses=max_addresses)
+    except csv.Error as exc:
+        raise CSVImportError("Не удалось прочитать CSV-файл: проверьте кавычки и размер ячеек") from exc
 
 
 def parse_assets_xlsx(content: bytes, *, max_addresses: int) -> CSVImportResult:
@@ -182,29 +186,20 @@ def parse_assets_xlsx(content: bytes, *, max_addresses: int) -> CSVImportResult:
     if uncompressed_size > XLSX_MAX_UNCOMPRESSED_BYTES:
         raise CSVImportError("XLSX-файл слишком большой после распаковки")
 
+    workbook = None
     try:
         workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
-    except (InvalidFileException, OSError, ValueError) as exc:
+        if not workbook.worksheets:
+            raise CSVImportError("Не удалось прочитать XLSX-файл")
+        worksheet = workbook.worksheets[0]
+        return _parse_import_rows(_mapped_rows(worksheet.iter_rows(values_only=True)), max_addresses=max_addresses)
+    except CSVImportError:
+        raise
+    except (InvalidFileException, OSError, ValueError, KeyError, zipfile.BadZipFile, ParseError) as exc:
         raise CSVImportError("Не удалось прочитать XLSX-файл") from exc
-
-    worksheet = workbook.worksheets[0]
-    rows_iter = worksheet.iter_rows(values_only=True)
-    try:
-        first_row = list(next(rows_iter))
-    except StopIteration as exc:
-        raise CSVImportError("XLSX-файл пустой или не содержит строк с IP-адресами") from exc
-
-    rows_with_numbers: list[tuple[int, dict[str, str]]] = []
-    if _is_expected_header(first_row):
-        start_row_number = 2
-    else:
-        rows_with_numbers.append((1, _import_row_mapping(first_row, row_number=1)))
-        start_row_number = 2
-
-    for row_number, values in enumerate(rows_iter, start=start_row_number):
-        rows_with_numbers.append((row_number, _import_row_mapping(list(values), row_number=row_number)))
-
-    return _parse_import_rows(rows_with_numbers, max_addresses=max_addresses)
+    finally:
+        if workbook is not None:
+            workbook.close()
 
 
 def parse_assets_file(content: bytes, *, filename: str, max_addresses: int) -> CSVImportResult:
@@ -222,15 +217,23 @@ def render_project_csv(project: Project, ip_records: list[IPAddress]) -> str:
     writer.writerow(EXPORT_COLUMNS)
     for ip_record in ip_records:
         writer.writerow(
-            [
+            [_safe_csv_cell(value) for value in (
                 ip_record.address,
                 ip_record.hostname,
                 ip_record.os,
                 ip_record.asset_type,
                 ip_record.comment,
-            ]
+            )]
         )
     return output.getvalue()
+
+
+def _safe_csv_cell(value: str | None) -> str:
+    text = value or ""
+    # CSV has no cell types; neutralize spreadsheet formulas at export time only.
+    if text.lstrip().startswith(("=", "+", "-", "@")) or text.startswith(("\t", "\r", "\n")):
+        return "'" + text
+    return text
 
 
 def render_project_xlsx(project: Project, ip_records: list[IPAddress]) -> bytes:
@@ -238,16 +241,18 @@ def render_project_xlsx(project: Project, ip_records: list[IPAddress]) -> bytes:
     worksheet = workbook.active
     worksheet.title = "Assets"
     worksheet.append(EXPORT_COLUMNS)
-    for ip_record in ip_records:
-        worksheet.append(
-            [
-                ip_record.address,
-                ip_record.hostname,
-                ip_record.os,
-                ip_record.asset_type,
-                ip_record.comment,
-            ]
+    for row_number, ip_record in enumerate(ip_records, start=2):
+        values = (
+            ip_record.address,
+            ip_record.hostname,
+            ip_record.os,
+            ip_record.asset_type,
+            ip_record.comment,
         )
+        for column_number, value in enumerate(values, start=1):
+            cell = worksheet.cell(row=row_number, column=column_number, value=value)
+            if isinstance(value, str):
+                cell.data_type = "s"
 
     widths = {
         "A": 18,

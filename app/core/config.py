@@ -33,7 +33,8 @@ class Settings(BaseSettings):
     csv_import_max_bytes: int = Field(default=2_097_152, ge=1024)
     enable_ping_worker: bool = True
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # The shared dotenv also contains Docker Compose variables (ports and PostgreSQL).
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":

@@ -1,14 +1,61 @@
 import unittest
 import io
+import csv
+import zipfile
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 import pyzipper
 
-from app.services.csv_io import CSVImportError, build_zip_archive, parse_assets_csv, parse_assets_xlsx, render_project_xlsx
+from app.services.csv_io import (
+    CSVImportError, build_zip_archive, parse_assets_csv, parse_assets_xlsx, render_project_xlsx, render_project_csv,
+)
 from app.models import IPAddress, Project
 
 
 class CSVImportTest(unittest.TestCase):
+    def test_shifted_header_is_rejected_in_both_formats(self) -> None:
+        header = ["ip", "", "hostname", "os", "type", "comment"]
+        row = ["10.0.0.1", "server", "Linux", "VM", "comment"]
+        workbook = Workbook()
+        workbook.active.append(header)
+        workbook.active.append(row)
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        csv_content = (";".join(header) + "\n" + ";".join(row)).encode()
+        for parser, content in ((parse_assets_csv, csv_content), (parse_assets_xlsx, buffer.getvalue())):
+            with self.subTest(parser=parser.__name__), self.assertRaises(CSVImportError):
+                parser(content, max_addresses=256)
+
+    def test_leading_blank_rows_preserve_source_row_numbers(self) -> None:
+        content = b"\n;;;;\n IP ;hostname;os;type;comment\n10.0.0.1;server;Linux;VM;test\n"
+        result = parse_assets_csv(content, max_addresses=256)
+        self.assertEqual(result.rows[0].row_number, 4)
+        self.assertEqual(result.rows[0].hostname, "server")
+
+    def test_malformed_csv_is_a_user_error(self) -> None:
+        with self.assertRaises(CSVImportError):
+            parse_assets_csv(b'10.0.0.1;"unfinished', max_addresses=256)
+
+    def test_zip_without_workbook_is_a_user_error(self) -> None:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("other.txt", "not a workbook")
+        with self.assertRaises(CSVImportError):
+            parse_assets_xlsx(buffer.getvalue(), max_addresses=256)
+
+    def test_export_preserves_xlsx_text_and_neutralizes_csv_formulas(self) -> None:
+        project = Project(name="LAN", cidr="10.0.0.0/24")
+        for text in ("=1+1", "+1+1", "-1+1", "@SUM(1)", "  =1+1", "\t=1+1"):
+            with self.subTest(text=text):
+                record = IPAddress(address="10.0.0.1", hostname="server", os="Linux", asset_type="VM", comment=text)
+                workbook = load_workbook(io.BytesIO(render_project_xlsx(project, [record])), data_only=False)
+                self.assertEqual(workbook.active["E2"].data_type, "s")
+                self.assertEqual(workbook.active["E2"].value, text)
+                workbook.close()
+                rows = list(csv.reader(io.StringIO(render_project_csv(project, [record])), delimiter=";"))
+                self.assertEqual(rows[1][4], "'" + text)
+                self.assertEqual(record.comment, text)
+
     def test_parse_assets_csv_detects_network(self) -> None:
         content = (
             "ip;hostname;os;type;comment\n"

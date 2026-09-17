@@ -1,6 +1,7 @@
 import unittest
+import asyncio
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -19,7 +20,34 @@ from app.services.ping import (
     ensure_project_ping_schedule,
     requeue_stale_ping_jobs,
     build_ping_command,
+    ping_address,
 )
+
+
+class PingProcessTest(unittest.IsolatedAsyncioTestCase):
+    async def test_timeout_kills_and_reaps_process(self) -> None:
+        process = Mock(returncode=None)
+        process.communicate = AsyncMock(side_effect=[TimeoutError(), (b"", b"")])
+        with patch("app.services.ping.asyncio.create_subprocess_exec", AsyncMock(return_value=process)):
+            result = await ping_address(1, 1, "10.0.0.1", 1)
+        process.kill.assert_called_once()
+        self.assertEqual(process.communicate.await_count, 2)
+        self.assertFalse(result.reachable)
+
+    async def test_cancel_kills_process_and_propagates(self) -> None:
+        process = Mock(returncode=None)
+        process.communicate = AsyncMock(side_effect=[asyncio.CancelledError(), (b"", b"")])
+        with patch("app.services.ping.asyncio.create_subprocess_exec", AsyncMock(return_value=process)):
+            with self.assertRaises(asyncio.CancelledError):
+                await ping_address(1, 1, "10.0.0.1", 1)
+        process.kill.assert_called_once()
+        self.assertEqual(process.communicate.await_count, 2)
+
+    async def test_permission_error_does_not_mark_host_offline(self) -> None:
+        with patch("app.services.ping.asyncio.create_subprocess_exec", AsyncMock(side_effect=PermissionError())):
+            result = await ping_address(1, 1, "10.0.0.1", 1)
+        self.assertFalse(result.probe_ok)
+        self.assertIsNone(result.reachable)
 
 
 class PingServiceTest(unittest.TestCase):

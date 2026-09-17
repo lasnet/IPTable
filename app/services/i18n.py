@@ -419,6 +419,9 @@ ERROR_TRANSLATIONS = {
     "Не удалось прочитать XLSX-файл": {
         "EN": "Could not read the XLSX file",
     },
+    "Не удалось прочитать CSV-файл: проверьте кавычки и размер ячеек": {
+        "EN": "Could not read CSV: check quoting and cell sizes",
+    },
     "XLSX-файл слишком большой после распаковки": {
         "EN": "XLSX file is too large after unpacking",
     },

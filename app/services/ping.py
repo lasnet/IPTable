@@ -48,6 +48,7 @@ def build_ping_command(address: str, timeout_seconds: int) -> list[str]:
 
 async def ping_address(ip_id: int, project_id: int, address: str, timeout_seconds: int) -> PingResult:
     checked_at = datetime.utcnow()
+    process = None
     try:
         process = await asyncio.create_subprocess_exec(
             *build_ping_command(address, timeout_seconds),
@@ -55,10 +56,17 @@ async def ping_address(ip_id: int, project_id: int, address: str, timeout_second
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds + 2)
-    except FileNotFoundError as exc:
+    except OSError as exc:
         return PingResult(ip_id, project_id, None, None, checked_at, False, str(exc))
     except (TimeoutError, asyncio.TimeoutError) as exc:
         return PingResult(ip_id, project_id, False, None, checked_at, True, str(exc))
+    finally:
+        if process is not None and process.returncode is None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            await process.communicate()
 
     output = stdout.decode("utf-8", errors="ignore")
     error_output = stderr.decode("utf-8", errors="ignore").strip()

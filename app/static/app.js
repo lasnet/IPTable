@@ -1,6 +1,8 @@
 (function () {
   let dirtyRow = null;
   let allowSubmit = false;
+  let tableRequestId = 0;
+  let currentTableUrl = window.location.href;
 
   const editableSelector = ".host-drawer [data-drawer-editable]";
   const i18n = document.body.dataset;
@@ -311,29 +313,39 @@
       return;
     }
 
+    const requestId = ++tableRequestId;
+    closeHostDrawer(true);
     setTableLoading(region, true);
-    let response;
     try {
-      response = await window.fetch(url, {
+      const response = await window.fetch(url, {
         headers: { "X-Requested-With": "XMLHttpRequest" },
         credentials: "same-origin",
       });
+      const html = await response.text();
+      if (requestId !== tableRequestId) {
+        return;
+      }
+      if (response.redirected) {
+        window.location.href = response.url;
+        return;
+      }
+      if (!response.ok || !new DOMParser().parseFromString(html, "text/html").querySelector(".asset-table")) {
+        window.location.href = url;
+        return;
+      }
+      region.innerHTML = html;
     } catch (error) {
-      window.location.href = url;
+      if (requestId === tableRequestId) {
+        window.location.href = url;
+      }
       return;
     }
-    if (!response.ok) {
-      window.location.href = url;
-      return;
-    }
-
-    region.innerHTML = await response.text();
     setTableLoading(region, false);
-    closeHostDrawer(true);
     syncProjectControls(url);
     if (pushState) {
       window.history.pushState(null, "", url);
     }
+    currentTableUrl = window.location.href;
     scrollToHash();
   }
 
@@ -425,6 +437,9 @@
     }
 
     const link = event.target.closest("a");
+    if (link && (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)) {
+      return;
+    }
     if (!link) {
       const row = event.target.closest(".asset-table tbody tr[data-row-address]");
       const interactive = event.target.closest("button, input, textarea, select, label, summary, details, .node-menu");
@@ -475,6 +490,11 @@
   }, true);
 
   window.addEventListener("popstate", () => {
+    if (hasDirtyRow()) {
+      window.history.pushState(null, "", currentTableUrl);
+      warnAboutDirtyRow();
+      return;
+    }
     loadTablePage(window.location.href, false);
   });
 
@@ -521,7 +541,7 @@
   });
 
   document.addEventListener("click", (event) => {
-    if (event.defaultPrevented) {
+    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
       return;
     }
     const link = event.target.closest("a");
