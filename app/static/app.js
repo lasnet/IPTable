@@ -747,6 +747,98 @@
 })();
 
 (function () {
+  const managers = document.querySelectorAll("[data-columns-manager]");
+  managers.forEach((form) => {
+    const dialog = form.closest(".modal-dialog");
+    const list = form.querySelector("[data-columns-list]");
+    const template = form.querySelector("[data-column-row-template]");
+    const addButton = form.querySelector("[data-column-add]");
+    const saveButton = form.querySelector("[data-columns-save]");
+    const emptyState = form.querySelector("[data-columns-empty]");
+    const maxColumns = Number.parseInt(form.dataset.maxColumns || "64", 10);
+    const initialRowsHtml = list.innerHTML;
+    let nextToken = 1;
+    let baseline = "";
+
+    function rows() {
+      return Array.from(list.querySelectorAll("[data-column-row]"));
+    }
+
+    function snapshot() {
+      return JSON.stringify(rows().map((row) => ({
+        token: row.querySelector('[name="column_token"]')?.value || "",
+        name: row.querySelector('input[name^="column_name__"]')?.value || "",
+        type: row.querySelector('select[name^="column_type__"]')?.value || "text",
+      })));
+    }
+
+    function refresh() {
+      const currentRows = rows();
+      currentRows.forEach((row, index) => {
+        const up = row.querySelector("[data-column-up]");
+        const down = row.querySelector("[data-column-down]");
+        if (up) {
+          up.disabled = index === 0;
+        }
+        if (down) {
+          down.disabled = index === currentRows.length - 1;
+        }
+      });
+      emptyState.hidden = currentRows.length !== 0;
+      addButton.disabled = currentRows.length >= maxColumns;
+      saveButton.disabled = snapshot() === baseline;
+    }
+
+    function restore() {
+      list.innerHTML = initialRowsHtml;
+      nextToken = 1;
+      baseline = snapshot();
+      refresh();
+    }
+
+    form.addEventListener("input", refresh);
+    form.addEventListener("change", refresh);
+    form.addEventListener("click", (event) => {
+      const add = event.target.closest("[data-column-add]");
+      if (add) {
+        if (rows().length >= maxColumns) {
+          return;
+        }
+        const token = `new-${nextToken++}`;
+        list.insertAdjacentHTML("beforeend", template.innerHTML.replaceAll("__TOKEN__", token));
+        refresh();
+        list.lastElementChild?.querySelector('input[name^="column_name__"]')?.focus();
+        return;
+      }
+
+      const row = event.target.closest("[data-column-row]");
+      if (!row) {
+        return;
+      }
+      if (event.target.closest("[data-column-delete]")) {
+        row.remove();
+        refresh();
+        return;
+      }
+      if (event.target.closest("[data-column-up]") && row.previousElementSibling) {
+        list.insertBefore(row, row.previousElementSibling);
+        refresh();
+        row.querySelector("[data-column-up]")?.focus();
+        return;
+      }
+      if (event.target.closest("[data-column-down]") && row.nextElementSibling) {
+        list.insertBefore(row.nextElementSibling, row);
+        refresh();
+        row.querySelector("[data-column-down]")?.focus();
+      }
+    });
+
+    dialog?.addEventListener("close", restore);
+    restore();
+  });
+})();
+
+(function () {
   const forms = document.querySelectorAll(".export-form");
   forms.forEach((form) => {
     const toggle = form.querySelector("[data-password-toggle]");

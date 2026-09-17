@@ -22,6 +22,14 @@ from app.services.csv_io import (
     render_project_xlsx,
     safe_export_name,
 )
+from app.services.custom_fields import (
+    CUSTOM_FIELD_TYPES,
+    MAX_CUSTOM_FIELDS,
+    CustomFieldConfigurationError,
+    CustomFieldSpec,
+    IncompatibleCustomFieldValueError,
+    replace_custom_fields,
+)
 from app.services.inventory import create_custom_field, create_project_with_addresses
 from app.services.history import FieldChange, build_field_change, record_ip_address_history
 from app.services.i18n import translate, translate_error_message
@@ -869,6 +877,7 @@ def project_detail(
         "active_project": project,
         "current_user": current_user,
         "custom_fields": custom_fields,
+        "max_custom_fields": MAX_CUSTOM_FIELDS,
         "project_schedule": project_schedule,
         "project_schedule_minutes": _schedule_interval_minutes(project_schedule, settings),
         "ip_records": ip_records,
@@ -1162,6 +1171,81 @@ def add_custom_field(
     clean_type = field_type if field_type in allowed_types else "text"
     create_custom_field(db, project_id=project_id, name=clean_name, field_type=clean_type)
     return _redirect(f"/projects/{project_id}?hide_empty=false")
+
+
+@router.post("/projects/{project_id}/fields/configure")
+async def configure_custom_fields(
+    project_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    if not current_user.can_manage_project_columns:
+        return _redirect_error(f"/projects/{project_id}", _ui("field.edit_denied"))
+    if db.get(Project, project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    form = await request.form()
+    hide_empty = form.get("hide_empty") == "true"
+    page = _safe_positive_int(form.get("page"), 1)
+    per_page = _normalize_project_page_size(_safe_positive_int(form.get("per_page"), 0), settings)
+    ping_status = _clean_filter_value(str(form.get("ping_status", "")), 20).lower()
+    if ping_status not in PING_STATUS_FILTERS:
+        ping_status = ""
+    type_filter = _clean_filter_value(str(form.get("type_filter", "")), 120)
+    os_filter = _clean_filter_value(str(form.get("os_filter", "")), 120)
+    return_url = _project_table_url(
+        project_id,
+        hide_empty=hide_empty,
+        page=page,
+        per_page=per_page,
+        ping_status=ping_status,
+        type_filter=type_filter,
+        os_filter=os_filter,
+    )
+
+    raw_tokens = [str(token) for token in form.getlist("column_token")]
+    if len(raw_tokens) > MAX_CUSTOM_FIELDS or len(raw_tokens) != len(set(raw_tokens)):
+        return _redirect_error(f"{return_url}&columns=true", _ui("field.invalid_configuration"))
+
+    specs: list[CustomFieldSpec] = []
+    try:
+        for token in raw_tokens:
+            if token.startswith("field-") and token.removeprefix("field-").isdigit():
+                field_id: int | None = int(token.removeprefix("field-"))
+            elif token.startswith("new-") and token.removeprefix("new-").isdigit():
+                field_id = None
+            else:
+                raise CustomFieldConfigurationError("invalid_token")
+
+            field_type = str(form.get(f"column_type__{token}", ""))
+            if field_type not in CUSTOM_FIELD_TYPES:
+                raise CustomFieldConfigurationError("invalid_type")
+            specs.append(
+                CustomFieldSpec(
+                    field_id=field_id,
+                    name=str(form.get(f"column_name__{token}", "")),
+                    field_type=field_type,
+                )
+            )
+        replace_custom_fields(db, project_id=project_id, specs=specs)
+    except IncompatibleCustomFieldValueError as exc:
+        db.rollback()
+        return _redirect_error(
+            f"{return_url}&columns=true",
+            _ui(
+                "field.type_change_invalid",
+                field=exc.field_name,
+                address=exc.address,
+                field_type=exc.field_type,
+            ),
+        )
+    except CustomFieldConfigurationError:
+        db.rollback()
+        return _redirect_error(f"{return_url}&columns=true", _ui("field.invalid_configuration"))
+
+    return _redirect_message(return_url, _ui("field.saved"))
 
 
 @router.post("/projects/{project_id}/addresses/{ip_id}")

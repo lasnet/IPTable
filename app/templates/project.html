@@ -42,25 +42,15 @@
       </a>
 
       {% if current_user.can_manage_project_columns %}
-      <details class="field-details project-field-details">
-        <summary class="soft-button project-action-button">
+      <button class="soft-button project-action-button" type="button"
+        data-modal-target="project-columns-modal-{{ project.id }}">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 5v14" />
-            <path d="M5 12h14" />
+            <path d="M4 4h16v16H4z" />
+            <path d="M10 4v16" />
+            <path d="M16 4v16" />
           </svg>
-          {{ _('field.add_column') }}
-        </summary>
-        <form class="floating-form" action="/projects/{{ project.id }}/fields" method="post">
-          {{ csrf_input(request) }}
-          <input name="name" maxlength="120" required placeholder="{{ _('field.name_placeholder') }}">
-          <select name="field_type">
-            <option value="text">{{ _('field.text') }}</option>
-            <option value="number">{{ _('field.number') }}</option>
-            <option value="date">{{ _('field.date') }}</option>
-          </select>
-          <button type="submit">{{ _('button.add') }}</button>
-        </form>
-      </details>
+          {{ _('field.columns') }}
+      </button>
       {% endif %}
 
       <details class="field-details project-action-menu">
@@ -280,6 +270,106 @@
 
 {% block modals %}
 {{ super() }}
+{% if current_user.can_manage_project_columns %}
+<dialog class="modal-dialog columns-modal" id="project-columns-modal-{{ project.id }}"
+  {% if request.query_params.get('columns') == 'true' %}data-open-on-load{% endif %}>
+  <form class="modal-form columns-manager-form" action="/projects/{{ project.id }}/fields/configure" method="post"
+    data-columns-manager data-max-columns="{{ max_custom_fields }}">
+    {{ csrf_input(request) }}
+    <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
+    <input type="hidden" name="page" value="{{ pagination.current_page }}">
+    <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
+    <input type="hidden" name="ping_status" value="{{ table_filters.ping_status }}">
+    <input type="hidden" name="type_filter" value="{{ table_filters.type_filter }}">
+    <input type="hidden" name="os_filter" value="{{ table_filters.os_filter }}">
+    <div class="modal-head">
+      <div>
+        <h2>{{ _('field.columns') }}</h2>
+        <p>{{ _('field.manage_hint') }}</p>
+      </div>
+      <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
+    </div>
+    <div class="form-hint">{{ _('field.delete_hint') }}</div>
+    <div class="columns-manager-list" data-columns-list>
+      {% for field in custom_fields %}
+      <div class="column-manager-row" data-column-row>
+        <input type="hidden" name="column_token" value="field-{{ field.id }}">
+        <label>
+          <span>{{ _('field.name') }}</span>
+          <input name="column_name__field-{{ field.id }}" value="{{ field.name }}" maxlength="120" required>
+        </label>
+        <label>
+          <span>{{ _('field.type') }}</span>
+          <select name="column_type__field-{{ field.id }}">
+            <option value="text" {% if field.field_type == 'text' %}selected{% endif %}>{{ _('field.text') }}</option>
+            <option value="number" {% if field.field_type == 'number' %}selected{% endif %}>{{ _('field.number') }}</option>
+            <option value="date" {% if field.field_type == 'date' %}selected{% endif %}>{{ _('field.date') }}</option>
+          </select>
+        </label>
+        <div class="column-manager-actions">
+          <button class="icon-button" type="button" data-column-up title="{{ _('field.move_up') }}"
+            aria-label="{{ _('field.move_up') }}">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6" /></svg>
+          </button>
+          <button class="icon-button" type="button" data-column-down title="{{ _('field.move_down') }}"
+            aria-label="{{ _('field.move_down') }}">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+          </button>
+          <button class="icon-button column-delete-button" type="button" data-column-delete title="{{ _('field.delete') }}"
+            aria-label="{{ _('field.delete') }}">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="columns-empty" data-columns-empty {% if custom_fields %}hidden{% endif %}>{{ _('field.empty') }}</div>
+    <button class="soft-button columns-add-button" type="button" data-column-add>
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+      {{ _('field.add_column') }}
+    </button>
+    <div class="modal-actions">
+      <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+      <button type="submit" data-columns-save disabled>{{ _('button.save') }}</button>
+    </div>
+    <template data-column-row-template>
+      <div class="column-manager-row" data-column-row>
+        <input type="hidden" name="column_token" value="__TOKEN__">
+        <label>
+          <span>{{ _('field.name') }}</span>
+          <input name="column_name____TOKEN__" maxlength="120" required placeholder="{{ _('field.name_placeholder') }}">
+        </label>
+        <label>
+          <span>{{ _('field.type') }}</span>
+          <select name="column_type____TOKEN__">
+            <option value="text">{{ _('field.text') }}</option>
+            <option value="number">{{ _('field.number') }}</option>
+            <option value="date">{{ _('field.date') }}</option>
+          </select>
+        </label>
+        <div class="column-manager-actions">
+          <button class="icon-button" type="button" data-column-up title="{{ _('field.move_up') }}"
+            aria-label="{{ _('field.move_up') }}">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6" /></svg>
+          </button>
+          <button class="icon-button" type="button" data-column-down title="{{ _('field.move_down') }}"
+            aria-label="{{ _('field.move_down') }}">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+          </button>
+          <button class="icon-button column-delete-button" type="button" data-column-delete title="{{ _('field.delete') }}"
+            aria-label="{{ _('field.delete') }}">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </template>
+  </form>
+</dialog>
+{% endif %}
 {% if current_user.is_admin %}
 <dialog class="modal-dialog" id="project-schedule-modal-{{ project.id }}">
   <form class="modal-form" action="/projects/{{ project.id }}/schedule" method="post">
