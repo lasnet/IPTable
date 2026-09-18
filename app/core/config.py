@@ -34,13 +34,21 @@ class Settings(BaseSettings):
     enable_ping_worker: bool = True
 
     # The shared dotenv also contains Docker Compose variables (ports and PostgreSQL).
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", hide_input_in_errors=True,
+    )
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":
+        self.app_env = self.app_env.strip().lower()
+        if self.app_env not in {"local", "production"}:
+            raise ValueError("APP_ENV must be local or production")
         self.interface_language = normalize_language(self.interface_language)
-        if self.app_env.lower() == "production" and not self.secret_key.strip():
-            raise ValueError("SECRET_KEY is required when APP_ENV=production")
+        if self.app_env == "production":
+            if len(self.secret_key.strip()) < 32 or self.secret_key.strip().startswith("replace-with-"):
+                raise ValueError("Production SECRET_KEY must be at least 32 characters and not a placeholder")
+            if len(self.initial_admin_password.strip()) < 12 or self.initial_admin_password.strip().startswith("replace-with-"):
+                raise ValueError("Production INITIAL_ADMIN_PASSWORD must be at least 12 characters and not a placeholder")
         return self
 
 

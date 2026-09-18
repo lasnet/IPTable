@@ -36,3 +36,9 @@ data/
 .vscode/
 *.swp
 *.swo
+
+# Private TLS material and local release/security reports.
+deploy/tls/
+*.key
+*.pem
+security-reports/

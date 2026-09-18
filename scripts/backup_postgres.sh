@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 backup_dir="${BACKUP_DIR:-backups}"
 timestamp="$(date +%Y%m%d_%H%M%S)"

@@ -2,6 +2,21 @@
 
 IPtable - веб-приложение для учета занятых IP-адресов в локальных сетях. Проект заменяет Excel-таблицы для инвентаризации сетевых активов: можно создавать папки, заводить проекты-подсети, вести карточки IP-адресов и регулярно проверять доступность адресов через ICMP ping.
 
+## Установка и релизы
+
+- **Для пользователей:** [установка готового образа с HTTPS](docs/INSTALL.md).
+- **Для разработчиков:** [локальный запуск и правила PR](CONTRIBUTING.md).
+- **Для сопровождающих:** [ветки, CI и выпуск версий](docs/RELEASING.md).
+- **Статус подготовки:** [выполненные проверки и ограничения первого RC](docs/RELEASE_CHECK.md).
+- [Изменения](CHANGELOG.md), [политика безопасности](SECURITY.md), [лицензия MIT](LICENSE).
+
+Выбирайте версии в [GitHub Releases](https://github.com/lasnet/IPTable/releases).
+Версии `-rc.N` предназначены для оценки и не являются стабильными. Наличие тега
+само по себе не доказывает успешную публикацию образа: проверяйте release notes и CI.
+Production использует `deploy/compose.yml`
+и отдельный `deploy/.env`; корневые Compose и `.env.example` предназначены для разработки.
+Публикация репозитория не требует открывать рабочую инвентаризацию в интернет.
+
 ## Что умеет проект
 
 - Создание папок/групп для логической организации сетей.
@@ -90,6 +105,9 @@ IPtable - веб-приложение для учета занятых IP-адр
 ├── tests/                 # базовые тесты
 ├── migrations/            # Alembic-миграции БД
 ├── scripts/               # backup/restore PostgreSQL
+├── deploy/                # production Compose, HTTPS proxy, отдельный env example
+├── docs/                  # установка и выпуск версий
+├── .github/               # CI, ручная публикация образа, Dependabot
 ├── alembic.ini
 ├── Dockerfile
 ├── docker-compose.yml
@@ -130,6 +148,12 @@ IPtable - веб-приложение для учета занятых IP-адр
 
 ## Настройка `.env`
 
+Этот раздел относится к локальной разработке. Production-конфигурация описана в
+[INSTALL](docs/INSTALL.md): генератор `scripts/init_production.py` создает независимые
+секреты, а `deploy/compose.yml` принудительно включает `APP_ENV=production`.
+Production требует `SECRET_KEY` длиной не менее 32 символов и bootstrap-пароль не менее
+12 символов, без значений `replace-with-*`; неизвестный `APP_ENV` отклоняется.
+
 Скопируйте пример. В `.env.example` рядом с каждой настройкой есть короткий английский комментарий:
 
 ```bash
@@ -148,7 +172,8 @@ INITIAL_ADMIN_PASSWORD=replace-with-strong-admin-password
 
 Основные переменные:
 
-- `APP_PORT` - порт веб-приложения на хосте.
+- `APP_ENV` - `local` для разработки, `production` для HTTPS-эксплуатации.
+- `APP_PORT` - localhost-only порт веб-приложения при локальном запуске.
 - `SECRET_KEY` - секрет для подписи session cookie. В production должен быть стабильным и случайным.
 - `SESSION_IDLE_TIMEOUT_SECONDS` - время жизни авторизованной сессии бездействия. По умолчанию `86400` секунд.
 - `LOGIN_RATE_LIMIT_ATTEMPTS` - число неудачных попыток входа до временной блокировки.
@@ -174,6 +199,10 @@ INITIAL_ADMIN_PASSWORD=replace-with-strong-admin-password
 
 ## Запуск через Docker Compose
 
+Ниже development-запуск; production без локальной сборки описан в [INSTALL](docs/INSTALL.md).
+Новая development-установка должна использовать `-p iptable-development`. Для существующей
+сохраняйте текущее имя project/volume до переноса данных, чтобы не получить пустую БД.
+
 ```bash
 cp .env.example .env
 docker compose up --build
@@ -193,6 +222,8 @@ http://localhost:8000
 ```
 
 Если в `.env` изменен `APP_PORT`, используйте выбранный порт.
+Порт привязан к `127.0.0.1`, а не ко всем интерфейсам. Для удаленных пользователей
+используйте production HTTPS, а не открывайте development endpoint наружу.
 
 ## Запуск без Docker
 
@@ -265,6 +296,12 @@ trivy fs --scanners secret,misconfig .
 hadolint Dockerfile
 ```
 
+Перед публикацией дополнительно проверяйте всю доступную историю:
+`gitleaks git --redact=100 --log-opts=--all --no-banner` после получения всех refs/tags.
+Отдельно проверяйте рабочее дерево через `gitleaks dir --redact=100 --no-banner .`.
+CI выполняет тесты, Ruff, Bandit Medium/High, runtime pip-audit и полный history scan;
+остальные инструменты и Low-находки остаются частью ручной проверки.
+
 Локально добавлен `.vscode/tasks.json` с этими задачами. Каталог `.vscode/` остается в `.gitignore`, поэтому персональные настройки VS Code не попадают в репозиторий.
 Проверка `pip-audit -r requirements.txt` оценивает production-зависимости, `--local` включает установленный dev-tooling. Пустой вывод Checkov для Compose не доказывает безопасность конфигурации: порты, volumes, capabilities и секреты проверяйте отдельно вручную. Dockerfile проверяется отдельной командой выше.
 В `requirements-dev.txt` закреплен `bandit==1.9.4`, работающий и с AST Python 3.14. Проверяйте не только exit code, но и отсутствие ошибок анализа/пропущенных файлов. Срабатывания на тексты переводов, пустые значения необязательного пароля и импорт класса XML-ошибки требуют ручной оценки, а не глобального отключения правил.
@@ -301,6 +338,10 @@ curl -X POST -H "X-API-Key: $INTEGRATION_API_TOKEN" http://localhost:8000/api/v1
 - `POST /api/v1/projects/{project_id}/ping` - поставить ping-проверку проекта в очередь.
 
 ## Резервное копирование и восстановление PostgreSQL
+
+Для production сначала задайте `COMPOSE_FILE=deploy/compose.yml` и
+`COMPOSE_ENV_FILES=deploy/.env`, как в [INSTALL](docs/INSTALL.md). Иначе скрипты используют
+корневой development Compose. Никогда не выполняйте `docker compose down -v` для production.
 
 Создать резервную копию PostgreSQL в формате custom dump:
 
