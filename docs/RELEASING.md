@@ -42,9 +42,10 @@ CI запускается на PR, push в main/develop и вручную. Он 
 - сборку runtime-образа, non-root и отсутствие development/secrets в нем;
 - изолированный production stack с временными случайными секретами и тестовым TLS;
 - HTTPS, Secure cookie, CSRF, вход, security headers, закрытый OpenAPI и ICMP из worker.
+- Backup/restore disposable PostgreSQL stack и повторный вход после восстановления.
 
 Low findings Bandit по-прежнему оценивайте вручную полным запуском из README.
-CI не заменяет тест восстановления backup, обновление реальной предыдущей версии
+CI не заменяет восстановление ваших собственных backup, обновление реальной предыдущей версии
 на обезличенной копии БД и ручную проверку UI/прав/нагрузки. Не загружайте боевую БД в CI.
 
 Локально сначала выполните проверки из CONTRIBUTING. Docker-проверку запускайте на

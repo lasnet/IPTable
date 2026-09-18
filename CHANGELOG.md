@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-rc.1 - 2026-09-18
 
 ### Release preparation
 
@@ -8,7 +8,7 @@
 - Separate production Compose deployment: HTTPS Nginx, private backend/PostgreSQL,
   independent named volumes and generated credentials; local development stays separate.
 - Stronger validation for production secrets and APP_ENV; development web binds localhost.
-- CI for tests, migrations, security checks, runtime image and HTTPS smoke checks.
+- CI for tests, migrations, security checks, runtime image, HTTPS smoke checks and PostgreSQL backup/restore.
 - Manual, version-tagged GHCR publication after CI, initially linux/amd64 only.
 - MIT license, installation, contribution, release and security policies.
 
@@ -19,5 +19,5 @@
 - Local Compose web is no longer exposed on every host interface.
 - deploy/compose.yml uses a separate database volume. Existing installations must follow
   the backup/restore migration procedure in docs/INSTALL.md, not delete old volumes.
-- No image/tag/release has been published by adding these files. Record the actual first
-  RC version and date here only after successful validation and release approval.
+- This is an evaluation release candidate, not a stable release. Use synthetic data
+  first and validate migration from your existing installation on a separate copy.

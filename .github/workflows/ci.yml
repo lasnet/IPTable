@@ -103,6 +103,18 @@ jobs:
         run: |
           python3 scripts/smoke_release.py --url https://localhost:8443 --ca deploy/tls/fullchain.pem --env-file deploy/.env
           HTTPS_PORT=8443 docker compose --env-file deploy/.env -f deploy/compose.yml exec -T worker ping -c 1 -W 2 postgres
+      - name: PostgreSQL backup and restore on disposable stack
+        env:
+          COMPOSE_FILE: deploy/compose.yml
+          COMPOSE_ENV_FILES: deploy/.env
+          HTTPS_PORT: "8443"
+        run: |
+          scripts/backup_postgres.sh backups/ci-recovery.dump
+          test -s backups/ci-recovery.dump
+          docker compose stop proxy web worker
+          CONFIRM_RESTORE=YES scripts/restore_postgres.sh backups/ci-recovery.dump
+          docker compose up -d --wait --wait-timeout 180
+          python3 scripts/smoke_release.py --url https://localhost:8443 --ca deploy/tls/fullchain.pem --env-file deploy/.env
       - name: Service status
         if: always()
         run: HTTPS_PORT=8443 docker compose --env-file deploy/.env -f deploy/compose.yml ps -a

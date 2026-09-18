@@ -10,18 +10,20 @@
 - Доступ worker к нужным подсетям по ICMP; доступ сервера к registry.
 - Python 3 только для генерации конфигурации (без установки Python-зависимостей).
 
-Первый образ еще не опубликован автоматически. Дождитесь успешного workflow
-`Publish release image` и возьмите точный адрес образа из GHCR проекта.
+Выберите версию в [GitHub Releases](https://github.com/lasnet/IPTable/releases).
+Проверьте успешный workflow `Publish release image`; адрес образа имеет вид
+`ghcr.io/lasnet/iptable:<version>`. Если package еще private, анонимный pull не работает:
+владелец должен включить Public в Package settings перед публичным распространением.
 Начальная публикация поддерживает `linux/amd64`; ARM64 пока не проверен.
 
 ## Новая установка
 
 1. Скачайте исходный архив выбранного релизного тега. Из него для установки нужны
    `deploy/`, `scripts/` и эта инструкция. Сборка приложения на сервере не нужна.
-2. Из корня распакованного архива выполните (замените OWNER и версию):
+2. Из корня распакованного архива выполните (выберите опубликованную версию):
 
 ```bash
-python3 scripts/init_production.py --image ghcr.io/OWNER/iptable:v0.1.0-rc.1
+python3 scripts/init_production.py --image ghcr.io/lasnet/iptable:v0.1.0-rc.1
 ```
 
 Скрипт создаст `deploy/.env` с правами `0600`, независимыми случайными паролями

@@ -366,6 +366,7 @@ hadolint Dockerfile
   dependencies. Тесты/документацию/dev tooling сохраняйте в main, но не в runtime-образе.
 - `.github/workflows/ci.yml`: Python 3.12, pytest/Ruff/pip check, PostgreSQL migrations/startup,
   Bandit Medium/High, runtime pip-audit, Gitleaks по истории, Docker/HTTPS/ICMP smoke.
+  На одноразовом CI-стенде также выполняются PostgreSQL backup/restore и повторный HTTPS-вход.
 - `.github/workflows/release.yml`: только ручной запуск для существующего тега main,
   повтор CI, затем GHCR linux/amd64 с версией, OCI metadata, SBOM/provenance. Никакого auto-deploy.
   Не создавайте/публикуйте релизные теги и образы без отдельного разрешения пользователя.

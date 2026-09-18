@@ -25,7 +25,7 @@ COPY alembic.ini LICENSE ./
 
 ARG VERSION=dev
 ARG REVISION=unknown
-ARG SOURCE=https://github.com/unknown/iptable
+ARG SOURCE=https://github.com/lasnet/IPTable
 LABEL org.opencontainers.image.version=$VERSION \
       org.opencontainers.image.revision=$REVISION \
       org.opencontainers.image.source=$SOURCE \
