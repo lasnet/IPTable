@@ -18,7 +18,18 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 RUN addgroup --system app && adduser --system --ingroup app app
 
-COPY . .
+# Runtime allowlist: tests, development tools, secrets and deployment files stay outside.
+COPY app/ ./app/
+COPY migrations/ ./migrations/
+COPY alembic.ini LICENSE ./
+
+ARG VERSION=dev
+ARG REVISION=unknown
+ARG SOURCE=https://github.com/unknown/iptable
+LABEL org.opencontainers.image.version=$VERSION \
+      org.opencontainers.image.revision=$REVISION \
+      org.opencontainers.image.source=$SOURCE \
+      org.opencontainers.image.licenses=MIT
 
 USER app
 

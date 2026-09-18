@@ -347,6 +347,40 @@ hadolint Dockerfile
 
 Статус: рабочий MVP.
 
+### Подготовка релизов
+
+- Ветки: `main` стабильная, `develop` интеграционная, `feature/*` для задач. Наличие
+  workflow не доказывает успешную проверку RC и не означает, что образ опубликован.
+- Production запускается отдельным `deploy/compose.yml` (project `iptable-production`),
+  development через корневой Compose. Не меняйте имена старых volumes автоматически.
+- Production APP_ENV принудительно `production`; Settings отклоняет неизвестные значения,
+  короткие/placeholder SECRET_KEY и INITIAL_ADMIN_PASSWORD. Local defaults сохранены
+  для совместимости разработки; не ослабляйте production validation ради локального запуска.
+  Settings скрывает input values в текстах ошибок валидации, чтобы не печатать секреты.
+- `scripts/init_production.py` создает `deploy/.env` через O_EXCL с правами 0600,
+  отдельными случайными секретами и явной версией образа, никогда не перезаписывает файл.
+- `deploy/nginx.conf` обслуживает HTTPS с предоставленным сертификатом; proxy UID 101.
+  Только HTTPS-порт публикуется, по умолчанию localhost. Backend и БД не имеют ports.
+  Proxy заменяет forwarded headers; не подключайте посторонние контейнеры к сетям приложения.
+- Dockerfile использует allowlist COPY: app, migrations, alembic.ini, LICENSE и runtime
+  dependencies. Тесты/документацию/dev tooling сохраняйте в main, но не в runtime-образе.
+- `.github/workflows/ci.yml`: Python 3.12, pytest/Ruff/pip check, PostgreSQL migrations/startup,
+  Bandit Medium/High, runtime pip-audit, Gitleaks по истории, Docker/HTTPS/ICMP smoke.
+- `.github/workflows/release.yml`: только ручной запуск для существующего тега main,
+  повтор CI, затем GHCR linux/amd64 с версией, OCI metadata, SBOM/provenance. Никакого auto-deploy.
+  Не создавайте/публикуйте релизные теги и образы без отдельного разрешения пользователя.
+- `scripts/smoke_release.py` проверяет изолированный RC по HTTPS, не направляйте на production.
+- `docs/INSTALL.md`, `docs/RELEASING.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`
+  описывают эксплуатацию, релизы, вклад и security reporting; лицензия MIT находится в LICENSE.
+- `docs/RELEASE_CHECK.md` фиксирует выполненные проверки и ограничения первого RC;
+  не выдавайте локальный SQLite smoke за проверку Docker/PostgreSQL, обновляйте отчет по факту.
+- `.env.example` в корне остается development-контрактом; `deploy/.env.example` содержит
+  production-параметры. При изменениях синхронизируйте оба примера и документацию.
+- Backup/restore скрипты выбирают production через COMPOSE_FILE/COMPOSE_ENV_FILES;
+  новые backup-файлы создаются с umask 077, права старых файлов не меняются;
+  `down -v` допускается только для одноразового CI-стенда. Миграцию существующей установки
+  выполняйте через проверенный backup/restore, сохраняя старый volume до приемки.
+
 Реализовано:
 
 - папки;

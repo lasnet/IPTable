@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_DB: iptable_ci
+          POSTGRES_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ci -d iptable_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      APP_ENV: local
+      ENABLE_PING_WORKER: "false"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pip check
+      - run: python -m ruff check .
+      - run: python -m pytest -q
+      - name: PostgreSQL migrations and startup
+        env:
+          DATABASE_URL: postgresql+psycopg://ci:${{ github.run_id }}-${{ github.run_attempt }}@localhost:5432/iptable_ci
+        run: |
+          export SECRET_KEY="$(openssl rand -hex 48)"
+          export INITIAL_ADMIN_PASSWORD="$(openssl rand -hex 24)"
+          python -m alembic upgrade head
+          python -m alembic upgrade head
+          python -c 'from fastapi.testclient import TestClient; from app.main import app; c = TestClient(app); c.__enter__(); assert c.get("/health").status_code == 200; c.__exit__(None, None, None)'
+      - run: python -m bandit -r app scripts -ll
+      - run: python -m pip_audit -r requirements.txt --cache-dir .cache/pip-audit
+
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan complete fetched Git history (redacted)
+        run: docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.30.1 git /repo --redact=100 --log-opts=--all --no-banner
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - name: Build release candidate locally (no push)
+        run: docker build --build-arg REVISION="$(git rev-parse HEAD)" --build-arg VERSION=v0.1.0-rc.1 -t iptable-ci:v0.1.0-rc.1 .
+      - name: Verify runtime allowlist and unprivileged user
+        run: |
+          docker run --rm --entrypoint sh iptable-ci:v0.1.0-rc.1 -ec '
+            test "$(id -u)" -ne 0
+            test -f /app/LICENSE
+            test -f /app/alembic.ini
+            test -d /app/migrations/versions
+            for path in tests scripts docs deploy .git .env requirements-dev.txt; do
+              test ! -e "/app/$path"
+            done'
+      - name: Start isolated production stack with test TLS
+        run: |
+          python3 scripts/init_production.py --image iptable-ci:v0.1.0-rc.1
+          mkdir -p deploy/tls
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost -addext subjectAltName=DNS:localhost -keyout deploy/tls/privkey.pem -out deploy/tls/fullchain.pem
+          sudo chown -R 101:101 deploy/tls
+          sudo chmod 755 deploy/tls
+          sudo chmod 640 deploy/tls/privkey.pem
+          APP_ENV=local HTTPS_PORT=8443 docker compose --env-file deploy/.env -f deploy/compose.yml config --format json | python3 -c 'import json,sys; c=json.load(sys.stdin); s=c["services"]; assert s["web"]["environment"]["APP_ENV"]=="production"; assert not s["web"].get("ports"); assert not s["postgres"].get("ports"); assert s["proxy"]["ports"][0]["host_ip"]=="127.0.0.1"'
+          HTTPS_PORT=8443 docker compose --env-file deploy/.env -f deploy/compose.yml up -d --wait --wait-timeout 180
+      - name: HTTPS, authentication, CSRF and production exposure
+        run: |
+          python3 scripts/smoke_release.py --url https://localhost:8443 --ca deploy/tls/fullchain.pem --env-file deploy/.env
+          HTTPS_PORT=8443 docker compose --env-file deploy/.env -f deploy/compose.yml exec -T worker ping -c 1 -W 2 postgres
+      - name: Service status
+        if: always()
+        run: HTTPS_PORT=8443 docker compose --env-file deploy/.env -f deploy/compose.yml ps -a
+      - name: Stop disposable CI stack
+        if: always()
+        run: HTTPS_PORT=8443 docker compose --env-file deploy/.env -f deploy/compose.yml down -v

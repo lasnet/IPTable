@@ -1,0 +1,111 @@
+name: iptable-production
+
+x-app: &app
+  image: ${IPTABLE_IMAGE:?Set a versioned IPTABLE_IMAGE in deploy/.env}
+  env_file: .env
+  environment: &app-env
+    APP_ENV: production
+    SECRET_KEY: ${SECRET_KEY:?Generate production secrets first}
+    INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:?Generate production secrets first}
+    DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?Set POSTGRES_USER}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:?Set POSTGRES_DB}
+    ENABLE_PING_WORKER: "false"
+  read_only: true
+  tmpfs:
+    - /tmp:mode=1777,size=128m
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [database]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    networks: [database]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  web:
+    <<: *app
+    # Only the proxy shares this frontend network; no host port is published.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+    networks: [frontend, database]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.worker"]
+    environment:
+      <<: *app-env
+      ENABLE_PING_WORKER: "true"
+    networks: [database, probes]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    healthcheck:
+      test: ["CMD", "python", "-c", "from sqlalchemy import text; from app.core.database import engine; c = engine.connect(); c.execute(text('select 1')); c.close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  proxy:
+    image: nginx:1.30-alpine
+    user: "101:101"
+    entrypoint: ["nginx", "-g", "daemon off;"]
+    ports:
+      - "${HTTPS_BIND_ADDRESS:-127.0.0.1}:${HTTPS_PORT:-443}:8443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${TLS_CERT_DIR:-./tls}:/etc/nginx/tls:ro
+    networks: [frontend, ingress]
+    depends_on:
+      web:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+networks:
+  frontend:
+    internal: true
+  database:
+    internal: true
+  probes: {}
+  ingress: {}
+
+volumes:
+  postgres_data:
