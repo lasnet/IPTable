@@ -45,6 +45,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     is_production = settings.app_env.lower() == "production"
+    secure_cookie = settings.session_cookie_secure if settings.session_cookie_secure is not None else is_production
     app = FastAPI(
         title=settings.app_name,
         lifespan=lifespan,
@@ -57,7 +58,7 @@ def create_app() -> FastAPI:
         SessionMiddleware,
         secret_key=session_secret,
         same_site="lax",
-        https_only=is_production,
+        https_only=secure_cookie,
         max_age=settings.session_idle_timeout_seconds,
     )
 
@@ -74,7 +75,8 @@ def create_app() -> FastAPI:
                 "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; "
                 "img-src 'self' data:; script-src 'self'; style-src 'self'",
             )
-            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+            if secure_cookie:
+                response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
         return response
 
     app.mount("/static", StaticFiles(directory="app/static"), name="static")

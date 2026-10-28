@@ -28,9 +28,7 @@ deploy
 .github
 README.md
 AGENT.md
-CONTRIBUTING.md
-CHANGELOG.md
-SECURITY.md
+DEVELOPMENT.md
 requirements-dev.txt
 docker-compose.yml
 .idea

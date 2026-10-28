@@ -3,6 +3,7 @@ from functools import lru_cache
 from pydantic import Field
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL
 
 from app.services.i18n import normalize_language
 
@@ -11,6 +12,7 @@ class Settings(BaseSettings):
     app_name: str = "IPtable"
     app_env: str = "local"
     secret_key: str = Field(default="", min_length=0)
+    session_cookie_secure: bool | None = None
     session_idle_timeout_seconds: int = Field(default=86400, ge=60)
     login_rate_limit_attempts: int = Field(default=5, ge=1, le=100)
     login_rate_limit_window_seconds: int = Field(default=300, ge=60)
@@ -19,7 +21,12 @@ class Settings(BaseSettings):
     interface_language: str = Field(default="RU", min_length=0, max_length=8)
     initial_admin_username: str = Field(default="admin", min_length=3, max_length=80)
     initial_admin_password: str = Field(default="", min_length=0)
-    database_url: str = "sqlite:///./data/iptable.sqlite3"
+    database_url: str = ""
+    postgres_host: str = ""
+    postgres_port: int = Field(default=5432, ge=1, le=65535)
+    postgres_user: str = "iptable"
+    postgres_password: str = ""
+    postgres_db: str = "iptable"
     ping_interval_seconds: int = Field(default=3600, ge=60)
     ping_timeout_seconds: int = Field(default=2, ge=1)
     ping_concurrency: int = Field(default=8, ge=1, le=128)
@@ -43,6 +50,17 @@ class Settings(BaseSettings):
         self.app_env = self.app_env.strip().lower()
         if self.app_env not in {"local", "production"}:
             raise ValueError("APP_ENV must be local or production")
+        if not self.database_url:
+            if self.postgres_host:
+                if not self.postgres_password.strip():
+                    raise ValueError("Set POSTGRES_PASSWORD in docker-compose.yml or .env")
+                self.database_url = URL.create(
+                    "postgresql+psycopg", username=self.postgres_user,
+                    password=self.postgres_password, host=self.postgres_host,
+                    port=self.postgres_port, database=self.postgres_db,
+                ).render_as_string(hide_password=False)
+            else:
+                self.database_url = "sqlite:///./data/iptable.sqlite3"
         self.interface_language = normalize_language(self.interface_language)
         if self.app_env == "production":
             if len(self.secret_key.strip()) < 32 or self.secret_key.strip().startswith("replace-with-"):

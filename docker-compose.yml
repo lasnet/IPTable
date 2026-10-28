@@ -1,87 +1,93 @@
+# Configure the three empty secrets below, then run: docker compose up -d --build
+# Values can also be supplied through an optional .env file.
+x-database-environment: &database-environment
+  POSTGRES_USER: ${POSTGRES_USER:-iptable}
+  POSTGRES_DB: ${POSTGRES_DB:-iptable}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-} # Required: choose your database password.
+
+x-app-environment: &app-environment
+  <<: *database-environment
+  APP_NAME: ${APP_NAME:-IPtable}
+  APP_ENV: ${APP_ENV:-production}
+  POSTGRES_HOST: postgres
+  DATABASE_URL: ${DATABASE_URL:-} # Optional override for an existing database.
+  SECRET_KEY: ${SECRET_KEY:-} # Required: a random string of at least 32 characters.
+  INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
+  INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-} # Required: at least 12 characters.
+  INTERFACE_LANGUAGE: ${INTERFACE_LANGUAGE:-RU} # RU or EN.
+  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false} # Set true when using HTTPS.
+  SESSION_IDLE_TIMEOUT_SECONDS: ${SESSION_IDLE_TIMEOUT_SECONDS:-86400}
+  LOGIN_RATE_LIMIT_ATTEMPTS: ${LOGIN_RATE_LIMIT_ATTEMPTS:-5}
+  LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-300}
+  LOGIN_RATE_LIMIT_LOCKOUT_SECONDS: ${LOGIN_RATE_LIMIT_LOCKOUT_SECONDS:-900}
+  INTEGRATION_API_TOKEN: ${INTEGRATION_API_TOKEN:-}
+  PING_INTERVAL_SECONDS: ${PING_INTERVAL_SECONDS:-3600}
+  PING_TIMEOUT_SECONDS: ${PING_TIMEOUT_SECONDS:-2}
+  PING_CONCURRENCY: ${PING_CONCURRENCY:-8}
+  PING_BATCH_SIZE: ${PING_BATCH_SIZE:-32}
+  PING_BATCH_PAUSE_SECONDS: ${PING_BATCH_PAUSE_SECONDS:-1}
+  PING_PROJECT_PAUSE_SECONDS: ${PING_PROJECT_PAUSE_SECONDS:-5}
+  PING_QUEUE_POLL_SECONDS: ${PING_QUEUE_POLL_SECONDS:-5}
+  PING_RUNNING_JOB_TIMEOUT_SECONDS: ${PING_RUNNING_JOB_TIMEOUT_SECONDS:-7200}
+  PROJECT_TABLE_DEFAULT_PAGE_SIZE: ${PROJECT_TABLE_DEFAULT_PAGE_SIZE:-25}
+  MAX_PROJECT_ADDRESSES: ${MAX_PROJECT_ADDRESSES:-4096}
+  CSV_IMPORT_MAX_BYTES: ${CSV_IMPORT_MAX_BYTES:-2097152}
+
+x-app: &app
+  image: ${COMPOSE_PROJECT_NAME:-iptable}-app
+  build: .
+  environment: *app-environment
+
 services:
   postgres:
     image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
+    environment: *database-environment
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 20
     restart: unless-stopped
 
   migrate:
-    build: .
+    <<: *app
     command: ["alembic", "upgrade", "head"]
     healthcheck:
       disable: true
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      APP_ENV: ${APP_ENV:-local}
-      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
-      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
-      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:?Set INITIAL_ADMIN_PASSWORD in .env}
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     depends_on:
       postgres:
         condition: service_healthy
     restart: "no"
 
   web:
-    build: .
-    env_file:
-      - path: .env
-        required: false
+    <<: *app
     environment:
-      APP_ENV: ${APP_ENV:-local}
-      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
-      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
-      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:?Set INITIAL_ADMIN_PASSWORD in .env}
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      <<: *app-environment
       ENABLE_PING_WORKER: "false"
     ports:
-      - "127.0.0.1:${APP_PORT:-8000}:8000"
+      - "${APP_BIND_ADDRESS:-0.0.0.0}:${APP_PORT:-8000}:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
     restart: unless-stopped
 
   worker:
-    build: .
+    <<: *app
     command: ["python", "-m", "app.worker"]
-    env_file:
-      - path: .env
-        required: false
     environment:
-      APP_ENV: ${APP_ENV:-local}
-      SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
-      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
-      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:?Set INITIAL_ADMIN_PASSWORD in .env}
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      <<: *app-environment
       ENABLE_PING_WORKER: "true"
     depends_on:
       migrate:
         condition: service_completed_successfully
-    cap_add:
-      - NET_RAW
+    cap_add: [NET_RAW]
     healthcheck:
       test: ["CMD", "python", "-c", "from sqlalchemy import text; from app.core.database import engine; c = engine.connect(); c.execute(text('select 1')); c.close()"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
     restart: unless-stopped
 
 volumes:
