@@ -23,7 +23,7 @@ COPY app/ ./app/
 COPY migrations/ ./migrations/
 COPY alembic.ini LICENSE ./
 
-ARG VERSION=dev
+ARG VERSION=local
 ARG REVISION=unknown
 ARG SOURCE=https://github.com/lasnet/IPTable
 LABEL org.opencontainers.image.version=$VERSION \
