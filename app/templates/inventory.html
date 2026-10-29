@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block title %}{{ _('nav.inventory') }} - IPtable{% endblock %}
+
+{% block content %}
+<section class="inventory-welcome">
+  <span class="eyebrow">IPTABLE / {{ _('nav.inventory') }}</span>
+  <div class="inventory-welcome-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v16H3zM3 10h18M9 10v10M15 10v10"/></svg></div>
+  <h1>{{ _('index.select_project') }}</h1>
+  <p>{{ _('index.empty_text') }}</p>
+  {% if current_user.can_create_inventory and not folders %}<button type="button" data-modal-target="folder-create-modal">{{ _('folder.add') }}</button>{% endif %}
+</section>
+{% endblock %}

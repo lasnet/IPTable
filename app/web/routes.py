@@ -441,6 +441,20 @@ def index(
     message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> Response:
     folders = _load_sidebar_folders(db)
+    stats = {
+        "folders": len(folders),
+        "projects": sum(len(folder.projects) for folder in folders),
+        "addresses": db.scalar(select(func.count(IPAddress.id))) or 0,
+        "active": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(True))) or 0,
+        "offline": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(False))) or 0,
+        "untested": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(None))) or 0,
+    }
+    recent_history = db.scalars(
+        select(IPAddressHistory)
+        .options(selectinload(IPAddressHistory.project))
+        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
+        .limit(5)
+    ).all()
     return _templates(request).TemplateResponse(
         request,
         "index.html",
@@ -451,8 +465,80 @@ def index(
             "default_ping_interval_minutes": _default_ping_interval_minutes(),
             "active_project": None,
             "current_user": current_user,
+            "stats": stats,
+            "recent_history": recent_history,
             "error": error,
             "message": message,
+        },
+    )
+
+
+@router.get("/inventory", response_class=HTMLResponse)
+def inventory(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> HTMLResponse:
+    return _templates(request).TemplateResponse(
+        request,
+        "inventory.html",
+        {
+            "request": request,
+            "folders": _load_sidebar_folders(db),
+            "folder_schedules": _load_folder_schedules(db),
+            "default_ping_interval_minutes": _default_ping_interval_minutes(),
+            "active_project": None,
+            "current_user": current_user,
+        },
+    )
+
+
+@router.get("/settings", response_class=HTMLResponse)
+def settings_page(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> HTMLResponse:
+    return _templates(request).TemplateResponse(
+        request,
+        "settings.html",
+        {
+            "request": request,
+            "folders": _load_sidebar_folders(db),
+            "folder_schedules": _load_folder_schedules(db),
+            "default_ping_interval_minutes": _default_ping_interval_minutes(),
+            "active_project": None,
+            "current_user": current_user,
+        },
+    )
+
+
+@router.get("/history", response_class=HTMLResponse)
+def global_history(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> HTMLResponse:
+    history_items = db.scalars(
+        select(IPAddressHistory)
+        .options(selectinload(IPAddressHistory.project))
+        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
+        .limit(200)
+    ).all()
+    return _templates(request).TemplateResponse(
+        request,
+        "history.html",
+        {
+            "request": request,
+            "history_subtitle": _ui("history.global_hint"),
+            "history_back_url": "/inventory",
+            "history_items": history_items,
+            "show_history_project": True,
+            "folders": _load_sidebar_folders(db),
+            "folder_schedules": _load_folder_schedules(db),
+            "default_ping_interval_minutes": _default_ping_interval_minutes(),
+            "active_project": None,
+            "current_user": current_user,
         },
     )
 
@@ -463,9 +549,9 @@ def create_folder(
     current_user: Annotated[User, Depends(require_user)],
     name: Annotated[str, Form(min_length=1, max_length=120)],
 ) -> RedirectResponse:
-    error_path = "/?new_folder=true"
+    error_path = "/inventory?new_folder=true"
     if not current_user.can_create_inventory:
-        return _redirect_error("/", _ui("folder.create_denied"))
+        return _redirect_error("/inventory", _ui("folder.create_denied"))
 
     clean_name = _clean_text(name, 120)
     if not clean_name:
@@ -481,7 +567,7 @@ def create_folder(
     except IntegrityError:
         db.rollback()
         return _redirect_error(error_path, _ui("folder.duplicate"))
-    return _redirect("/")
+    return _redirect("/inventory")
 
 
 @router.post("/folders/{folder_id}/update")
@@ -491,13 +577,13 @@ def update_folder(
     current_user: Annotated[User, Depends(require_user)],
     name: Annotated[str, Form(min_length=1, max_length=120)],
 ) -> RedirectResponse:
-    error_path = f"/?edit_folder={folder_id}"
+    error_path = f"/inventory?edit_folder={folder_id}"
     if not current_user.can_edit_inventory:
-        return _redirect_error("/", _ui("folder.edit_denied"))
+        return _redirect_error("/inventory", _ui("folder.edit_denied"))
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", _ui("folder.not_found"))
+        return _redirect_error("/inventory", _ui("folder.not_found"))
 
     clean_name = _clean_text(name, 120)
     if not clean_name:
@@ -509,7 +595,7 @@ def update_folder(
     except IntegrityError:
         db.rollback()
         return _redirect_error(error_path, _ui("folder.duplicate"))
-    return _redirect("/")
+    return _redirect("/inventory")
 
 
 @router.post("/folders/{folder_id}/delete")
@@ -519,15 +605,15 @@ def delete_folder(
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
     if not current_user.can_delete_inventory:
-        return _redirect_error("/", _ui("folder.delete_denied"))
+        return _redirect_error("/inventory", _ui("folder.delete_denied"))
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", _ui("folder.not_found"))
+        return _redirect_error("/inventory", _ui("folder.not_found"))
 
     db.delete(folder)
     db.commit()
-    return _redirect("/")
+    return _redirect("/inventory")
 
 
 @router.post("/projects")
@@ -541,12 +627,12 @@ async def create_project(
     description: Annotated[str, Form(max_length=2000)] = "",
 ) -> RedirectResponse:
     if not current_user.can_create_inventory:
-        return _redirect_error("/", _ui("project.create_denied"))
+        return _redirect_error("/inventory", _ui("project.create_denied"))
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", _ui("folder.not_found"))
-    error_path = f"/?new_project_folder={folder.id}"
+        return _redirect_error("/inventory", _ui("folder.not_found"))
+    error_path = f"/inventory?new_project_folder={folder.id}"
 
     clean_name = _clean_text(name, 160)
     if not clean_name:
@@ -592,7 +678,7 @@ async def import_project_csv(
     description: Annotated[str, Form(max_length=2000)] = "",
     csv_file: UploadFile = File(...),
 ) -> RedirectResponse:
-    error_path = f"/?new_project_folder={folder_id}"
+    error_path = f"/inventory?new_project_folder={folder_id}"
     if not _can_import_csv(current_user):
         return _redirect_error(
             error_path,
@@ -601,7 +687,7 @@ async def import_project_csv(
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", _ui("folder.not_found"))
+        return _redirect_error("/inventory", _ui("folder.not_found"))
 
     clean_name = _clean_text(name, 160)
     if not clean_name:
@@ -689,7 +775,7 @@ def update_project(
 
     project = db.get(Project, project_id)
     if project is None:
-        return _redirect_error("/", _ui("project.not_found"))
+        return _redirect_error("/inventory", _ui("project.not_found"))
 
     clean_name = _clean_text(name, 160)
     if not clean_name:
@@ -716,11 +802,11 @@ def delete_project(
 
     project = db.get(Project, project_id)
     if project is None:
-        return _redirect_error("/", _ui("project.not_found"))
+        return _redirect_error("/inventory", _ui("project.not_found"))
 
     db.delete(project)
     db.commit()
-    return _redirect("/")
+    return _redirect("/inventory")
 
 
 @router.post("/projects/{project_id}/schedule")
@@ -734,7 +820,7 @@ def update_project_ping_schedule(
 ) -> RedirectResponse:
     project = db.get(Project, project_id)
     if project is None:
-        return _redirect_error("/", _ui("project.not_found"))
+        return _redirect_error("/inventory", _ui("project.not_found"))
 
     set_project_ping_schedule(
         db,
@@ -760,7 +846,7 @@ def update_folder_ping_schedule(
 ) -> RedirectResponse:
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", _ui("folder.not_found"))
+        return _redirect_error("/inventory", _ui("folder.not_found"))
 
     set_folder_ping_schedule(
         db,
@@ -775,9 +861,9 @@ def update_folder_ping_schedule(
         for project_id in project_ids:
             enqueue_project_ping(db, project_id, reason="manual-folder", commit=False)
         db.commit()
-        return _redirect_message("/", _ui("schedule.folder_saved_queued"))
+        return _redirect_message("/inventory", _ui("schedule.folder_saved_queued"))
 
-    return _redirect_message("/", _ui("schedule.folder_saved"))
+    return _redirect_message("/inventory", _ui("schedule.folder_saved"))
 
 
 @router.get("/projects/{project_id}", response_class=HTMLResponse)
@@ -1085,7 +1171,7 @@ def export_project(
 ) -> Response:
     project = db.get(Project, project_id)
     if project is None:
-        return _redirect_error("/", _ui("project.not_found"))
+        return _redirect_error("/inventory", _ui("project.not_found"))
 
     ip_records = db.scalars(
         select(IPAddress).where(IPAddress.project_id == project.id).order_by(IPAddress.ordinal.asc())
@@ -1125,8 +1211,8 @@ def export_folder(
         .options(selectinload(Folder.projects).selectinload(Project.ip_addresses))
     )
     if folder is None:
-        return _redirect_error("/", _ui("folder.not_found"))
-    error_path = f"/?export_folder={folder.id}"
+        return _redirect_error("/inventory", _ui("folder.not_found"))
+    error_path = f"/inventory?export_folder={folder.id}"
     if not folder.projects:
         return _redirect_error(error_path, _ui("export.folder_empty"))
 
@@ -1451,7 +1537,7 @@ def folder_history(
             "request": request,
             "history_title": _ui("history.title"),
             "history_subtitle": folder.name,
-            "history_back_url": "/",
+            "history_back_url": "/inventory",
             "history_items": history_items,
             "show_history_project": True,
             "folders": _load_sidebar_folders(db),

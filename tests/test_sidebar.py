@@ -76,7 +76,16 @@ class SidebarTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.headers.get("location"))
-        self.assertIn("Выберите проект", response.text)
+        self.assertIn("Обзор сети", response.text)
+        self.assertIn("192.168.1.0/24", response.text)
+
+        inventory_response = client.get("/inventory")
+        self.assertEqual(inventory_response.status_code, 200)
+        self.assertIn("Выберите проект", inventory_response.text)
+        self.assertIn('class="sidebar"', inventory_response.text)
+
+        self.assertEqual(client.get("/settings").status_code, 200)
+        self.assertEqual(client.get("/history").status_code, 200)
 
 
 if __name__ == "__main__":
