@@ -2589,3 +2589,108 @@ body { background: linear-gradient(135deg, #628dc3 0%, #3463a9 100%); }
   .dashboard-network-list, .dashboard-activity-list { overflow: visible; }
   .settings-tile { min-height: 190px; }
 }
+
+/* The selected rail item flows into the inventory pane. */
+.has-inventory-sidebar .rail-link.active {
+  z-index: 1;
+  width: 58px;
+  margin-left: 10px;
+  border-radius: 18px 0 0 18px;
+  background: #e8f0fa;
+  box-shadow: none;
+}
+
+.has-inventory-sidebar .rail-link.active::before {
+  content: none;
+}
+
+.has-inventory-sidebar .rail-link.active .icon {
+  width: 40px;
+  height: 40px;
+  padding: 9px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(23, 69, 127, .15);
+}
+
+@view-transition {
+  navigation: auto;
+}
+
+.primary-rail { view-transition-name: primary-rail; }
+.workspace { view-transition-name: workspace; }
+.sidebar { view-transition-name: inventory-panel; }
+.rail-link[href="/"] { view-transition-name: rail-dashboard; }
+.rail-link[href="/inventory"] { view-transition-name: rail-inventory; }
+.rail-link[href="/admin/users"] { view-transition-name: rail-admin; }
+.rail-link[href="/settings"] { view-transition-name: rail-settings; }
+.rail-link[href="/history"] { view-transition-name: rail-history; }
+
+::view-transition-group(primary-rail),
+::view-transition-group(workspace),
+::view-transition-group(rail-dashboard),
+::view-transition-group(rail-inventory),
+::view-transition-group(rail-admin),
+::view-transition-group(rail-settings),
+::view-transition-group(rail-history) {
+  animation-duration: .48s;
+  animation-timing-function: cubic-bezier(.22, 1, .36, 1);
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: .42s;
+  animation-timing-function: ease;
+}
+
+::view-transition-new(inventory-panel):only-child {
+  animation: inventory-panel-open .52s cubic-bezier(.22, 1, .36, 1) both;
+  transform-origin: left center;
+}
+
+::view-transition-old(inventory-panel):only-child {
+  animation: inventory-panel-close .32s ease-in both;
+  transform-origin: left center;
+}
+
+@keyframes inventory-panel-open {
+  from { opacity: .35; clip-path: inset(0 100% 0 0 round 18px); transform: translateX(-16px); }
+  to { opacity: 1; clip-path: inset(0 0 0 0 round 0); transform: translateX(0); }
+}
+
+@keyframes inventory-panel-close {
+  from { opacity: 1; clip-path: inset(0 0 0 0 round 0); transform: translateX(0); }
+  to { opacity: 0; clip-path: inset(0 100% 0 0 round 18px); transform: translateX(-12px); }
+}
+
+@keyframes rail-workspace-arrive {
+  from { opacity: .5; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.rail-arriving .sidebar { animation: inventory-panel-open .52s cubic-bezier(.22, 1, .36, 1) both; }
+.rail-arriving .workspace { animation: rail-workspace-arrive .48s cubic-bezier(.22, 1, .36, 1) both; }
+
+@media (max-width: 760px) {
+  .has-inventory-sidebar .rail-link.active {
+    width: 38px;
+    margin-left: 0;
+    border-radius: 12px;
+    background: #fff;
+  }
+  .has-inventory-sidebar .rail-link.active .icon {
+    width: 19px;
+    height: 19px;
+    padding: 0;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition { navigation: none; }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) { animation-duration: .01ms !important; }
+  .rail-arriving .sidebar,
+  .rail-arriving .workspace { animation: none; }
+}

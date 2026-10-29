@@ -1,4 +1,46 @@
 (function () {
+  const transitionKey = "iptable-rail-transition";
+
+  function animateArrival() {
+    document.body.classList.add("rail-arriving");
+    window.setTimeout(() => document.body.classList.remove("rail-arriving"), 650);
+  }
+
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    const link = event.target.closest(".rail-link[href]");
+    if (!link || link.origin !== window.location.origin || link.pathname === window.location.pathname) {
+      return;
+    }
+    try {
+      sessionStorage.setItem(transitionKey, JSON.stringify({ path: link.pathname, time: Date.now() }));
+    } catch (_) {
+      // Navigation still works when session storage is unavailable.
+    }
+  });
+
+  try {
+    const transition = JSON.parse(sessionStorage.getItem(transitionKey) || "null");
+    sessionStorage.removeItem(transitionKey);
+    if (transition?.path === window.location.pathname && Date.now() - transition.time < 5000) {
+      if ("onpagereveal" in window) {
+        window.addEventListener("pagereveal", (event) => {
+          if (!event.viewTransition) {
+            animateArrival();
+          }
+        }, { once: true });
+      } else {
+        animateArrival();
+      }
+    }
+  } catch (_) {
+    // Invalid or blocked storage should not affect the page.
+  }
+})();
+
+(function () {
   let dirtyRow = null;
   let allowSubmit = false;
   let tableRequestId = 0;
