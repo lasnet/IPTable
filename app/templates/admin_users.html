@@ -22,7 +22,7 @@
   </div>
 
   <div class="admin-layout">
-    <section class="admin-section">
+    <section class="admin-section" id="admin-users-create">
       <h3>{{ _('admin.new_user') }}</h3>
       <form class="admin-form" action="/admin/users" method="post">
         {{ csrf_input(request) }}
@@ -59,7 +59,7 @@
       </form>
     </section>
 
-    <section class="admin-section">
+    <section class="admin-section" id="admin-users-list">
       <h3>{{ _('admin.users') }}</h3>
       <div class="users-list">
         {% for user in users %}

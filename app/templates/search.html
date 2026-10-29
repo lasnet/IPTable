@@ -20,7 +20,7 @@
     <div class="empty-table">{{ _('search.empty') }}</div>
   {% else %}
     <div class="search-sections">
-      <section>
+      <section id="search-folders">
         <h3>{{ _('search.folders') }}</h3>
         {% for folder in found_folders %}
           <div class="result-row">
@@ -31,7 +31,7 @@
         {% endfor %}
       </section>
 
-      <section>
+      <section id="search-projects">
         <h3>{{ _('search.projects') }}</h3>
         {% for item in projects %}
           <a class="result-row link-row" href="/projects/{{ item.id }}">
@@ -43,7 +43,7 @@
         {% endfor %}
       </section>
 
-      <section>
+      <section id="search-records">
         <h3>{{ _('search.ip_records') }}</h3>
         {% for ip in ip_records %}
           {% set target_page = ((ip.ordinal - 1) // project_page_size) + 1 %}

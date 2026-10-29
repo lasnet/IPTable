@@ -1,9 +1,30 @@
 (function () {
   const transitionKey = "iptable-rail-transition";
+  const rail = document.querySelector(".primary-rail");
+  const indicator = rail?.querySelector(".rail-indicator");
+  const active = rail?.querySelector(".rail-link.active");
+  if (!rail || !indicator || !active) return;
 
-  function animateArrival() {
-    document.body.classList.add("rail-arriving");
-    window.setTimeout(() => document.body.classList.remove("rail-arriving"), 650);
+  const activeTop = active.getBoundingClientRect().top - rail.getBoundingClientRect().top - 5;
+  let previousTop = null;
+  try {
+    const transition = JSON.parse(sessionStorage.getItem(transitionKey) || "null");
+    sessionStorage.removeItem(transitionKey);
+    if (transition?.path === window.location.pathname && Date.now() - transition.time < 5000) {
+      previousTop = transition.top;
+    }
+  } catch (_) {
+    // Navigation and the active item still work without session storage.
+  }
+
+  indicator.style.top = `${previousTop ?? activeTop}px`;
+  rail.classList.add("rail-ready");
+  if (Number.isFinite(previousTop) && previousTop !== activeTop) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      indicator.style.top = `${activeTop}px`;
+      document.body.classList.add("rail-arriving");
+      window.setTimeout(() => document.body.classList.remove("rail-arriving"), 420);
+    }));
   }
 
   document.addEventListener("click", (event) => {
@@ -15,29 +36,27 @@
       return;
     }
     try {
-      sessionStorage.setItem(transitionKey, JSON.stringify({ path: link.pathname, time: Date.now() }));
+      sessionStorage.setItem(transitionKey, JSON.stringify({ path: link.pathname, top: activeTop, time: Date.now() }));
     } catch (_) {
       // Navigation still works when session storage is unavailable.
     }
   });
 
-  try {
-    const transition = JSON.parse(sessionStorage.getItem(transitionKey) || "null");
-    sessionStorage.removeItem(transitionKey);
-    if (transition?.path === window.location.pathname && Date.now() - transition.time < 5000) {
-      if ("onpagereveal" in window) {
-        window.addEventListener("pagereveal", (event) => {
-          if (!event.viewTransition) {
-            animateArrival();
-          }
-        }, { once: true });
-      } else {
-        animateArrival();
-      }
-    }
-  } catch (_) {
-    // Invalid or blocked storage should not affect the page.
+})();
+
+(function () {
+  const links = [...document.querySelectorAll(".section-pane-link[href^='#']")];
+  if (!links.length) return;
+  function selectCurrent() {
+    const selected = links.find((link) => link.hash === window.location.hash) || links[0];
+    links.forEach((link) => {
+      link.classList.toggle("selected", link === selected);
+      if (link === selected) link.setAttribute("aria-current", "location");
+      else link.removeAttribute("aria-current");
+    });
   }
+  window.addEventListener("hashchange", selectCurrent);
+  selectCurrent();
 })();
 
 (function () {
@@ -532,6 +551,9 @@
   }, true);
 
   window.addEventListener("popstate", () => {
+    if (!projectTableRegion()) {
+      return;
+    }
     if (hasDirtyRow()) {
       window.history.pushState(null, "", currentTableUrl);
       warnAboutDirtyRow();

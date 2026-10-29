@@ -5,8 +5,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}IPtable{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20261030-rail">
-  <script src="{{ url_for('static', path='/app.js') }}?v=20261030-rail" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20261030-pane">
+  <script src="{{ url_for('static', path='/app.js') }}?v=20261030-pane" defer></script>
 </head>
 
 <body data-i18n-selected-row="{{ _('js.selected_row') }}"
@@ -39,9 +39,10 @@
     </div>
   </header>
 
-  <main class="app-shell {{ 'has-inventory-sidebar' if inventory_view else 'no-inventory-sidebar' }}">
+  <main class="app-shell">
     <nav class="primary-rail" aria-label="{{ _('nav.primary') }}">
       <a class="rail-logo" href="/" aria-label="IPtable">IP</a>
+      <div class="rail-indicator" aria-hidden="true"></div>
       <div class="rail-links">
         <a class="rail-link {{ 'active' if request.url.path == '/' else '' }}" href="/" title="{{ _('nav.dashboard') }}" aria-label="{{ _('nav.dashboard') }}" {% if request.url.path == '/' %}aria-current="page"{% endif %}>
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z"/></svg><span>{{ _('nav.dashboard') }}</span>
@@ -63,8 +64,8 @@
       </div>
       <div class="rail-account" title="{{ current_user.username }}">{{ current_user.username[:2] | upper }}</div>
     </nav>
-    {% if inventory_view %}
     <aside class="sidebar">
+      {% if inventory_view %}
       <div class="inventory-sidebar-head"><span class="eyebrow">IPtable</span><h2>{{ _('nav.inventory') }}</h2><p>{{ _('nav.inventory_hint') }}</p></div>
 
       <div class="folders-title">
@@ -153,8 +154,49 @@
         <span class="skeleton-line wide"></span>
         <span class="skeleton-line medium"></span>
       </div>
+      {% else %}
+      <div class="section-pane">
+        <div class="section-pane-header">
+          <span class="eyebrow">IPtable / {{ _('nav.workspace') }}</span>
+          {% if request.url.path == '/' %}
+          <h2>{{ _('nav.dashboard') }}</h2><p>{{ _('dashboard.subtitle') }}</p>
+          {% elif request.url.path.startswith('/admin/') %}
+          <h2>{{ _('admin.title') }}</h2><p>{{ _('admin.description') }}</p>
+          {% elif request.url.path == '/settings' %}
+          <h2>{{ _('nav.settings') }}</h2><p>{{ _('settings.subtitle') }}</p>
+          {% elif request.url.path == '/history' %}
+          <h2>{{ _('history.title') }}</h2><p>{{ _('history.global_hint') }}</p>
+          {% else %}
+          <h2>{{ _('search.global') }}</h2><p>{{ _('search.subtitle') }}</p>
+          {% endif %}
+        </div>
+        <div class="section-pane-label">{{ _('nav.quick_links') }}</div>
+        <nav class="section-pane-links" aria-label="{{ _('nav.quick_links') }}">
+          {% if request.url.path == '/' %}
+          <a class="section-pane-link selected" href="#dashboard-overview"><span class="pane-link-icon">◫</span>{{ _('dashboard.title') }}</a>
+          <a class="section-pane-link" href="#dashboard-active"><span class="pane-link-icon">●</span>{{ _('dashboard.active_hosts') }}</a>
+          <a class="section-pane-link" href="#dashboard-networks"><span class="pane-link-icon">⌁</span>{{ _('dashboard.networks') }}</a>
+          <a class="section-pane-link" href="#dashboard-activity"><span class="pane-link-icon">◷</span>{{ _('dashboard.latest_changes') }}</a>
+          {% elif request.url.path.startswith('/admin/') %}
+          <a class="section-pane-link selected" href="#admin-users-create"><span class="pane-link-icon">＋</span>{{ _('admin.new_user') }}</a>
+          <a class="section-pane-link" href="#admin-users-list"><span class="pane-link-icon">◉</span>{{ _('admin.users') }}</a>
+          {% elif request.url.path == '/settings' %}
+          <a class="section-pane-link selected" href="#settings-interface"><span class="pane-link-icon">◫</span>{{ _('settings.interface') }}</a>
+          <a class="section-pane-link" href="#settings-monitoring"><span class="pane-link-icon">⌁</span>{{ _('settings.monitoring') }}</a>
+          <a class="section-pane-link" href="#settings-security"><span class="pane-link-icon">◇</span>{{ _('settings.security') }}</a>
+          {% elif request.url.path == '/history' %}
+          <a class="section-pane-link selected" href="#history-list"><span class="pane-link-icon">◷</span>{{ _('history.title') }}</a>
+          <a class="section-pane-link" href="/inventory"><span class="pane-link-icon">⌁</span>{{ _('nav.inventory') }}</a>
+          {% else %}
+          <a class="section-pane-link selected" href="#search-folders"><span class="pane-link-icon">▤</span>{{ _('search.folders') }}</a>
+          <a class="section-pane-link" href="#search-projects"><span class="pane-link-icon">⌁</span>{{ _('search.projects') }}</a>
+          <a class="section-pane-link" href="#search-records"><span class="pane-link-icon">◉</span>{{ _('search.ip_records') }}</a>
+          {% endif %}
+        </nav>
+        <div class="section-pane-foot"><span class="pane-foot-dot"></span>{{ current_user.first_name or current_user.username }}</div>
+      </div>
+      {% endif %}
     </aside>
-    {% endif %}
 
     <section class="workspace">
       {% if message %}

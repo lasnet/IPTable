@@ -3,19 +3,19 @@
 {% block title %}{{ _('nav.dashboard') }} - IPtable{% endblock %}
 
 {% block content %}
-<section class="dashboard-page">
+<section class="dashboard-page" id="dashboard-overview">
   <div class="dashboard-heading">
     <div><span class="eyebrow">IPTABLE / {{ _('nav.dashboard') }}</span><h1>{{ _('dashboard.title') }}</h1><p>{{ _('dashboard.subtitle') }}</p></div>
     <a class="dashboard-link" href="/inventory">{{ _('dashboard.open_inventory') }} <span aria-hidden="true">↗</span></a>
   </div>
   <div class="stat-grid">
-    <article class="stat-card stat-card-primary"><span>{{ _('dashboard.active_hosts') }}</span><strong>{{ stats.active }}</strong><small>{{ _('dashboard.active_hint') }}</small><div class="stat-glyph" aria-hidden="true">●</div></article>
+    <article class="stat-card stat-card-primary" id="dashboard-active"><span>{{ _('dashboard.active_hosts') }}</span><strong>{{ stats.active }}</strong><small>{{ _('dashboard.active_hint') }}</small><div class="stat-glyph" aria-hidden="true">●</div></article>
     <article class="stat-card"><span>{{ _('dashboard.subnets') }}</span><strong>{{ stats.projects }}</strong><small>{{ _('dashboard.in_folders') }}: {{ stats.folders }}</small></article>
     <article class="stat-card"><span>{{ _('dashboard.addresses') }}</span><strong>{{ stats.addresses }}</strong><small>{{ _('dashboard.total_addresses') }}</small></article>
     <article class="stat-card"><span>{{ _('dashboard.offline') }}</span><strong>{{ stats.offline }}</strong><small>{{ _('dashboard.untested') }}: {{ stats.untested }}</small></article>
   </div>
   <div class="dashboard-panels">
-    <section class="dashboard-panel overview-panel">
+    <section class="dashboard-panel overview-panel" id="dashboard-networks">
       <div class="panel-heading"><div><span class="eyebrow">{{ _('dashboard.overview') }}</span><h2>{{ _('dashboard.networks') }}</h2></div><a href="/inventory">{{ _('dashboard.all_subnets') }} →</a></div>
       <div class="dashboard-network-list">
         {% set shown = namespace(count=0) %}
@@ -32,7 +32,7 @@
         {% endif %}
       </div>
     </section>
-    <section class="dashboard-panel activity-panel">
+    <section class="dashboard-panel activity-panel" id="dashboard-activity">
       <div class="panel-heading"><div><span class="eyebrow">{{ _('dashboard.activity') }}</span><h2>{{ _('dashboard.latest_changes') }}</h2></div><a href="/history">{{ _('dashboard.all_history') }} →</a></div>
       <div class="dashboard-activity-list">
         {% for item in recent_history %}
