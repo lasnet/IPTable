@@ -478,6 +478,8 @@ def inventory(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_user)],
+    error: Annotated[str | None, Query(max_length=240)] = None,
+    message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
     return _templates(request).TemplateResponse(
         request,
@@ -489,6 +491,8 @@ def inventory(
             "default_ping_interval_minutes": _default_ping_interval_minutes(),
             "active_project": None,
             "current_user": current_user,
+            "error": error,
+            "message": message,
         },
     )
 

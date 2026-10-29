@@ -84,6 +84,9 @@ class SidebarTest(unittest.TestCase):
         self.assertIn("Выберите проект", inventory_response.text)
         self.assertIn('class="sidebar"', inventory_response.text)
 
+        message_response = client.get("/inventory?message=Saved")
+        self.assertIn("Saved", message_response.text)
+
         self.assertEqual(client.get("/settings").status_code, 200)
         self.assertEqual(client.get("/history").status_code, 200)
 
