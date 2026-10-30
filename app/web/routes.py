@@ -517,9 +517,13 @@ def global_history(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_user)],
+    q: Annotated[str, Query(max_length=64)] = "",
 ) -> HTMLResponse:
+    history_query = _clean_text(q, 64)
+    history_conditions = [IPAddressHistory.address.startswith(history_query, autoescape=True)] if history_query else []
     history_items = db.scalars(
         select(IPAddressHistory)
+        .where(*history_conditions)
         .options(selectinload(IPAddressHistory.project))
         .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
         .limit(200)
@@ -532,6 +536,7 @@ def global_history(
             "history_subtitle": _ui("history.global_hint"),
             "history_back_url": "/inventory",
             "history_items": history_items,
+            "history_query": history_query,
             "show_history_project": True,
             "folders": [],
             "active_project": None,
@@ -1485,6 +1490,7 @@ def project_history(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_user)],
     address: Annotated[str, Query(max_length=64)] = "",
+    q: Annotated[str, Query(max_length=64)] = "",
 ) -> HTMLResponse:
     project = db.scalar(
         select(Project)
@@ -1495,9 +1501,12 @@ def project_history(
         raise HTTPException(status_code=404, detail="Project not found")
 
     clean_address = _clean_text(address, 64)
+    history_query = _clean_text(q, 64)
     history_conditions = [IPAddressHistory.project_id == project.id]
     if clean_address:
         history_conditions.append(IPAddressHistory.address == clean_address)
+    if history_query:
+        history_conditions.append(IPAddressHistory.address.startswith(history_query, autoescape=True))
     history_items = db.scalars(
         select(IPAddressHistory)
         .where(*history_conditions)
@@ -1513,6 +1522,8 @@ def project_history(
             "project": project,
             "history_subtitle": f"{project.cidr} / {clean_address}" if clean_address else project.cidr,
             "history_items": history_items,
+            "history_query": history_query,
+            "history_address": clean_address,
             "folders": _load_sidebar_folders(db),
             "folder_schedules": _load_folder_schedules(db),
             "default_ping_interval_minutes": _default_ping_interval_minutes(),
@@ -1528,15 +1539,18 @@ def folder_history(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_user)],
+    q: Annotated[str, Query(max_length=64)] = "",
 ) -> HTMLResponse:
     folder = db.get(Folder, folder_id)
     if folder is None:
         raise HTTPException(status_code=404, detail="Folder not found")
 
+    history_query = _clean_text(q, 64)
+    history_conditions = [IPAddressHistory.address.startswith(history_query, autoescape=True)] if history_query else []
     history_items = db.scalars(
         select(IPAddressHistory)
         .join(Project, IPAddressHistory.project_id == Project.id)
-        .where(Project.folder_id == folder.id)
+        .where(Project.folder_id == folder.id, *history_conditions)
         .options(selectinload(IPAddressHistory.project))
         .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
         .limit(200)
@@ -1551,6 +1565,7 @@ def folder_history(
             "history_subtitle": folder.name,
             "history_back_url": "/inventory",
             "history_items": history_items,
+            "history_query": history_query,
             "show_history_project": True,
             "folders": _load_sidebar_folders(db),
             "folder_schedules": _load_folder_schedules(db),

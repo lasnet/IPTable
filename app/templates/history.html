@@ -33,33 +33,48 @@
     </div>
   </div>
 
+  <form class="history-search" action="{{ request.url.path }}" method="get" role="search">
+    {% if history_address is defined and history_address %}<input type="hidden" name="address" value="{{ history_address }}">{% endif %}
+    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.35-4.35m1.35-5.15a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z" /></svg>
+    <input type="search" name="q" value="{{ history_query | default('') }}" placeholder="{{ _('history.search_placeholder') }}" aria-label="{{ _('history.search_placeholder') }}" maxlength="64">
+    <button type="submit">{{ _('history.search_submit') }}</button>
+  </form>
+
   <div class="history-list" id="history-list">
     {% for item in history_items %}
     <article class="history-item">
-      <div class="history-meta">
+      <div class="history-identity">
         <strong>{{ item.address }}</strong>
-        <span>{{ item.field_label }}</span>
         {% if show_history_project %}
-        <span>{{ item.project.cidr }}</span>
+        <small>{{ item.project.cidr }}</small>
+        {% elif project is defined %}
+        <small>{{ project.cidr }}</small>
         {% endif %}
       </div>
+      <div class="history-field">
+        <span class="history-field-icon" aria-hidden="true">
+          {% if item.field_name == 'os' %}▣{% elif item.field_name == 'asset_type' %}▤{% elif item.field_name == 'comment' %}▧{% else %}⌁{% endif %}
+        </span>
+        <span><strong>{{ item.field_label }}</strong><small>{{ _('history.field_changed') }}</small></span>
+      </div>
       <div class="history-change">
-        <div>
+        <div class="history-old">
           <small>{{ _('history.old_value') }}</small>
           <p>{{ item.old_value if item.old_value else _('table.placeholder_empty') }}</p>
         </div>
-        <div>
+        <span class="history-arrow" aria-hidden="true">→</span>
+        <div class="history-new">
           <small>{{ _('history.new_value') }}</small>
           <p>{{ item.new_value if item.new_value else _('table.placeholder_empty') }}</p>
         </div>
       </div>
       <div class="history-footer">
-        <span>{{ item.username if item.username else _('history.deleted_user') }}</span>
-        <span>{{ item.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+        <span class="history-avatar" aria-hidden="true">{{ (item.username or '?')[:2] | upper }}</span>
+        <span><strong>{{ item.username if item.username else _('history.deleted_user') }}</strong><time datetime="{{ item.created_at.isoformat() }}">{{ item.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</time></span>
       </div>
     </article>
     {% else %}
-    <div class="empty-table">{{ _('history.empty') }}</div>
+    <div class="empty-table">{{ _('history.no_results') if history_query | default('') else _('history.empty') }}</div>
     {% endfor %}
   </div>
 </section>
