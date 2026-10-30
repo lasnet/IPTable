@@ -4,6 +4,7 @@
 
 {% block content %}
 <section class="project-card">
+  <div class="project-toolbar">
   <div class="project-card-head">
     <div class="project-title">
       <div class="title-icon">
@@ -23,35 +24,14 @@
     </div>
 
     <div class="project-actions">
-      <a class="soft-button project-action-button" href="{{ hide_toggle_url }}" data-hide-toggle>
-        {% if hide_empty %}
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M17.94 17.94A10.9 10.9 0 0 1 12 20C7 20 2.73 16.89 1 12a12.2 12.2 0 0 1 5.06-5.94" />
-          <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
-          <path d="M9.9 4.24A10.8 10.8 0 0 1 12 4c5 0 9.27 3.11 11 8a12.3 12.3 0 0 1-2.16 3.19" />
-          <path d="M3 3l18 18" />
-        </svg>
-        {{ _('table.show_hidden') }}
-        {% else %}
+      <a class="soft-button project-action-button project-hide-toggle" href="{{ hide_toggle_url }}" data-hide-toggle>
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
           <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
         </svg>
-        {{ _('table.hide_empty') }}
-        {% endif %}
+        <span data-show-hidden-label {% if not hide_empty %}hidden{% endif %}>{{ _('table.show_hidden') }}</span>
+        <span data-hide-empty-label {% if hide_empty %}hidden{% endif %}>{{ _('table.hide_empty') }}</span>
       </a>
-
-      {% if current_user.can_manage_project_columns %}
-      <button class="soft-button project-action-button" type="button"
-        data-modal-target="project-columns-modal-{{ project.id }}">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 4h16v16H4z" />
-            <path d="M10 4v16" />
-            <path d="M16 4v16" />
-          </svg>
-          {{ _('field.columns') }}
-      </button>
-      {% endif %}
 
       <details class="field-details project-action-menu">
         <summary class="icon-button project-menu-button" aria-label="{{ _('project.menu') }}">
@@ -62,6 +42,12 @@
           </svg>
         </summary>
         <div class="floating-form project-action-panel">
+          {% if current_user.can_manage_project_columns %}
+          <button class="node-menu-item" type="button" data-modal-target="project-columns-modal-{{ project.id }}">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM10 4v16M16 4v16" /></svg>
+            {{ _('field.columns') }}
+          </button>
+          {% endif %}
           {% if current_user.is_admin %}
           <button class="node-menu-item project-menu-primary" type="button"
             data-modal-target="project-schedule-modal-{{ project.id }}">
@@ -133,14 +119,16 @@
     </div>
   </div>
 
-  {% if project.description %}
-  <p class="project-description">{{ project.description }}</p>
-  {% endif %}
-
   <form class="table-filter-form" action="/projects/{{ project.id }}" method="get">
     <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
     <input type="hidden" name="page" value="1">
     <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
+    <details class="table-filters-menu">
+      <summary class="soft-button filter-trigger" aria-label="{{ _('filter.open') }}" title="{{ _('filter.open') }}">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.5 7.5V19l-3 1v-7.5L4 5Z" /></svg>
+        <span class="active-filter-count" data-active-filter-count hidden></span>
+      </summary>
+      <div class="filter-panel">
     <label>
       Ping
       <select name="ping_status">
@@ -173,6 +161,8 @@
       href="/projects/{{ project.id }}?hide_empty={{ 'true' if hide_empty else 'false' }}&page=1&per_page={{ pagination.per_page }}">
       {{ _('button.reset') }}
     </a>
+      </div>
+    </details>
     <div class="project-summary" aria-label="{{ _('summary.title') }}">
       <div class="summary-item">
         <span>{{ _('summary.total_ips') }}</span>
@@ -196,6 +186,11 @@
       </div>
     </div>
   </form>
+  </div>
+
+  {% if project.description %}
+  <p class="project-description">{{ project.description }}</p>
+  {% endif %}
 
   <div class="project-table-region" data-project-table-region>
     {% include "_project_table.html" %}

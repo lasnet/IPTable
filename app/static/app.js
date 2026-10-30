@@ -184,7 +184,18 @@
       nextParams.set("hide_empty", hideEmpty === "true" ? "false" : "true");
       nextParams.set("page", "1");
       hideToggle.href = `${parsedUrl.pathname}?${nextParams.toString()}`;
+      const showLabel = hideToggle.querySelector("[data-show-hidden-label]");
+      const hideLabel = hideToggle.querySelector("[data-hide-empty-label]");
+      if (showLabel) showLabel.hidden = hideEmpty !== "true";
+      if (hideLabel) hideLabel.hidden = hideEmpty === "true";
     });
+
+    const activeFilterCount = [pingStatus, typeFilter, osFilter].filter(Boolean).length;
+    const filterCount = document.querySelector("[data-active-filter-count]");
+    if (filterCount) {
+      filterCount.hidden = activeFilterCount === 0;
+      filterCount.textContent = activeFilterCount ? String(activeFilterCount) : "";
+    }
 
     const resetLink = document.querySelector("[data-filter-reset]");
     if (resetLink) {
