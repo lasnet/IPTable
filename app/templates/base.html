@@ -5,8 +5,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}IPtable{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20261030-pane">
-  <script src="{{ url_for('static', path='/app.js') }}?v=20261030-pane" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20261030-smooth">
+  <script src="{{ url_for('static', path='/app.js') }}?v=20261030-smooth" defer></script>
 </head>
 
 <body data-i18n-selected-row="{{ _('js.selected_row') }}"
@@ -209,6 +209,7 @@
     </section>
   </main>
 
+  {% if inventory_view %}
   {% if current_user.can_create_inventory %}
   <dialog class="modal-dialog" id="folder-create-modal" {% if request.query_params.get('new_folder') == 'true' %}data-open-on-load{% endif %}>
     <form class="modal-form" action="/folders" method="post">
@@ -367,6 +368,7 @@
   </dialog>
   {% endif %}
   {% endfor %}
+  {% endif %}
 
   {% block modals %}{% endblock %}
   {% else %}

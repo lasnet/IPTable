@@ -52,8 +52,10 @@ class SidebarTest(unittest.TestCase):
             folder = Folder(name="Office")
             db.add(folder)
             db.flush()
-            db.add(Project(folder_id=folder.id, name="LAN", cidr="192.168.1.0/24"))
+            project = Project(folder_id=folder.id, name="LAN", cidr="192.168.1.0/24")
+            db.add(project)
             db.commit()
+            project_id = project.id
 
         def override_db():
             db = session_factory()
@@ -78,11 +80,20 @@ class SidebarTest(unittest.TestCase):
         self.assertIsNone(response.headers.get("location"))
         self.assertIn("Обзор сети", response.text)
         self.assertIn("192.168.1.0/24", response.text)
+        self.assertNotIn('id="folder-create-modal"', response.text)
 
         inventory_response = client.get("/inventory")
         self.assertEqual(inventory_response.status_code, 200)
         self.assertIn("Выберите проект", inventory_response.text)
         self.assertIn('class="sidebar"', inventory_response.text)
+        self.assertIn('id="folder-create-modal"', inventory_response.text)
+
+        table_response = client.get(
+            f"/projects/{project_id}", headers={"X-Requested-With": "XMLHttpRequest"}
+        )
+        self.assertEqual(table_response.status_code, 200)
+        self.assertIn('class="asset-table"', table_response.text)
+        self.assertNotIn('id="folder-create-modal"', table_response.text)
 
         message_response = client.get("/inventory?message=Saved")
         self.assertIn("Saved", message_response.text)

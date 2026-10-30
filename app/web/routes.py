@@ -461,8 +461,6 @@ def index(
         {
             "request": request,
             "folders": folders,
-            "folder_schedules": _load_folder_schedules(db),
-            "default_ping_interval_minutes": _default_ping_interval_minutes(),
             "active_project": None,
             "current_user": current_user,
             "stats": stats,
@@ -500,7 +498,6 @@ def inventory(
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(
     request: Request,
-    db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_user)],
 ) -> HTMLResponse:
     return _templates(request).TemplateResponse(
@@ -508,9 +505,7 @@ def settings_page(
         "settings.html",
         {
             "request": request,
-            "folders": _load_sidebar_folders(db),
-            "folder_schedules": _load_folder_schedules(db),
-            "default_ping_interval_minutes": _default_ping_interval_minutes(),
+            "folders": [],
             "active_project": None,
             "current_user": current_user,
         },
@@ -538,9 +533,7 @@ def global_history(
             "history_back_url": "/inventory",
             "history_items": history_items,
             "show_history_project": True,
-            "folders": _load_sidebar_folders(db),
-            "folder_schedules": _load_folder_schedules(db),
-            "default_ping_interval_minutes": _default_ping_interval_minutes(),
+            "folders": [],
             "active_project": None,
             "current_user": current_user,
         },
@@ -889,7 +882,6 @@ def project_detail(
     project = db.scalar(
         select(Project)
         .where(Project.id == project_id)
-        .options(selectinload(Project.custom_fields), selectinload(Project.folder))
     )
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -909,7 +901,6 @@ def project_detail(
         os_filter=clean_os_filter,
     )
 
-    total_count = db.scalar(select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id)) or 0
     filled_total = db.scalar(
         select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, filled_condition)
     ) or 0
@@ -932,6 +923,38 @@ def project_detail(
     if hide_empty:
         ip_query = ip_query.where(filled_condition)
     ip_records = db.scalars(ip_query.offset(pagination["offset"]).limit(page_size)).all()
+    hide_toggle_url = _project_table_url(
+        project.id,
+        hide_empty=not hide_empty,
+        page=1,
+        per_page=pagination["per_page"],
+        ping_status=clean_ping_status,
+        type_filter=clean_type_filter,
+        os_filter=clean_os_filter,
+    )
+    table_filters = {
+        "ping_status": clean_ping_status,
+        "type_filter": clean_type_filter,
+        "os_filter": clean_os_filter,
+    }
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return _templates(request).TemplateResponse(
+            request,
+            "_project_table.html",
+            {
+                "request": request,
+                "project": project,
+                "custom_fields": custom_fields,
+                "ip_records": ip_records,
+                "hide_empty": hide_empty,
+                "hide_toggle_url": hide_toggle_url,
+                "pagination": pagination,
+                "table_filters": table_filters,
+                "filled_count": filled_total,
+            },
+        )
+
+    total_count = db.scalar(select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id)) or 0
     online_count = db.scalar(
         select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, IPAddress.is_reachable.is_(True))
     ) or 0
@@ -972,21 +995,9 @@ def project_detail(
         "project_schedule_minutes": _schedule_interval_minutes(project_schedule, settings),
         "ip_records": ip_records,
         "hide_empty": hide_empty,
-        "hide_toggle_url": _project_table_url(
-            project.id,
-            hide_empty=not hide_empty,
-            page=1,
-            per_page=pagination["per_page"],
-            ping_status=clean_ping_status,
-            type_filter=clean_type_filter,
-            os_filter=clean_os_filter,
-        ),
+        "hide_toggle_url": hide_toggle_url,
         "pagination": pagination,
-        "table_filters": {
-            "ping_status": clean_ping_status,
-            "type_filter": clean_type_filter,
-            "os_filter": clean_os_filter,
-        },
+        "table_filters": table_filters,
         "filter_options": {
             "ping_statuses": [
                 {"value": "", "label": _ui("filter.all_statuses")},
@@ -1007,8 +1018,7 @@ def project_detail(
         "shown_count": len(ip_records),
         "visible_count": visible_count,
     }
-    template_name = "_project_table.html" if request.headers.get("x-requested-with") == "XMLHttpRequest" else "project.html"
-    return _templates(request).TemplateResponse(request, template_name, context)
+    return _templates(request).TemplateResponse(request, "project.html", context)
 
 
 @router.get("/admin/users", response_class=HTMLResponse)
@@ -1025,9 +1035,7 @@ def admin_users(
         "admin_users.html",
         {
             "request": request,
-            "folders": _load_sidebar_folders(db),
-            "folder_schedules": _load_folder_schedules(db),
-            "default_ping_interval_minutes": _default_ping_interval_minutes(),
+            "folders": [],
             "active_project": None,
             "current_user": current_user,
             "users": users,
@@ -1603,9 +1611,7 @@ def search(
         {
             "request": request,
             "q": query,
-            "folders": _load_sidebar_folders(db),
-            "folder_schedules": _load_folder_schedules(db),
-            "default_ping_interval_minutes": _default_ping_interval_minutes(),
+            "folders": [],
             "active_project": None,
             "current_user": current_user,
             "found_folders": found_folders,

@@ -390,11 +390,12 @@
         window.location.href = response.url;
         return;
       }
-      if (!response.ok || !new DOMParser().parseFromString(html, "text/html").querySelector(".asset-table")) {
+      const parsed = new DOMParser().parseFromString(html, "text/html");
+      if (!response.ok || !parsed.querySelector(".asset-table")) {
         window.location.href = url;
         return;
       }
-      region.innerHTML = html;
+      region.replaceChildren(...parsed.body.childNodes);
     } catch (error) {
       if (requestId === tableRequestId) {
         window.location.href = url;
@@ -574,11 +575,13 @@
 })();
 
 (function () {
-  function setGlobalLoading(enabled) {
+  let loadingForm = null;
+  function setGlobalLoading(enabled, form = loadingForm) {
+    if (enabled) loadingForm = form;
     document.body.classList.toggle("is-loading", enabled);
     document.querySelector(".tree")?.toggleAttribute("hidden", enabled);
     document.querySelector(".tree-loading")?.toggleAttribute("hidden", !enabled);
-    document.querySelectorAll("button").forEach((button) => {
+    form?.querySelectorAll("button").forEach((button) => {
       if (enabled) {
         button.dataset.wasDisabled = button.disabled ? "true" : "false";
         button.disabled = true;
@@ -587,6 +590,7 @@
         delete button.dataset.wasDisabled;
       }
     });
+    if (!enabled) loadingForm = null;
   }
 
   document.addEventListener("submit", (event) => {
@@ -601,25 +605,7 @@
     ) {
       return;
     }
-    window.setTimeout(() => setGlobalLoading(true), 0);
-  });
-
-  document.addEventListener("click", (event) => {
-    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
-      return;
-    }
-    const link = event.target.closest("a");
-    if (!link || link.target || link.hasAttribute("download")) {
-      return;
-    }
-    if (link.closest("[data-host-drawer-history]") || link.closest(".pagination-controls")) {
-      return;
-    }
-    const href = link.getAttribute("href") || "";
-    if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) {
-      return;
-    }
-    window.setTimeout(() => setGlobalLoading(true), 0);
+    window.setTimeout(() => setGlobalLoading(true, form), 0);
   });
 
   window.addEventListener("pageshow", () => setGlobalLoading(false));
