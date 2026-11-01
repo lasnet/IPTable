@@ -38,22 +38,90 @@ cd IPTable
 docker compose up -d --build
 ```
 
-Для доступа с других компьютеров задайте `APP_HOST` — IP-адрес или DNS-имя сервера
-без протокола и порта. Откройте **https://APP_HOST:8000** (на самой машине —
-**https://localhost:8000**). Логин по умолчанию - `admin`,
+Откройте **http://IP-адрес-сервера:8000** (на самой машине —
+**http://localhost:8000**). Логин по умолчанию - `admin`,
 пароль - тот, который вы указали в `INITIAL_ADMIN_PASSWORD`.
-База, миграции, HTTPS gateway и ping-worker запускаются автоматически.
-Для локальной сети gateway сам выпускает сертификат через локальный центр
-сертификации. Его публичный корневой сертификат можно получить командой
-`docker compose cp gateway:/etc/nginx/certs/root.crt iptable-root.crt`
-и добавить в доверенные сертификаты клиентских устройств. Не отключайте проверку TLS.
-Для сертификата от своего центра сертификации замените `server.crt` и `server.key`
-в volume `gateway_certs` своим сертификатом с цепочкой и закрытым ключом,
-затем перезапустите gateway. Закрытые ключи не добавляйте в Git.
+База, миграции и ping-worker запускаются автоматически. По умолчанию Nginx
+не запускается, сертификаты не требуются. HTTP не шифрует пароли и cookie;
+для доступа через интернет включите HTTPS или используйте свой HTTPS proxy.
 
 Вместо редактирования Compose можно скопировать `.env.example` в `.env`
 и заполнить те же настройки там. Настройки из `.env` используются в выражениях
 `${ИМЯ_ПАРАМЕТРА:-значение}`; не храните настоящий `.env` в Git.
+
+### HTTPS через ваш общий Nginx
+
+На сервере приложения в `.env`:
+
+```dotenv
+HTTPS_ENABLED=false
+APP_PUBLIC_URL=https://iptable.example.com
+APP_PORT=8000
+TRUSTED_PROXY_IPS=192.168.1.10
+```
+
+Встроенный Nginx не нужен. На общем Nginx настройте сертификат и перенаправление
+HTTP → HTTPS, а в HTTPS server — upstream приложения:
+
+```nginx
+location / {
+    proxy_pass http://192.168.1.20:8000;
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-For $remote_addr;
+}
+```
+
+Замените адреса своими. `TRUSTED_PROXY_IPS` — IP общего Nginx, видимый контейнеру,
+или его доверенная подсеть. Ограничьте доступ к порту приложения этим прокси
+через правила сети/Docker firewall. Если прокси на том же хосте, можно задать
+`APP_BIND_ADDRESS=127.0.0.1`. Приложение не подключается к прокси само; Secure cookie
+и HSTS включаются по `APP_PUBLIC_URL`, остальные production-проверки сохраняются.
+
+### Встроенный HTTPS по выбору
+
+Нужен Docker Compose **2.24.4+**, DNS-имя/IP и выданный для него сертификат.
+Скопируйте `.env.example` в `.env`, заполните секреты и настройки:
+
+```dotenv
+HTTPS_ENABLED=true
+COMPOSE_PATH_SEPARATOR=:
+COMPOSE_FILE=docker-compose.yml:deploy/https/${HTTPS_ENABLED:-false}.yml
+APP_PUBLIC_URL=https://iptable.example.com
+TLS_SERVER_NAME=iptable.example.com
+APP_PORT=8000
+HTTPS_PORT=443
+TLS_CERT_FILE=/srv/iptable/tls/fullchain.pem
+TLS_KEY_FILE=/srv/iptable/tls/privkey.pem
+TLS_KEY_GID=0
+```
+
+Запуск остаётся прежним: `docker compose up -d --build --remove-orphans`.
+`COMPOSE_FILE` выбирает HTTPS-фрагмент по переключателю; сохраняйте эту строку
+из примера. Один `HTTPS_ENABLED=true` без этой строки не добавляет сервис Compose.
+Пути сертификатов абсолютные, на машине Docker Engine. Сертификат — PEM с цепочкой,
+ключ — соответствующий PEM без парольной фразы; оба подключаются только для чтения.
+Скрипт проверяет читаемость, срок, имя и соответствие ключа сертификату. Nginx
+работает с UID 101 и дополнительной группой `TLS_KEY_GID`. Например, для root-owned
+ключа с группой root используйте `TLS_KEY_GID=0` и права `640`; не делайте ключ
+общедоступным. Родительский каталог не монтируется.
+
+Сертификаты не генерируются автоматически. Для собственного CA добавьте его
+публичный корень в доверие клиентских устройств. Для обновления замените файлы
+и выполните `docker compose up -d --force-recreate gateway`; это также обновляет
+bind mount при атомарной замене файлов. Закрытые ключи в Git не добавляйте.
+
+Приложение доступно на HTTPS-порту, HTTP на `APP_PORT` перенаправляется на
+`APP_PUBLIC_URL` с сохранением пути и параметров. HTTP, ошибочно отправленный на
+HTTPS-порт, также перенаправляется. Если порт HTTPS не 443, укажите его и в URL,
+например `https://iptable.example.com:8443`. Версия Nginx скрыта в заголовках и
+страницах ошибок. Внутренний порт web при этом не публикуется.
+
+Для возврата к HTTP задайте `HTTPS_ENABLED=false` и HTTP `APP_PUBLIC_URL`, затем
+`docker compose up -d --build --remove-orphans`: лишний gateway будет удалён.
+База и её том сохраняются. После ранее включённого HSTS браузер может продолжать
+принудительно использовать HTTPS до истечения политики; изменение конфигурации
+не очищает сохранённую браузером политику.
 
 ## Настройки
 
@@ -65,15 +133,19 @@ docker compose up -d --build
 | `SECRET_KEY` | пусто | Обязательный случайный ключ сессий, от 32 символов. Сохраните его при обновлениях. |
 | `INITIAL_ADMIN_USERNAME` | `admin` | Логин администратора. |
 | `INITIAL_ADMIN_PASSWORD` | пусто | Пароль администратора при первом запуске, от 12 символов. |
-| `APP_PORT` | `8000` | HTTPS-порт gateway на сервере. |
-| `HTTP_PORT` | `8080` | Порт перенаправления HTTP на HTTPS. |
-| `APP_HOST` | `localhost` | IP-адрес или DNS-имя в URL браузера, без протокола и порта. |
+| `APP_PORT` | `8000` | HTTP-порт; во встроенном HTTPS — порт перенаправления. |
+| `HTTPS_ENABLED` | `false` | Встроенный HTTPS; требует строки COMPOSE_FILE из примера env. |
+| `APP_PUBLIC_URL` | `http://localhost:8000` | Внешний HTTP(S)-адрес без пути; HTTPS включает Secure cookie и HSTS. |
+| `HTTPS_PORT` | `443` | Порт встроенного HTTPS. |
+| `TLS_SERVER_NAME` | пусто | DNS-имя/IP сертификата, совпадающее с именем в APP_PUBLIC_URL. |
+| `TLS_CERT_FILE` / `TLS_KEY_FILE` | пусто | Абсолютные пути PEM-сертификата с цепочкой и ключа. |
+| `TLS_KEY_GID` | `0` | Дополнительная группа Nginx для чтения ключа. |
+| `TRUSTED_PROXY_IPS` | `127.0.0.1` | Доверенные адреса/CIDR внешнего прокси; не используйте `*` для открытого backend. |
 | `APP_BIND_ADDRESS` | `0.0.0.0` | Адрес прослушивания; `127.0.0.1` ограничит доступ самим сервером. |
 | `APP_NAME` | `IPtable` | Название приложения. |
 | `INTERFACE_LANGUAGE` | `RU` | Язык интерфейса: `RU` или `EN`. |
 | `POSTGRES_USER` / `POSTGRES_DB` | `iptable` | Пользователь и название базы. |
 | `SESSION_IDLE_TIMEOUT_SECONDS` | `86400` | Завершение сессии после указанного числа секунд бездействия. |
-| `SESSION_COOKIE_SECURE` | `true` | Защищённые cookie; production запрещает отключение. В Compose всегда включены. |
 | `LOGIN_RATE_LIMIT_ATTEMPTS` | `5` | Сколько неудачных попыток входа допускается за окно ограничения. |
 | `LOGIN_RATE_LIMIT_WINDOW_SECONDS` | `300` | Длина окна ограничения входа в секундах. |
 | `LOGIN_RATE_LIMIT_LOCKOUT_SECONDS` | `900` | Время блокировки входа в секундах. |
@@ -95,8 +167,7 @@ docker compose up -d --build
 Пароли и логин при первом запуске создают учетные записи.
 Изменение `INITIAL_ADMIN_PASSWORD` или `POSTGRES_PASSWORD` в конфигурации
 не меняет пароль уже созданного пользователя или базы. Пароли пользователей
-меняются в админ-панели. Вход работает по HTTPS, в том числе внутри локальной сети.
-Прямой HTTP-порт web не публикуется. Logout отзывает текущую сессию; смена пароля
+меняются в админ-панели. Logout отзывает текущую сессию; смена пароля
 или отключение пользователя отзывает все его сессии.
 
 ## Первые шаги
@@ -115,15 +186,17 @@ docker compose up -d --build
 
 После этого обновления старые сессии потребуют повторного входа. Таблица сессий
 добавляется обычной миграцией без удаления пользователей и инвентаризации.
-Сохраняйте прежнее имя Compose project и volume базы. При переходе с HTTP
-замените URL на HTTPS и задайте `APP_HOST`; старое значение
-`SESSION_COOKIE_SECURE=false` больше не допускается в production.
+Сохраняйте прежнее имя Compose project и volume базы. Режим доступа теперь задаёт
+APP_PUBLIC_URL; APP_HOST, HTTP_PORT и ручной SESSION_COOKIE_SECURE больше не нужны
+в Compose. При обновлении промежуточной версии dev с обязательным gateway выберите
+режим выше, для HTTPS предоставьте свой сертификат. Старый gateway_certs не используется;
+он не удаляется автоматически. Для удаления лишнего контейнера используйте --remove-orphans.
 
 ```bash
 scripts/backup_postgres.sh
 git pull --ff-only
 docker compose build --pull
-docker compose up -d --no-build
+docker compose up -d --no-build --remove-orphans
 ```
 
 Если настройки внесены прямо в Compose, Git может попросить объединить их с новой

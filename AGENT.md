@@ -31,7 +31,9 @@ CSV/XLSX импорт: ip;hostname;os;type;comment, заголовок необ�
 ## 3. Архитектура проекта
 
 FastAPI/Jinja2, SQLAlchemy, Alembic, PostgreSQL, отдельный ping-worker с DB-очередью.
-Все сервисы запускает один корневой docker-compose.yml: postgres, migrate, web, worker, HTTPS gateway.
+Корневой docker-compose.yml запускает postgres, migrate, web, worker по HTTP.
+Встроенный HTTPS gateway опционален: HTTPS_ENABLED и COMPOSE_FILE из .env.example
+выбирают deploy/https/true.yml; false.yml пустой. Это одинаково для dev и stable.
 Redis/Nginx и Python на машине пользователя не требуются.
 
 ## 4. Структура директорий
@@ -65,7 +67,8 @@ scripts/update_stable.py - перенос проверенного dev в stable
 python -m pytest -q; python -m ruff check .
 При auth/session/admin/export/upload/Docker запускайте security-команды из DEVELOPMENT.md:
 проверьте CSRF, rate limit, секреты, опубликованные порты и доступность OpenAPI.
-CI также проверяет реальный Compose, вход по HTTPS с проверкой CA, ping и backup/restore PostgreSQL.
+CI также проверяет реальный Compose по HTTP/HTTPS, CSS/JS, редиректы, скрытие версии
+Nginx, ping и backup/restore PostgreSQL.
 
 ## 8. Добавление функций
 
@@ -103,14 +106,19 @@ DEVELOPMENT.md - все подробности разработки. AGENT.md - 
 ## 13. Нюансы
 
 APP_ENV=production сохраняется в Compose: OpenAPI выключен, секреты проверяются.
-SESSION_COOKIE_SECURE=false нужен для HTTP. Для HTTPS задайте true; без явного
-флага прямой production-запуск по-прежнему использует Secure cookie и HSTS.
+APP_PUBLIC_URL определяет Secure cookie/HSTS для HTTP, встроенного HTTPS и внешнего
+proxy. Без URL прямой production-запуск сохраняет Secure cookie по умолчанию.
+Внешний proxy должен быть явно доверен через TRUSTED_PROXY_IPS, backend закрыт сетью.
 Settings скрывает значения входных данных в ошибках валидации.
 
 Все POST-формы требуют csrf_input(request). Login rate limit использует общую БД.
 Сессия истекает по idle-timeout; каждый авторизованный запрос продлевает активность.
 UserSession в БД обеспечивает отзыв logout и всех сессий при смене пароля/деактивации.
-В production Secure cookie обязательна; не публикуйте HTTP-порт web в обход gateway.
+При HTTPS Secure cookie обязательна; не публикуйте HTTP-порт web в обход gateway.
+HTTP в production явно разрешён через HTTP APP_PUBLIC_URL, OpenAPI и проверки
+секретов сохраняются. Сертификаты не генерировать автоматически, монтировать только
+пользовательские файлы read-only. Не показывать версию Nginx. Ссылки static должны
+использовать origin-relative .path; проверять их загрузку через gateway.
 После изменения Compose или .env используйте up -d, не start.
 
 Sidebar сортирует CIDR численно. Папки закрыты при первом открытии, сохраняют

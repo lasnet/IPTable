@@ -7,10 +7,11 @@ import re
 import ssl
 from urllib.error import HTTPError
 from urllib.parse import urlencode, urljoin, urlsplit
-from urllib.request import HTTPCookieProcessor, HTTPSHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, HTTPSHandler, Request, build_opener
 
 
-def check_application(url: str, ca_file: str | None = None) -> None:
+def check_application(url: str, ca_file: str | None = None, http_url: str | None = None,
+                      https_port_http_url: str | None = None) -> None:
     context = ssl.create_default_context(cafile=ca_file)
     opener = build_opener(HTTPCookieProcessor(CookieJar()), HTTPSHandler(context=context))
 
@@ -21,11 +22,32 @@ def check_application(url: str, ca_file: str | None = None) -> None:
         except HTTPError as exc:
             response = exc
         with response:
+            if re.search(r"nginx/[\d.]", response.headers.get("Server", ""), re.IGNORECASE):
+                raise RuntimeError("Nginx version is exposed")
             return response.status, response.read().decode()
 
     def expect(condition: bool, message: str) -> None:
         if not condition:
             raise RuntimeError(message)
+
+    class NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+
+    redirect_client = build_opener(NoRedirect())
+    for source in (http_url, https_port_http_url):
+        if source:
+            path = "/login?redirect_probe=1&next=inventory"
+            try:
+                response = redirect_client.open(source.rstrip("/") + path, timeout=15)
+            except HTTPError as exc:
+                response = exc
+            with response:
+                expect(response.status == 308, "HTTP did not redirect with status 308")
+                expect(response.headers.get("Location") == url.rstrip("/") + path,
+                       "HTTP redirect lost the public origin, port, path or query")
+                evidence = response.headers.get("Server", "") + response.read().decode()
+                expect(not re.search(r"nginx/[\d.]", evidence, re.IGNORECASE), "Nginx version is exposed")
 
     expect(request("/health")[0] == 200, "Health check failed")
     for path in ("/docs", "/redoc", "/openapi.json"):
@@ -61,7 +83,9 @@ def check_application(url: str, ca_file: str | None = None) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", default="https://localhost:8000")
+    parser.add_argument("--url", default="http://localhost:8000")
     parser.add_argument("--ca-file", help="Trusted local test CA certificate; TLS verification stays enabled")
+    parser.add_argument("--http-url", help="HTTP origin expected to redirect to --url")
+    parser.add_argument("--https-port-http-url", help="Plain HTTP sent to the TLS port must also redirect")
     arguments = parser.parse_args()
-    check_application(arguments.url, arguments.ca_file)
+    check_application(arguments.url, arguments.ca_file, arguments.http_url, arguments.https_port_http_url)

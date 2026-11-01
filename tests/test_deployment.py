@@ -13,6 +13,36 @@ from sqlalchemy.engine import make_url
 
 
 class DeploymentTest(unittest.TestCase):
+    def test_public_url_controls_transport_without_disabling_production_guards(self) -> None:
+        for scheme in ("http", "https"):
+            with self.subTest(scheme=scheme):
+                settings = Settings(_env_file=None, app_env="production", secret_key=secrets.token_hex(32),
+                                    initial_admin_password=secrets.token_urlsafe(24),
+                                    app_public_url=f"{scheme}://inventory.example:8000")
+                with patch("app.main.get_settings", return_value=settings):
+                    client = TestClient(create_app(), base_url=f"{scheme}://inventory.example:8000")
+                response = client.get("/login")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual("; secure" in response.headers["set-cookie"].lower(), scheme == "https")
+                self.assertEqual("strict-transport-security" in response.headers, scheme == "https")
+                self.assertEqual(client.get("/docs").status_code, 404)
+                self.assertEqual(client.post("/login", data={}).status_code, 403)
+
+    def test_transport_configuration_rejects_invalid_origins_and_cookie_mismatch(self) -> None:
+        cases = [
+            {"app_public_url": "ftp://inventory.example"},
+            {"app_public_url": "https://user:password@inventory.example"},
+            {"app_public_url": "https://inventory.example/path"},
+            {"app_public_url": "https://inventory.example?x=1"},
+            {"app_public_url": "https://inventory.example:0"},
+            {"app_public_url": "https://inventory.example:99999"},
+            {"app_public_url": "https://inventory.example", "session_cookie_secure": False},
+            {"app_public_url": "http://inventory.example", "https_enabled": True},
+        ]
+        for invalid in cases:
+            with self.subTest(config=invalid), self.assertRaises(ValidationError):
+                Settings(_env_file=None, **invalid)
+
     def test_assets_use_browser_origin_behind_https_gateway(self) -> None:
         # The backend sees HTTP when the gateway is outside Uvicorn's trusted
         # proxy range. Asset links must still inherit the browser's HTTPS origin.

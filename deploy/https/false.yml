@@ -1,0 +1,2 @@
+# HTTP installation: the root Compose file is sufficient.
+services: {}

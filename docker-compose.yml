@@ -15,7 +15,9 @@ x-app-environment: &app-environment
   INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
   INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-} # Required: at least 12 characters.
   INTERFACE_LANGUAGE: ${INTERFACE_LANGUAGE:-RU} # RU or EN.
-  SESSION_COOKIE_SECURE: "true"
+  # Public URL controls Secure cookies and HSTS, including behind an external proxy.
+  APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:${APP_PORT:-8000}}
+  HTTPS_ENABLED: ${HTTPS_ENABLED:-false}
   SESSION_IDLE_TIMEOUT_SECONDS: ${SESSION_IDLE_TIMEOUT_SECONDS:-86400}
   LOGIN_RATE_LIMIT_ATTEMPTS: ${LOGIN_RATE_LIMIT_ATTEMPTS:-5}
   LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-300}
@@ -67,25 +69,12 @@ services:
     environment:
       <<: *app-environment
       ENABLE_PING_WORKER: "false"
+      FORWARDED_ALLOW_IPS: ${TRUSTED_PROXY_IPS:-127.0.0.1}
+    ports:
+      - "${APP_BIND_ADDRESS:-0.0.0.0}:${APP_PORT:-8000}:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
-    restart: unless-stopped
-
-  gateway:
-    image: ${COMPOSE_PROJECT_NAME:-iptable}-gateway
-    build: ./deploy/gateway
-    environment:
-      APP_HOST: ${APP_HOST:-localhost}
-      APP_PORT: ${APP_PORT:-8000}
-    ports:
-      - "${APP_BIND_ADDRESS:-0.0.0.0}:${APP_PORT:-8000}:8443"
-      - "${APP_BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-8080}:8080"
-    volumes:
-      - gateway_certs:/etc/nginx/certs
-    depends_on:
-      web:
-        condition: service_healthy
     restart: unless-stopped
 
   worker:
@@ -107,4 +96,3 @@ services:
 
 volumes:
   postgres_data:
-  gateway_certs:

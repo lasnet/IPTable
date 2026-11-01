@@ -45,11 +45,19 @@ jobs:
   image:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      matrix:
+        https: ["false", "true"]
     env:
       COMPOSE_PROJECT_NAME: iptable-ci
+      HTTPS_ENABLED: ${{ matrix.https }}
+      COMPOSE_PATH_SEPARATOR: ":"
+      COMPOSE_FILE: docker-compose.yml:deploy/https/${{ matrix.https }}.yml
       APP_PORT: "18000"
-      HTTP_PORT: "18001"
-      APP_HOST: localhost
+      HTTPS_PORT: "18443"
+      TLS_SERVER_NAME: localhost
+      TLS_CERT_FILE: ${{ github.workspace }}/.cache/server.crt
+      TLS_KEY_FILE: ${{ github.workspace }}/.cache/server.key
       APP_BIND_ADDRESS: "127.0.0.1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -62,15 +70,30 @@ jobs:
             echo "::add-mask::$value"
             echo "$setting=$value" >> "$GITHUB_ENV"
           done
+      - name: Configure test transport
+        run: |
+          if [ "$HTTPS_ENABLED" = true ]; then
+            echo 'APP_PUBLIC_URL=https://localhost:18443' >> "$GITHUB_ENV"
+            mkdir -p .cache
+            openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=localhost' \
+              -addext 'subjectAltName=DNS:localhost' \
+              -keyout .cache/server.key -out .cache/server.crt 2>/dev/null
+            sudo chgrp 0 .cache/server.key
+            chmod 640 .cache/server.key
+          else
+            echo 'APP_PUBLIC_URL=http://localhost:18000' >> "$GITHUB_ENV"
+          fi
       - name: Build and start the documented installation
         run: |
-          docker compose build --pull web postgres gateway
+          docker compose build --pull
           docker compose up -d --no-build --wait --wait-timeout 180
-          mkdir -p .cache
-          docker compose cp gateway:/etc/nginx/certs/root.crt .cache/iptable-test-ca.crt
       - name: Test login and ping
         run: |
-          python3 scripts/smoke_test.py --url https://localhost:18000 --ca-file .cache/iptable-test-ca.crt
+          if [ "$HTTPS_ENABLED" = true ]; then
+            python3 scripts/smoke_test.py --url "$APP_PUBLIC_URL" --ca-file .cache/server.crt --http-url http://localhost:18000 --https-port-http-url http://localhost:18443
+          else
+            python3 scripts/smoke_test.py --url "$APP_PUBLIC_URL"
+          fi
           docker compose exec -T worker ping -c 1 -W 2 postgres
       - name: Test PostgreSQL backup and restore
         run: |
@@ -79,7 +102,11 @@ jobs:
           docker compose stop web worker
           CONFIRM_RESTORE=YES scripts/restore_postgres.sh backups/ci.dump
           docker compose up -d --no-build --wait --wait-timeout 180
-          python3 scripts/smoke_test.py --url https://localhost:18000 --ca-file .cache/iptable-test-ca.crt
+          if [ "$HTTPS_ENABLED" = true ]; then
+            python3 scripts/smoke_test.py --url "$APP_PUBLIC_URL" --ca-file .cache/server.crt
+          else
+            python3 scripts/smoke_test.py --url "$APP_PUBLIC_URL"
+          fi
       - name: Service status
         if: always()
         run: docker compose ps -a

@@ -1,4 +1,5 @@
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from pydantic import Field
 from pydantic import model_validator
@@ -11,6 +12,8 @@ from app.services.i18n import normalize_language
 class Settings(BaseSettings):
     app_name: str = "IPtable"
     app_env: str = "local"
+    app_public_url: str = ""
+    https_enabled: bool = False
     secret_key: str = Field(default="", min_length=0)
     session_cookie_secure: bool | None = None
     session_idle_timeout_seconds: int = Field(default=86400, ge=60)
@@ -50,6 +53,25 @@ class Settings(BaseSettings):
         self.app_env = self.app_env.strip().lower()
         if self.app_env not in {"local", "production"}:
             raise ValueError("APP_ENV must be local or production")
+        self.app_public_url = self.app_public_url.strip().rstrip("/")
+        if self.app_public_url:
+            try:
+                public = urlsplit(self.app_public_url)
+                valid_port = public.port
+            except ValueError:
+                raise ValueError("APP_PUBLIC_URL must be an HTTP(S) origin") from None
+            if (public.scheme not in {"http", "https"} or not public.hostname
+                    or public.username is not None or public.password is not None
+                    or public.path or public.query or public.fragment
+                    or any(c.isspace() for c in self.app_public_url)
+                    or valid_port == 0):
+                raise ValueError("APP_PUBLIC_URL must be an HTTP(S) origin without credentials or a path")
+            secure = public.scheme == "https"
+            if self.session_cookie_secure is not None and self.session_cookie_secure != secure:
+                raise ValueError("SESSION_COOKIE_SECURE must match the scheme of APP_PUBLIC_URL")
+            self.session_cookie_secure = secure
+        if self.https_enabled and not self.app_public_url.startswith("https://"):
+            raise ValueError("HTTPS_ENABLED requires an HTTPS APP_PUBLIC_URL")
         if not self.database_url:
             if self.postgres_host:
                 if not self.postgres_password.strip():
@@ -63,7 +85,7 @@ class Settings(BaseSettings):
                 self.database_url = "sqlite:///./data/iptable.sqlite3"
         self.interface_language = normalize_language(self.interface_language)
         if self.app_env == "production":
-            if self.session_cookie_secure is False:
+            if self.session_cookie_secure is False and not self.app_public_url.startswith("http://"):
                 raise ValueError("Production requires SESSION_COOKIE_SECURE=true and an HTTPS ingress")
             if len(self.secret_key.strip()) < 32 or self.secret_key.strip().startswith("replace-with-"):
                 raise ValueError("Production SECRET_KEY must be at least 32 characters and not a placeholder")

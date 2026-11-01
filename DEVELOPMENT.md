@@ -16,7 +16,7 @@ docker compose -p iptable-dev up -d --build
 ```
 
 Сначала заполните пароли и SECRET_KEY в Compose или .env. При одновременном запуске
-stable и dev на одном сервере задайте dev другие APP_PORT и HTTP_PORT. Имя iptable-dev отделяет
+stable и dev на одном сервере задайте dev другой APP_PORT (и HTTPS_PORT при HTTPS). Имя iptable-dev отделяет
 его контейнеры, образ и volume от пользовательской установки.
 
 ## Перенос проверенных изменений в stable
@@ -87,7 +87,8 @@ GitPython приложению не нужен и также исключён и
 `uv pip sync --python .venv/bin/python requirements-dev.lock`.
 
 CI в dev проверяет тесты, Ruff, зависимости, секреты, сборку и реальную установку
-через корневой Compose, вход по HTTPS с проверкой тестового CA, ping и backup/restore PostgreSQL.
+через корневой Compose, HTTP и встроенный HTTPS с проверкой тестового сертификата,
+загрузку CSS/JS, редиректы, скрытие версии Nginx, ping и backup/restore PostgreSQL.
 Bandit Medium/High блокирует CI; Low проверяйте вручную. Не отключайте правила
 глобально ради зеленого отчета. Semgrep/Checkov и остальные команды запускаются
 также при изменениях auth/session/admin/export/upload/Docker.
@@ -101,13 +102,29 @@ Bandit Medium/High блокирует CI; Low проверяйте вручну�
 URL.create, поэтому специальные символы пароля корректно кодируются.
 Без DATABASE_URL и POSTGRES_HOST сохраняется локальный SQLite fallback.
 
-APP_ENV=production выключает OpenAPI, проверяет секреты и запрещает insecure cookie.
-Корневой Compose публикует только Nginx HTTPS и HTTP redirect; web доступен внутри
-сети Compose. APP_HOST задаёт IPv4/имя сертификата; локальный CA создаётся в
-приватном volume, сертификат сервера обновляется при запуске, если срок близок
-к окончанию или изменился APP_HOST. Ключи остаются в volume; публичный root.crt
-нужен для доверия клиентских устройств. Для внешнего CA заменяются server.crt/key.
-Для HTTP без Docker используйте только APP_ENV=local и SESSION_COOKIE_SECURE=false.
+APP_ENV=production выключает OpenAPI и проверяет секреты в обоих режимах доступа.
+Compose по умолчанию публикует HTTP, без gateway. APP_PUBLIC_URL определяет Secure
+cookie и HSTS; внешний HTTPS proxy использует тот же HTTP backend с HTTPS URL.
+FORWARDED_ALLOW_IPS передаётся Uvicorn через TRUSTED_PROXY_IPS, по умолчанию loopback.
+Для внешнего proxy обязательно ограничивать доступ к backend средствами сети.
+Без APP_PUBLIC_URL прямой production-запуск сохраняет Secure cookie по умолчанию;
+явное отключение cookie требует указать HTTP APP_PUBLIC_URL. Несовпадение явного
+SESSION_COOKIE_SECURE со схемой URL отклоняется.
+
+Встроенный HTTPS: HTTPS_ENABLED=true и COMPOSE_FILE из .env.example выбирают
+deploy/https/true.yml; при false выбирается пустой false.yml. Это штатная dotenv
+интерполяция Compose, а не shell source env. Для явного -f указывайте оба файла;
+параметр -f имеет приоритет над COMPOSE_FILE. Нужен Compose 2.24.4+ (!override ports).
+Backend ports полностью сбрасываются, публикуется только gateway; внутри этой
+доверенной Compose-сети Uvicorn принимает forwarded headers. Сертификаты только
+пользовательские, read-only bind mounts с create_host_path=false. Gateway не
+выпускает и не обновляет сертификаты; валидирует имя, срок и ключ до старта Nginx.
+Не выдавайте контейнеру произвольные чувствительные host mounts или Docker socket.
+Перед перезапуском для смены режима выполните up -d --remove-orphans, не start.
+
+Smoke test проверяет ресурсы из HTML по тому же origin, включая Content-Type.
+Ссылки на static в шаблонах должны быть относительными к origin (.path), чтобы
+не зависеть от определения HTTPS внутренним backend и не создавать mixed content.
 UserSession хранит SHA-256 случайного токена и fingerprint password_hash, но не
 исходный токен. Logout удаляет одну сессию; смена пароля/деактивация удаляет все
 сессии пользователя. Серверная expiry продлевается при авторизованных запросах;

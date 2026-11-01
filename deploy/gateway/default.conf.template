@@ -1,15 +1,19 @@
+server_tokens off;
+
 server {
     listen 8080;
-    server_name ${APP_HOST};
-    return 308 https://${APP_HOST}:${APP_PORT}$request_uri;
+    server_name ${TLS_SERVER_NAME};
+    return 308 ${APP_PUBLIC_URL}$request_uri;
 }
 
 server {
     listen 8443 ssl;
-    server_name ${APP_HOST};
+    server_name ${TLS_SERVER_NAME};
     ssl_certificate /etc/nginx/certs/server.crt;
     ssl_certificate_key /etc/nginx/certs/server.key;
     ssl_protocols TLSv1.2 TLSv1.3;
+    # Nginx uses internal status 497 for HTTP sent to the TLS listener.
+    error_page 497 =308 ${APP_PUBLIC_URL}$request_uri;
     client_max_body_size 3m;
 
     location / {
