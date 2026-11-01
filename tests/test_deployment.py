@@ -13,6 +13,21 @@ from sqlalchemy.engine import make_url
 
 
 class DeploymentTest(unittest.TestCase):
+    def test_assets_use_browser_origin_behind_https_gateway(self) -> None:
+        # The backend sees HTTP when the gateway is outside Uvicorn's trusted
+        # proxy range. Asset links must still inherit the browser's HTTPS origin.
+        client = TestClient(create_app(), base_url="http://backend:8000")
+        response = client.get("/login", headers={"Host": "inventory.example:8443"})
+        assets = re.findall(r'<(?:link|script)\b[^>]*(?:href|src)="([^"]+)"', response.text)
+        self.assertEqual(len(assets), 2)
+        for asset in assets:
+            with self.subTest(asset=asset):
+                self.assertTrue(asset.startswith("/static/"))
+                resource = client.get(asset)
+                self.assertEqual(resource.status_code, 200)
+                expected = "text/css" if ".css?" in asset else "javascript"
+                self.assertIn(expected, resource.headers["content-type"])
+
     def test_postgres_settings_encode_password_and_preserve_legacy_url(self) -> None:
         password = secrets.token_hex(12) + "@:/%$#"
         with patch.dict(os.environ, {}, clear=True):

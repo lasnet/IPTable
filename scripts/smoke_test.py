@@ -6,7 +6,7 @@ import os
 import re
 import ssl
 from urllib.error import HTTPError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin, urlsplit
 from urllib.request import HTTPCookieProcessor, HTTPSHandler, Request, build_opener
 
 
@@ -32,6 +32,19 @@ def check_application(url: str, ca_file: str | None = None) -> None:
         expect(request(path)[0] == 404, "OpenAPI should be disabled")
     status, login = request("/login")
     expect(status == 200, "Login page failed")
+    assets = re.findall(r'<(?:link|script)\b[^>]*(?:href|src)="([^"]+)"', login)
+    expect(any("styles.css" in asset for asset in assets), "Stylesheet link missing")
+    expect(any("app.js" in asset for asset in assets), "Application script missing")
+    origin = urlsplit(url)
+    for asset in assets:
+        target = urlsplit(urljoin(url.rstrip("/") + "/login", asset))
+        expect((target.scheme, target.netloc) == (origin.scheme, origin.netloc),
+               "Asset does not use the application's origin (possible mixed content)")
+        with opener.open(target.geturl(), timeout=15) as resource:
+            expected_type = "text/css" if target.path.endswith(".css") else "javascript"
+            expect(resource.status == 200 and expected_type in resource.headers.get("Content-Type", ""),
+                   "Stylesheet or script could not be loaded")
+            expect(bool(resource.read()), "Empty application asset")
     token = re.search(r'name="_csrf_token" value="([^"]+)"', login)
     expect(token is not None, "Login CSRF token missing")
     expect(request("/login", {})[0] == 403, "POST without CSRF was accepted")
@@ -43,7 +56,7 @@ def check_application(url: str, ca_file: str | None = None) -> None:
     expect(status == 200, "Login failed")
     status, admin = request("/admin/users")
     expect(status == 200 and 'action="/login"' not in admin, "Authenticated session failed")
-    print("Application checks passed: startup, login, session, CSRF and disabled OpenAPI.")
+    print("Application checks passed: assets, startup, login, session, CSRF and disabled OpenAPI.")
 
 
 if __name__ == "__main__":
