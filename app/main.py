@@ -69,6 +69,8 @@ def create_app() -> FastAPI:
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        if request.url.path != "/health" and not request.url.path.startswith("/static/"):
+            response.headers.setdefault("Cache-Control", "no-store")
         if is_production:
             response.headers.setdefault(
                 "Content-Security-Policy",

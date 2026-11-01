@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pip install -r requirements-dev.lock
       - run: python -m pip check
       - run: python -m ruff check .
       - run: python -m pytest -q
@@ -48,6 +48,8 @@ jobs:
     env:
       COMPOSE_PROJECT_NAME: iptable-ci
       APP_PORT: "18000"
+      HTTP_PORT: "18001"
+      APP_HOST: localhost
       APP_BIND_ADDRESS: "127.0.0.1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -62,11 +64,13 @@ jobs:
           done
       - name: Build and start the documented installation
         run: |
-          docker compose build web
+          docker compose build --pull web postgres gateway
           docker compose up -d --no-build --wait --wait-timeout 180
+          mkdir -p .cache
+          docker compose cp gateway:/etc/nginx/certs/root.crt .cache/iptable-test-ca.crt
       - name: Test login and ping
         run: |
-          python3 scripts/smoke_test.py --url http://127.0.0.1:18000
+          python3 scripts/smoke_test.py --url https://localhost:18000 --ca-file .cache/iptable-test-ca.crt
           docker compose exec -T worker ping -c 1 -W 2 postgres
       - name: Test PostgreSQL backup and restore
         run: |
@@ -75,7 +79,7 @@ jobs:
           docker compose stop web worker
           CONFIRM_RESTORE=YES scripts/restore_postgres.sh backups/ci.dump
           docker compose up -d --no-build --wait --wait-timeout 180
-          python3 scripts/smoke_test.py --url http://127.0.0.1:18000
+          python3 scripts/smoke_test.py --url https://localhost:18000 --ca-file .cache/iptable-test-ca.crt
       - name: Service status
         if: always()
         run: docker compose ps -a

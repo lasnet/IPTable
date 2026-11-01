@@ -16,7 +16,7 @@ docker compose -p iptable-dev up -d --build
 ```
 
 Сначала заполните пароли и SECRET_KEY в Compose или .env. При одновременном запуске
-stable и dev на одном сервере задайте dev другой APP_PORT. Имя iptable-dev отделяет
+stable и dev на одном сервере задайте dev другие APP_PORT и HTTP_PORT. Имя iptable-dev отделяет
 его контейнеры, образ и volume от пользовательской установки.
 
 ## Перенос проверенных изменений в stable
@@ -44,8 +44,9 @@ python3 scripts/update_stable.py --push   # выполнить merge в stable
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.lock
 export APP_ENV=local
+export SESSION_COOKIE_SECURE=false
 export DATABASE_URL=sqlite:///./data/iptable.sqlite3
 export ENABLE_PING_WORKER=false
 export SECRET_KEY=local-development-key-change-me
@@ -65,6 +66,7 @@ python -m pytest -q
 python -m ruff check .
 python -m bandit -r app scripts
 python -m pip_audit -r requirements.txt --cache-dir .cache/pip-audit
+python -m pip_audit -r requirements-dev.txt --cache-dir .cache/pip-audit
 semgrep --metrics=off --config p/python app scripts
 checkov -f Dockerfile --framework dockerfile --skip-download --compact
 checkov -f docker-compose.yml --framework yaml --skip-download --compact
@@ -73,8 +75,19 @@ trivy fs --scanners secret,misconfig .
 hadolint Dockerfile
 ```
 
+Semgrep и Checkov устанавливаются отдельно от проектной `.venv` (например,
+через изолированное окружение auditor skill). Они не используются Python-кодом
+приложения или обязательными CI jobs. Их последние upstream releases ещё закрепляют
+уязвимые транзитивные версии; изоляция не является исправлением самих этих tools.
+Проверяйте их собственные advisory и не подключайте scanner services к приложению.
+GitPython приложению не нужен и также исключён из dev requirements.
+`requirements-dev.lock` фиксирует полный набор для Python 3.12+; обновление:
+`uv pip compile requirements-dev.txt --universal --python-version 3.12 --no-build -o requirements-dev.lock`.
+Существующее окружение очищается от старых лишних пакетов через
+`uv pip sync --python .venv/bin/python requirements-dev.lock`.
+
 CI в dev проверяет тесты, Ruff, зависимости, секреты, сборку и реальную установку
-через корневой Compose, вход по HTTP, ping и backup/restore PostgreSQL.
+через корневой Compose, вход по HTTPS с проверкой тестового CA, ping и backup/restore PostgreSQL.
 Bandit Medium/High блокирует CI; Low проверяйте вручную. Не отключайте правила
 глобально ради зеленого отчета. Semgrep/Checkov и остальные команды запускаются
 также при изменениях auth/session/admin/export/upload/Docker.
@@ -88,10 +101,17 @@ Bandit Medium/High блокирует CI; Low проверяйте вручну�
 URL.create, поэтому специальные символы пароля корректно кодируются.
 Без DATABASE_URL и POSTGRES_HOST сохраняется локальный SQLite fallback.
 
-APP_ENV=production выключает OpenAPI и проверяет секреты. Для прямого HTTP в
-Compose SESSION_COOKIE_SECURE=false; для своего HTTPS proxy установите true.
-При прямом запуске production без явной настройки secure-cookie прежнее поведение
-сохраняется: Secure cookie и HSTS включены. Изменение SECRET_KEY сбрасывает сессии.
+APP_ENV=production выключает OpenAPI, проверяет секреты и запрещает insecure cookie.
+Корневой Compose публикует только Nginx HTTPS и HTTP redirect; web доступен внутри
+сети Compose. APP_HOST задаёт IPv4/имя сертификата; локальный CA создаётся в
+приватном volume, сертификат сервера обновляется при запуске, если срок близок
+к окончанию или изменился APP_HOST. Ключи остаются в volume; публичный root.crt
+нужен для доверия клиентских устройств. Для внешнего CA заменяются server.crt/key.
+Для HTTP без Docker используйте только APP_ENV=local и SESSION_COOKIE_SECURE=false.
+UserSession хранит SHA-256 случайного токена и fingerprint password_hash, но не
+исходный токен. Logout удаляет одну сессию; смена пароля/деактивация удаляет все
+сессии пользователя. Серверная expiry продлевается при авторизованных запросах;
+просроченные записи очищаются при следующем входе. Cookies старой версии отвергаются.
 
 Не меняйте имя Compose project существующей установки без переноса данных:
 volume привязан к имени project. Никогда не подключайте dev к пользовательской

@@ -1,22 +1,20 @@
-FROM python:3.12-slim
+FROM python:3.12-alpine
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Python dependencies are pinned in requirements.txt; Debian package versions
-# stay on the base image security stream to avoid brittle distro-specific pins.
-# hadolint ignore=DL3008
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends iputils-ping libcap2-bin \
-    && setcap cap_net_raw+ep /usr/bin/ping \
-    && rm -rf /var/lib/apt/lists/*
+# Keep the runtime small; NET_RAW is granted only to the separate worker.
+# hadolint ignore=DL3018
+RUN apk add --no-cache iputils-ping
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --only-binary=:all: --upgrade pip==26.2.2 \
+    && pip install --no-cache-dir --only-binary=:all: -r requirements.txt \
+    && pip uninstall -y pip
 
-RUN addgroup --system app && adduser --system --ingroup app app
+RUN addgroup -S app && adduser -S -G app app
 
 # Runtime allowlist: tests, development tools, secrets and deployment files stay outside.
 COPY app/ ./app/

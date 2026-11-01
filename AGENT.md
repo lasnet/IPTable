@@ -31,7 +31,7 @@ CSV/XLSX импорт: ip;hostname;os;type;comment, заголовок необ�
 ## 3. Архитектура проекта
 
 FastAPI/Jinja2, SQLAlchemy, Alembic, PostgreSQL, отдельный ping-worker с DB-очередью.
-Все сервисы запускает один корневой docker-compose.yml: postgres, migrate, web, worker.
+Все сервисы запускает один корневой docker-compose.yml: postgres, migrate, web, worker, HTTPS gateway.
 Redis/Nginx и Python на машине пользователя не требуются.
 
 ## 4. Структура директорий
@@ -65,7 +65,7 @@ scripts/update_stable.py - перенос проверенного dev в stable
 python -m pytest -q; python -m ruff check .
 При auth/session/admin/export/upload/Docker запускайте security-команды из DEVELOPMENT.md:
 проверьте CSRF, rate limit, секреты, опубликованные порты и доступность OpenAPI.
-CI также проверяет реальный Compose, вход по HTTP, ping и backup/restore PostgreSQL.
+CI также проверяет реальный Compose, вход по HTTPS с проверкой CA, ping и backup/restore PostgreSQL.
 
 ## 8. Добавление функций
 
@@ -109,6 +109,8 @@ Settings скрывает значения входных данных в оши
 
 Все POST-формы требуют csrf_input(request). Login rate limit использует общую БД.
 Сессия истекает по idle-timeout; каждый авторизованный запрос продлевает активность.
+UserSession в БД обеспечивает отзыв logout и всех сессий при смене пароля/деактивации.
+В production Secure cookie обязательна; не публикуйте HTTP-порт web в обход gateway.
 После изменения Compose или .env используйте up -d, не start.
 
 Sidebar сортирует CIDR численно. Папки закрыты при первом открытии, сохраняют

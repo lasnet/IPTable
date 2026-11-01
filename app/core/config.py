@@ -63,6 +63,8 @@ class Settings(BaseSettings):
                 self.database_url = "sqlite:///./data/iptable.sqlite3"
         self.interface_language = normalize_language(self.interface_language)
         if self.app_env == "production":
+            if self.session_cookie_secure is False:
+                raise ValueError("Production requires SESSION_COOKIE_SECURE=true and an HTTPS ingress")
             if len(self.secret_key.strip()) < 32 or self.secret_key.strip().startswith("replace-with-"):
                 raise ValueError("Production SECRET_KEY must be at least 32 characters and not a placeholder")
             if len(self.initial_admin_password.strip()) < 12 or self.initial_admin_password.strip().startswith("replace-with-"):

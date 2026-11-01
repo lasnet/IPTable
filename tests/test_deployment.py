@@ -30,24 +30,28 @@ class DeploymentTest(unittest.TestCase):
                 Settings(_env_file=None, postgres_host="postgres", postgres_password="")
             self.assertEqual(Settings(_env_file=None).database_url, "sqlite:///./data/iptable.sqlite3")
 
-    def test_production_http_session_persists_and_openapi_stays_disabled(self) -> None:
+    def test_production_https_session_persists_and_openapi_stays_disabled(self) -> None:
         with patch.dict(os.environ, {
             "APP_ENV": "production", "SECRET_KEY": secrets.token_hex(32),
             "INITIAL_ADMIN_PASSWORD": secrets.token_urlsafe(24),
-            "SESSION_COOKIE_SECURE": "false", "ENABLE_PING_WORKER": "false",
+            "SESSION_COOKIE_SECURE": "true", "ENABLE_PING_WORKER": "false",
         }):
             get_settings.cache_clear()
             try:
-                client = TestClient(create_app(), base_url="http://testserver")
+                client = TestClient(create_app(), base_url="https://testserver")
                 first = client.get("/login")
                 second = client.get("/login")
                 token_pattern = r'name="_csrf_token" value="([^"]+)"'
                 self.assertEqual(re.search(token_pattern, first.text).group(1), re.search(token_pattern, second.text).group(1))
-                self.assertNotIn("; secure", first.headers["set-cookie"].lower())
+                self.assertIn("; secure", first.headers["set-cookie"].lower())
                 self.assertIn("httponly", first.headers["set-cookie"].lower())
-                self.assertNotIn("Strict-Transport-Security", first.headers)
+                self.assertIn("Strict-Transport-Security", first.headers)
                 self.assertEqual(client.get("/docs").status_code, 404)
                 self.assertEqual(client.post("/login", data={}).status_code, 403)
+                self.assertEqual(client.post("http://testserver/login", data={
+                    "_csrf_token": re.search(token_pattern, first.text).group(1),
+                    "username": "admin", "password": "unused-test-password",
+                }).status_code, 403)
             finally:
                 get_settings.cache_clear()
 

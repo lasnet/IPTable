@@ -65,6 +65,16 @@ class User(TimestampMixin, Base):
         return bool(self.is_admin or self.can_manage_columns)
 
 
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+    __table_args__ = (Index("ix_user_sessions_expires", "expires_at"),)
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    credential_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
 class Project(TimestampMixin, Base):
     __tablename__ = "projects"
     __table_args__ = (UniqueConstraint("folder_id", "name", name="uq_project_folder_name"),)

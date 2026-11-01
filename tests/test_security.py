@@ -54,6 +54,22 @@ class SecurityTest(unittest.TestCase):
         with self.assertRaises(ValidationError):
             Settings(app_env="production", secret_key="")
 
+    def test_production_rejects_insecure_cookie_override(self) -> None:
+        with self.assertRaises(ValidationError):
+            Settings(_env_file=None, app_env="production", secret_key="x" * 32,
+                     initial_admin_password="test-password", session_cookie_secure=False)
+
+    def test_production_cookie_and_headers_are_secure(self) -> None:
+        settings = Settings(_env_file=None, app_env="production", secret_key="x" * 32,
+                            initial_admin_password="test-password")
+        with patch("app.main.get_settings", return_value=settings):
+            app = create_app()
+        response = TestClient(app, base_url="https://testserver").get("/login")
+        self.assertIn("secure", response.headers["set-cookie"].lower())
+        self.assertIn("httponly", response.headers["set-cookie"].lower())
+        self.assertIn("Strict-Transport-Security", response.headers)
+        self.assertIn("Content-Security-Policy", response.headers)
+
     def test_csrf_input_escapes_session_token(self) -> None:
         request = SimpleNamespace(session={"csrf_token": '\"><script>alert(1)</script>'})
         markup = str(csrf_input(request))

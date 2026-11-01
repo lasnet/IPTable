@@ -1,9 +1,10 @@
 -r requirements.txt
 
-pytest==9.0.3
+pytest==9.2.0
 httpx==0.28.1
 bandit==1.9.4
-pip-audit==2.9.0
+pip-audit==2.10.1
 ruff==0.14.6
-semgrep==1.163.0
-checkov==3.2.487
+pip==26.2.2
+# Semgrep/Checkov run in separate auditor environments (see DEVELOPMENT.md).
+# Their upstream pins must not pull vulnerable unused services into app/CI tooling.

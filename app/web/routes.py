@@ -43,6 +43,7 @@ from app.services.ping import (
     set_project_ping_schedule,
 )
 from app.services.security import login_rate_limit_retry_after, record_login_failure, require_csrf_token, reset_login_failures
+from app.services.sessions import SESSION_TOKEN_KEY, issue_session, revoke_session, revoke_user_sessions, session_user
 
 router = APIRouter(dependencies=[Depends(require_csrf_token)])
 SESSION_LAST_ACTIVITY_KEY = "last_activity_at"
@@ -164,8 +165,8 @@ def require_user(
         request.session.clear()
         raise _login_redirect()
 
-    user = db.get(User, user_pk)
-    if user is None or not user.is_active:
+    user = session_user(db, request.session.get(SESSION_TOKEN_KEY), user_pk, settings.session_idle_timeout_seconds)
+    if user is None:
         request.session.clear()
         raise _login_redirect()
 
@@ -420,14 +421,18 @@ def login(
         return _redirect_error("/login", _ui("login.invalid"))
 
     reset_login_failures(db, client_ip, username)
+    revoke_session(db, request.session.get(SESSION_TOKEN_KEY))
+    session_token = issue_session(db, user, settings.session_idle_timeout_seconds)
     request.session.clear()
     request.session["user_id"] = user.id
+    request.session[SESSION_TOKEN_KEY] = session_token
     request.session[SESSION_LAST_ACTIVITY_KEY] = int(time.time())
     return _redirect("/")
 
 
 @router.post("/logout")
-def logout(request: Request) -> RedirectResponse:
+def logout(request: Request, db: Annotated[Session, Depends(get_db)]) -> RedirectResponse:
+    revoke_session(db, request.session.get(SESSION_TOKEN_KEY))
     request.session.clear()
     return _redirect("/login")
 
@@ -1148,6 +1153,8 @@ def admin_update_user(
         user.can_manage_columns = _checked(can_manage_columns)
     if clean_password:
         user.password_hash = hash_password(clean_password)
+    if clean_password or not user.is_active:
+        revoke_user_sessions(db, user.id)
 
     try:
         db.commit()
@@ -1360,6 +1367,9 @@ async def update_ip_address(
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
+    if not current_user.can_edit_inventory:
+        raise HTTPException(status_code=403, detail="IP address edit permission required")
+
     ip_record = db.scalar(select(IPAddress).where(IPAddress.id == ip_id, IPAddress.project_id == project_id))
     if ip_record is None:
         raise HTTPException(status_code=404, detail="IP address not found")
@@ -1429,6 +1439,9 @@ async def clear_ip_address(
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
+    if not current_user.can_edit_inventory:
+        raise HTTPException(status_code=403, detail="IP address edit permission required")
+
     ip_record = db.scalar(select(IPAddress).where(IPAddress.id == ip_id, IPAddress.project_id == project_id))
     if ip_record is None:
         raise HTTPException(status_code=404, detail="IP address not found")

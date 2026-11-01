@@ -4,13 +4,15 @@ import argparse
 from http.cookiejar import CookieJar
 import os
 import re
+import ssl
 from urllib.error import HTTPError
 from urllib.parse import urlencode
-from urllib.request import HTTPCookieProcessor, Request, build_opener
+from urllib.request import HTTPCookieProcessor, HTTPSHandler, Request, build_opener
 
 
-def check_application(url: str) -> None:
-    opener = build_opener(HTTPCookieProcessor(CookieJar()))
+def check_application(url: str, ca_file: str | None = None) -> None:
+    context = ssl.create_default_context(cafile=ca_file)
+    opener = build_opener(HTTPCookieProcessor(CookieJar()), HTTPSHandler(context=context))
 
     def request(path: str, data: dict | None = None) -> tuple[int, str]:
         payload = urlencode(data).encode() if data is not None else None
@@ -46,5 +48,7 @@ def check_application(url: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", default="http://127.0.0.1:8000")
-    check_application(parser.parse_args().url)
+    parser.add_argument("--url", default="https://localhost:8000")
+    parser.add_argument("--ca-file", help="Trusted local test CA certificate; TLS verification stays enabled")
+    arguments = parser.parse_args()
+    check_application(arguments.url, arguments.ca_file)
