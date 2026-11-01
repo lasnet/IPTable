@@ -1,3 +1,4 @@
+import copy
 import os
 import re
 import secrets
@@ -13,6 +14,25 @@ from sqlalchemy.engine import make_url
 
 
 class DeploymentTest(unittest.TestCase):
+    def test_http_session_does_not_replace_a_legacy_secure_cookie(self) -> None:
+        settings = Settings(_env_file=None, app_public_url="https://inventory.example")
+        with patch("app.main.get_settings", return_value=settings):
+            https = TestClient(create_app(), base_url="https://inventory.example")
+        https.get("/login")
+        old_cookie = copy.copy(next(iter(https.cookies.jar)))
+        self.assertTrue(old_cookie.secure)
+        self.assertEqual(old_cookie.name, "__Host-iptable_session")
+        old_cookie.name = "session"  # Name used by previous releases.
+        settings = Settings(_env_file=None, app_public_url="http://inventory.example")
+        with patch("app.main.get_settings", return_value=settings):
+            http = TestClient(create_app(), base_url="http://inventory.example")
+        http.cookies.jar.set_cookie(old_cookie)
+        response = http.get("/login")
+        self.assertTrue(response.headers["set-cookie"].startswith("iptable_http_session="))
+        token = re.search(r'name="_csrf_token" value="([^"]+)"', response.text).group(1)
+        # CSRF succeeds; missing login fields then produce the normal validation error.
+        self.assertEqual(http.post("/login", data={"_csrf_token": token}).status_code, 422)
+
     def test_public_url_controls_transport_without_disabling_production_guards(self) -> None:
         for scheme in ("http", "https"):
             with self.subTest(scheme=scheme):

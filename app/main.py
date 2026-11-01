@@ -57,6 +57,9 @@ def create_app() -> FastAPI:
     app.add_middleware(
         SessionMiddleware,
         secret_key=session_secret,
+        # A browser must not overwrite an old Secure cookie from plain HTTP.
+        # Separate names also prevent an HTTP session from becoming an HTTPS one.
+        session_cookie="__Host-iptable_session" if secure_cookie else "iptable_http_session",
         same_site="lax",
         https_only=secure_cookie,
         max_age=settings.session_idle_timeout_seconds,
