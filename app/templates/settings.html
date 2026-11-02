@@ -1,14 +1,35 @@
 {% extends "base.html" %}
 
-{% block title %}{{ _('nav.settings') }} - IPtable{% endblock %}
+{% block title %}{{ _('nav.settings') }} - {{ app_name }}{% endblock %}
 
 {% block content %}
 <section class="settings-page">
-  <div class="dashboard-heading"><div><span class="eyebrow">IPTABLE / {{ _('nav.settings') }}</span><h1>{{ _('nav.settings') }}</h1><p>{{ _('settings.subtitle') }}</p></div></div>
-  <div class="settings-grid">
-    <article class="settings-tile" id="settings-interface"><span class="settings-tile-icon">◉</span><h2>{{ _('settings.interface') }}</h2><p>{{ _('settings.interface_hint') }}</p><span class="settings-status">{{ _('settings.planned') }}</span></article>
-    <article class="settings-tile" id="settings-monitoring"><span class="settings-tile-icon">⌁</span><h2>{{ _('settings.monitoring') }}</h2><p>{{ _('settings.monitoring_hint') }}</p><span class="settings-status">{{ _('settings.planned') }}</span></article>
-    <article class="settings-tile" id="settings-security"><span class="settings-tile-icon">◇</span><h2>{{ _('settings.security') }}</h2><p>{{ _('settings.security_hint') }}</p><span class="settings-status">{{ _('settings.planned') }}</span></article>
-  </div>
+  <div class="dashboard-heading"><h1>{{ _('nav.settings') }}</h1></div>
+  {% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+  {% if message %}<p class="form-hint">{{ message }}</p>{% endif %}
+  {% set titles = {'interface': ('Интерфейс', 'Interface'), 'security': ('Безопасность', 'Security'), 'ping': ('Проверка адресов', 'Ping'), 'limits': ('Лимиты', 'Limits')} %}
+  {% set labels = {'app_name': ('Название установки', 'Installation name'), 'interface_language': ('Язык', 'Language'), 'project_table_default_page_size': ('Строк на странице', 'Rows per page'), 'session_idle_timeout_seconds': ('Сессия, с', 'Session, s'), 'login_rate_limit_attempts': ('Попытки входа', 'Login attempts'), 'login_rate_limit_window_seconds': ('Окно входа, с', 'Login window, s'), 'login_rate_limit_lockout_seconds': ('Блокировка, с', 'Lockout, s'), 'ping_interval_seconds': ('Интервал новых расписаний, с', 'New schedule interval, s'), 'ping_timeout_seconds': ('Тайм-аут адреса, с', 'Probe timeout, s'), 'ping_concurrency': ('Параллелизм worker', 'Worker concurrency'), 'ping_batch_size': ('Размер пакета', 'Batch size'), 'ping_batch_pause_seconds': ('Пауза пакетов, с', 'Batch pause, s'), 'ping_project_pause_seconds': ('Пауза проектов, с', 'Project pause, s'), 'ping_queue_poll_seconds': ('Опрос очереди, с', 'Queue poll, s'), 'ping_running_job_timeout_seconds': ('Срок зависшей задачи, с', 'Stale job timeout, s'), 'max_project_addresses': ('Максимум адресов', 'Maximum addresses'), 'csv_import_max_bytes': ('Размер импорта, байт', 'Import size, bytes')} %}
+  {% for group, fields in groups.items() %}
+  <article class="settings-tile" style="margin-bottom:1rem"><h2>{{ titles[group][1 if interface_language == 'EN' else 0] }}</h2>
+    <form action="/settings/{{ group }}" method="post">{{ csrf_input(request) }}<input type="hidden" name="revision" value="{{ configuration.revision }}">
+      {% for name in fields %}<label style="display:block;margin:.7rem 0">{{ labels[name][1 if interface_language == 'EN' else 0] }}
+        {% if name == 'interface_language' %}<select name="{{ name }}"><option value="RU" {{ 'selected' if configuration.interface_language == 'RU' }}>RU</option><option value="EN" {{ 'selected' if configuration.interface_language == 'EN' }}>EN</option></select>
+        {% elif name == 'project_table_default_page_size' %}<select name="{{ name }}">{% for size in (25,50,100,250) %}<option value="{{ size }}" {{ 'selected' if configuration.project_table_default_page_size == size }}>{{ size }}</option>{% endfor %}</select>
+        {% else %}<input name="{{ name }}" value="{{ configuration | attr(name) }}" required {% if name != 'app_name' %}type="number" step="{{ 'any' if 'pause' in name or name == 'ping_queue_poll_seconds' else '1' }}"{% endif %}>{% endif %}
+      </label>{% endfor %}
+      {% if group == 'ping' %}<p>{{ 'Общий интервал применяется только к новым расписаниям.' if interface_language == 'RU' else 'The default interval applies only to new schedules.' }}</p>{% endif %}
+      {% if group == 'security' %}<p>{{ 'Уменьшение срока сессии может потребовать повторного входа.' if interface_language == 'RU' else 'Reducing the session timeout may require another sign-in.' }}</p>{% endif %}
+      {% if group == 'limits' %}<p>{{ 'Встроенный HTTPS gateway ограничивает весь запрос 3 MiB.' if interface_language == 'RU' else 'The bundled HTTPS gateway limits the entire request to 3 MiB.' }}</p>{% endif %}
+      <button type="submit">{{ _('button.save') }}</button>
+    </form>
+  </article>{% endfor %}
+  <article class="settings-tile" style="margin-bottom:1rem"><h2>{{ 'Интеграции' if interface_language == 'RU' else 'Integrations' }}</h2>
+    <p>{{ ('API включен' if credential.token_hash else 'API отключен') if interface_language == 'RU' else ('API enabled' if credential.token_hash else 'API disabled') }}</p>
+    {% for action in (('replace', 'disable') if credential.token_hash else ('create',)) %}<form action="/settings/integrations/token/{{ action }}" method="post" style="display:inline-block;margin-right:1rem">{{ csrf_input(request) }}<input type="hidden" name="version" value="{{ credential.version }}"><button type="submit">{{ {'create':'Создать токен','replace':'Заменить токен','disable':'Отключить API'}[action] if interface_language == 'RU' else {'create':'Create token','replace':'Replace token','disable':'Disable API'}[action] }}</button></form>{% endfor %}
+  </article>
+  <article class="settings-tile"><h2>{{ 'Система' if interface_language == 'RU' else 'System' }}</h2>
+    <p>Mode: {{ request.app.state.bootstrap_settings.app_env }} · Origin: {{ request.app.state.bootstrap_settings.app_public_url or '—' }} · DB: {{ 'PostgreSQL' if request.app.state.bootstrap_settings.database_url.startswith('postgresql') else 'SQLite' }}</p>
+    <h3>{{ 'Последние изменения' if interface_language == 'RU' else 'Recent changes' }}</h3><ul>{% for item in history %}<li>{{ item.created_at }} · {{ item.actor_name }} · {{ item.section }}</li>{% endfor %}</ul>
+  </article>
 </section>
 {% endblock %}

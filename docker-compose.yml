@@ -56,7 +56,7 @@ services:
 
   migrate:
     <<: *app
-    command: ["alembic", "upgrade", "head"]
+    command: ["python", "-m", "app.manage", "migrate"]
     healthcheck:
       disable: true
     depends_on:

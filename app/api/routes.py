@@ -1,4 +1,5 @@
 import secrets
+import hashlib
 from datetime import datetime
 from typing import Annotated, Any
 
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
-from app.models import CustomField, Folder, IPAddress, Project
+from app.models import CustomField, Folder, IPAddress, Project, IntegrationCredential
 from app.services.history import FieldChange, build_field_change, record_ip_address_history
 from app.services.ping import enqueue_project_ping
 
@@ -70,15 +71,21 @@ def _extract_bearer_token(authorization: str | None) -> str:
 
 def require_api_token(
     settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[Session, Depends(get_db)],
     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
     authorization: Annotated[str | None, Header()] = None,
 ) -> None:
-    expected_token = settings.integration_api_token.strip()
-    if not expected_token:
+    credential = db.get(IntegrationCredential, 1)
+    expected_hash = credential.token_hash if credential is not None else (
+        hashlib.sha256(settings.integration_api_token.strip().encode()).hexdigest()
+        if settings.integration_api_token.strip() else None)
+    if not expected_hash:
         raise HTTPException(status_code=404, detail="API is disabled")
 
     supplied_token = (x_api_key or "").strip() or _extract_bearer_token(authorization)
-    if not supplied_token or not secrets.compare_digest(supplied_token, expected_token):
+    if not supplied_token or not secrets.compare_digest(
+        hashlib.sha256(supplied_token.encode()).hexdigest(), expected_hash
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid API token",

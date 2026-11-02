@@ -1,4 +1,5 @@
 from functools import lru_cache
+from contextvars import ContextVar
 from urllib.parse import urlsplit
 
 from pydantic import Field
@@ -94,6 +95,32 @@ class Settings(BaseSettings):
         return self
 
 
+class BootstrapSettings(Settings):
+    @classmethod
+    def settings_customise_sources(cls, settings_cls, init_settings, env_settings,
+                                   dotenv_settings, file_secret_settings):
+        # Filter before Pydantic parses values. Invalid old runtime env must not
+        # prevent a configured installation from starting after migration.
+        names = {
+            "app_env", "app_public_url", "https_enabled", "secret_key", "session_cookie_secure",
+            "initial_admin_username", "initial_admin_password", "database_url", "postgres_host",
+            "postgres_port", "postgres_user", "postgres_password", "postgres_db", "enable_ping_worker",
+        }
+        def filtered(source):
+            return lambda: {key: value for key, value in source().items() if key in names}
+        return init_settings, filtered(env_settings), filtered(dotenv_settings), file_secret_settings
+
+
 @lru_cache
+def _bootstrap_settings() -> Settings:
+    return BootstrapSettings()
+
+
+_request_settings: ContextVar[Settings | None] = ContextVar("request_settings", default=None)
+
+
 def get_settings() -> Settings:
-    return Settings()
+    return _request_settings.get() or _bootstrap_settings()
+
+
+get_settings.cache_clear = _bootstrap_settings.cache_clear

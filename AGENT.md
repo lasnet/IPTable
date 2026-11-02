@@ -48,12 +48,14 @@ update_stable.py/smoke_test.py остаются только в dev.
 
 ## 5. Основные файлы
 
-app/core/config.py читает Settings, валидирует секреты и строит URL PostgreSQL
+app/core/config.py читает bootstrap Settings, валидирует секреты и строит URL PostgreSQL
 через URL.create при POSTGRES_HOST без DATABASE_URL. Явный DATABASE_URL приоритетен;
 без обоих используется SQLite. Не выводите URL с паролем в логи.
 app/main.py настраивает auth cookies, security headers и OpenAPI.
 app/services/security.py - CSRF и DB-backed login rate limit.
 app/services/ping.py - очереди, advisory locks, расписания и probes.
+app/services/settings.py - общие настройки из БД, ревизии и API-токен.
+app/manage.py запускает Alembic и однократный импорт прежних env-значений.
 scripts/update_stable.py - перенос проверенного dev в stable с сохранением merge-истории.
 
 ## 6. Запуск

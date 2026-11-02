@@ -197,6 +197,7 @@ class PingJob(TimestampMixin, Base):
     run_after: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
     project: Mapped[Project] = relationship(back_populates="ping_jobs")
@@ -211,3 +212,53 @@ class LoginRateLimitEvent(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     identity_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+
+class AppConfiguration(Base):
+    __tablename__ = "app_configuration"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    config_schema_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    initialized_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    app_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    interface_language: Mapped[str] = mapped_column(String(8), nullable=False)
+    project_table_default_page_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    session_idle_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    login_rate_limit_attempts: Mapped[int] = mapped_column(Integer, nullable=False)
+    login_rate_limit_window_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    login_rate_limit_lockout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    ping_interval_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    ping_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    ping_concurrency: Mapped[int] = mapped_column(Integer, nullable=False)
+    ping_batch_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    ping_batch_pause_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    ping_project_pause_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    ping_queue_poll_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    ping_running_job_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_project_addresses: Mapped[int] = mapped_column(Integer, nullable=False)
+    csv_import_max_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class AppConfigurationAudit(Base):
+    __tablename__ = "app_configuration_audit"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    actor_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    section: Mapped[str] = mapped_column(String(40), nullable=False)
+    old_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    new_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    changes: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+
+
+class IntegrationCredential(Base):
+    __tablename__ = "integration_credential"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token_hash: Mapped[str | None] = mapped_column(String(64))
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

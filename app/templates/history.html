@@ -4,7 +4,7 @@
 {% set history_page_subtitle = history_subtitle | default(project.cidr if project is defined else '') %}
 {% set history_page_back_url = history_back_url | default('/projects/' ~ project.id if project is defined else '/') %}
 
-{% block title %}{{ history_page_title }} {{ history_page_subtitle }} - IPtable{% endblock %}
+{% block title %}{{ history_page_title }} {{ history_page_subtitle }} - {{ app_name }}{% endblock %}
 
 {% block content %}
 <section class="project-card history-card">

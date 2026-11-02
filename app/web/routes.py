@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, User
+from app.models import AppConfiguration, AppConfigurationAudit, IntegrationCredential
+from app.services.settings import GROUPS, RevisionConflict, replace_token, save_group
 from app.services.auth import authenticate_user, create_user, hash_password
 from app.services.csv_io import (
     CSVImportError,
@@ -503,8 +505,14 @@ def inventory(
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(
     request: Request,
-    current_user: Annotated[User, Depends(require_user)],
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    error: Annotated[str | None, Query(max_length=240)] = None,
+    message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
+    row = db.get(AppConfiguration, 1)
+    credential = db.get(IntegrationCredential, 1)
+    history = db.scalars(select(AppConfigurationAudit).order_by(AppConfigurationAudit.id.desc()).limit(30)).all()
     return _templates(request).TemplateResponse(
         request,
         "settings.html",
@@ -513,8 +521,53 @@ def settings_page(
             "folders": [],
             "active_project": None,
             "current_user": current_user,
+            "configuration": row,
+            "credential": credential,
+            "groups": GROUPS,
+            "history": history,
+            "error": error,
+            "message": message,
         },
     )
+
+
+@router.post("/settings/{group}")
+async def settings_save(group: str, request: Request, db: Annotated[Session, Depends(get_db)],
+                        current_user: Annotated[User, Depends(require_admin)]) -> RedirectResponse:
+    if group not in GROUPS:
+        raise HTTPException(status_code=404)
+    form = await request.form()
+    try:
+        revision = int(str(form.get("revision", "")))
+        values = {name: str(form[name]) for name in GROUPS[group]}
+        save_group(db, group, values, revision, actor_id=current_user.id, actor_name=current_user.username)
+    except RevisionConflict:
+        db.rollback()
+        return HTMLResponse("Настройки изменены другим администратором. Обновите страницу.", status_code=409)
+    except (ValueError, KeyError, TypeError) as exc:
+        db.rollback()
+        return _redirect_error("/settings", str(exc)[:180])
+    return _redirect_message("/settings", "Настройки сохранены")
+
+
+@router.post("/settings/integrations/token/{action}")
+async def settings_token(action: str, request: Request, db: Annotated[Session, Depends(get_db)],
+                         current_user: Annotated[User, Depends(require_admin)]) -> Response:
+    if action not in {"create", "replace", "disable"}:
+        raise HTTPException(status_code=404)
+    form = await request.form()
+    try:
+        token = replace_token(db, int(str(form.get("version", ""))), current_user.id,
+                              disable=action == "disable", actor_name=current_user.username)
+    except RevisionConflict:
+        return HTMLResponse("Токен изменен другим администратором. Обновите страницу.", status_code=409)
+    except (ValueError, TypeError):
+        return _redirect_error("/settings", "Токен уже изменен, обновите страницу")
+    if token is None:
+        return _redirect_message("/settings", "Доступ к API отключен")
+    return _templates(request).TemplateResponse(request, "token_issued.html", {
+        "request": request, "current_user": current_user, "token": token,
+    }, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/history", response_class=HTMLResponse)

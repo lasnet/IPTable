@@ -101,6 +101,11 @@ Bandit Medium/High блокирует CI; Low проверяйте вручну�
 приоритет; без него POSTGRES_HOST/PORT/USER/PASSWORD/DB собираются через SQLAlchemy
 URL.create, поэтому специальные символы пароля корректно кодируются.
 Без DATABASE_URL и POSTGRES_HOST сохраняется локальный SQLite fallback.
+Для ручного локального запуска после настройки окружения выполняйте
+`python -m app.manage migrate`: команда обновляет Alembic и однократно переносит
+прежние runtime-переменные в БД. При повторном запуске импорт не повторяется.
+`app/core/config.py` читает bootstrap-параметры из окружения; значения для
+интерфейса, ping, ограничений, сессий и интеграции после импорта читаются из БД.
 
 APP_ENV=production выключает OpenAPI и проверяет секреты в обоих режимах доступа.
 Compose по умолчанию публикует HTTP, без gateway. APP_PUBLIC_URL определяет Secure
