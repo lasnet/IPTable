@@ -2909,3 +2909,137 @@ body { background: var(--bg); color: var(--text); font-family: Inter, ui-sans-se
 .history-avatar { display: grid; place-items: center; flex: 0 0 auto; width: 29px; height: 29px; border-radius: 50%; background: #f3ad8e; color: #fff; font-size: 10px; font-weight: 800; }
 @media (max-width: 1150px) { .history-item { grid-template-columns: minmax(120px,.8fr) minmax(120px,.8fr) minmax(220px,1.6fr); } .history-footer { grid-column: 1 / -1; } }
 @media (max-width: 760px) { .history-card .project-card-head { align-items: start; flex-direction: column; gap: 10px; } .history-item { grid-template-columns: 1fr; gap: 11px; } .history-footer { grid-column: auto; } .history-change { min-width: 0; } }
+
+/* Admin settings use the same cards, controls and button rhythm as the rest of the app. */
+.settings-page {
+  overflow-y: auto;
+  padding: 2px 2px 28px;
+}
+
+.settings-notice {
+  margin: 0;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 13px;
+}
+.settings-notice-error { border-color: var(--danger-border); background: var(--danger-bg); color: var(--danger); }
+.settings-notice-success { border-color: var(--green-border); background: var(--green-bg); color: var(--green); }
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 18px;
+}
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 22px 24px;
+  border: 1px solid #e4ebf4;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.settings-card-ping, .settings-card-system { grid-column: 1 / -1; }
+.settings-card-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.settings-card-head h2 { margin: 0; font-size: 17px; letter-spacing: -.02em; }
+.settings-card-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 19px;
+  font-weight: 750;
+}
+.settings-card-security .settings-card-mark { background: var(--green-bg); color: var(--green); }
+.settings-card-ping .settings-card-mark { background: var(--orange-bg); color: var(--orange); }
+.settings-card-limits .settings-card-mark { background: #f2eaff; color: #7957b5; }
+
+.settings-form { display: flex; flex: 1; flex-direction: column; gap: 18px; }
+.settings-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 18px; }
+.settings-card-interface .settings-field:first-child { grid-column: 1 / -1; }
+.settings-card-ping .settings-fields { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.settings-field { display: grid; align-content: start; min-width: 0; gap: 7px; color: var(--text-soft); font-size: 13px; font-weight: 700; }
+.settings-field > span { line-height: 1.35; }
+.settings-field input, .settings-field select {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: 8px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  outline: 0;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 500;
+}
+.settings-field input:focus, .settings-field select:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
+.settings-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.settings-actions { display: flex; justify-content: flex-end; margin-top: auto; padding-top: 18px; border-top: 1px solid var(--line-soft); }
+.settings-actions button, .settings-primary-button {
+  min-height: var(--control-height);
+  padding: 0 18px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.settings-actions button:hover, .settings-primary-button:hover { border-color: var(--accent-dark); background: var(--accent-dark); }
+.settings-token-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: auto; padding-top: 20px; }
+.settings-token-actions form { margin: 0; }
+.settings-secondary-button {
+  min-height: var(--control-height);
+  padding: 0 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.settings-secondary-button:hover { border-color: var(--line-hover); background: var(--accent-hover); }
+.settings-api-status { align-self: flex-start; margin-top: 16px; padding: 6px 10px; border-radius: 999px; background: var(--gray-bg); color: var(--muted); font-size: 12px; font-weight: 750; }
+.settings-api-status.is-active { background: var(--green-bg); color: var(--green); }
+.settings-system-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.settings-system-facts > div { display: grid; min-width: 0; gap: 4px; padding: 13px 15px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--surface-soft); }
+.settings-system-facts span { color: var(--muted); font-size: 12px; }
+.settings-system-facts strong { overflow-wrap: anywhere; font-size: 13px; font-weight: 700; }
+.settings-history-title { margin: 24px 0 10px; font-size: 14px; }
+.settings-history { display: grid; gap: 0; max-height: 240px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.settings-history li { display: grid; grid-template-columns: 130px minmax(120px, 1fr) minmax(110px, 1fr); gap: 12px; padding: 9px 0; border-top: 1px solid var(--line-soft); color: var(--text-soft); font-size: 12px; }
+.settings-history time { color: var(--muted); }
+
+@media (max-width: 1250px) {
+  .settings-card-ping .settings-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .settings-layout { grid-template-columns: minmax(0, 1fr); }
+  .settings-card-ping, .settings-card-system { grid-column: auto; }
+  .settings-page { height: auto; overflow: visible; }
+}
+@media (max-width: 560px) {
+  .settings-layout { gap: 12px; }
+  .settings-card { padding: 18px; }
+  .settings-fields, .settings-card-ping .settings-fields, .settings-system-facts { grid-template-columns: minmax(0, 1fr); }
+  .settings-card-interface .settings-field:first-child { grid-column: auto; }
+  .settings-history li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .settings-history strong { grid-column: 1 / -1; }
+}
