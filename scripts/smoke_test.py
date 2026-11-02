@@ -49,7 +49,8 @@ def check_application(url: str, ca_file: str | None = None, http_url: str | None
                 evidence = response.headers.get("Server", "") + response.read().decode()
                 expect(not re.search(r"nginx/[\d.]", evidence, re.IGNORECASE), "Nginx version is exposed")
 
-    expect(request("/health")[0] == 200, "Health check failed")
+    health_status, _ = request("/health")
+    expect(health_status == 200, f"Health check failed: HTTP {health_status}")
     for path in ("/docs", "/redoc", "/openapi.json"):
         expect(request(path)[0] == 404, "OpenAPI should be disabled")
     status, login = request("/login")
