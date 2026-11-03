@@ -23,7 +23,7 @@
     requestAnimationFrame(() => requestAnimationFrame(() => {
       indicator.style.top = `${activeTop}px`;
       document.body.classList.add("rail-arriving");
-      window.setTimeout(() => document.body.classList.remove("rail-arriving"), 420);
+      window.setTimeout(() => document.body.classList.remove("rail-arriving"), 520);
     }));
   }
 
@@ -61,6 +61,7 @@
 
 (function () {
   let dirtyRow = null;
+  let drawerOpener = null;
   let allowSubmit = false;
   let tableRequestId = 0;
   let currentTableUrl = window.location.href;
@@ -262,11 +263,18 @@
       warnAboutDirtyRow();
       return;
     }
+    const returnFocus = drawer.contains(document.activeElement) && !force;
     drawer.classList.remove("open");
     drawer.setAttribute("aria-hidden", "true");
+    drawer.inert = true;
+    drawerOpener?.setAttribute("aria-expanded", "false");
     setDrawerEditMode(drawer, false);
     clearDirtyState();
     document.querySelector(".asset-table tr.row-selected")?.classList.remove("row-selected");
+    if (returnFocus && drawerOpener?.isConnected) {
+      drawerOpener.focus({ preventScroll: true });
+    }
+    drawerOpener = null;
   }
 
   function tableCellValue(row, fieldName) {
@@ -302,12 +310,15 @@
     });
   }
 
-  function openHostDrawer(row) {
+  function openHostDrawer(row, opener = row?.querySelector("[data-host-drawer-open]")) {
     const drawer = document.querySelector("[data-host-drawer]");
     if (!drawer || !row) {
       return;
     }
 
+    drawerOpener?.setAttribute("aria-expanded", "false");
+    drawerOpener = opener;
+    drawerOpener?.setAttribute("aria-expanded", "true");
     const address = row.dataset.rowAddress || "";
     drawer.dataset.rowId = row.id;
     setDrawerEditMode(drawer, false);
@@ -361,6 +372,8 @@
     row.classList.add("row-selected");
     drawer.classList.add("open");
     drawer.setAttribute("aria-hidden", "false");
+    drawer.inert = false;
+    drawer.querySelector("[data-host-drawer-close]")?.focus({ preventScroll: true });
   }
 
   function editRow(row) {
@@ -516,7 +529,8 @@
     if (!link) {
       const row = event.target.closest(".asset-table tbody tr[data-row-address]");
       const interactive = event.target.closest("button, input, textarea, select, label, summary, details, .node-menu");
-      if (row && !interactive) {
+      const opener = event.target.closest("[data-host-drawer-open]");
+      if (row && (!interactive || opener)) {
         if (hasDirtyRow()) {
           if (row !== dirtyRow) {
             warnAboutDirtyRow();
@@ -525,7 +539,7 @@
           focusDirtyRow();
           return;
         }
-        openHostDrawer(row);
+        openHostDrawer(row, opener || row.querySelector("[data-host-drawer-open]"));
       }
       return;
     }
@@ -574,6 +588,13 @@
     loadTablePage(window.location.href, false);
   });
 
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && event.target.closest(".host-drawer.open")) {
+      event.preventDefault();
+      closeHostDrawer();
+    }
+  });
+
   window.addEventListener("beforeunload", (event) => {
     if (hasDirtyRow() && !allowSubmit) {
       event.preventDefault();
@@ -592,7 +613,7 @@
     document.body.classList.toggle("is-loading", enabled);
     document.querySelector(".tree")?.toggleAttribute("hidden", enabled);
     document.querySelector(".tree-loading")?.toggleAttribute("hidden", !enabled);
-    form?.querySelectorAll("button").forEach((button) => {
+    Array.from(form?.elements || []).filter((element) => element.matches("button")).forEach((button) => {
       if (enabled) {
         button.dataset.wasDisabled = button.disabled ? "true" : "false";
         button.disabled = true;
@@ -723,6 +744,46 @@
 
   window.addEventListener("resize", () => allMenus().forEach(closeMenu));
   document.querySelector(".tree")?.addEventListener("scroll", () => allMenus().forEach(closeMenu));
+})();
+
+(function () {
+  const menu = document.querySelector(".table-filters-menu");
+  const panel = menu?.querySelector(".filter-panel");
+  if (!panel) return;
+
+  function positionPanel() {
+    if (!menu.open) return;
+    panel.classList.add("is-positioned");
+    const trigger = menu.querySelector("summary").getBoundingClientRect();
+    const bounds = panel.getBoundingClientRect();
+    const inset = 12;
+    const left = Math.max(inset, Math.min(trigger.right - bounds.width, window.innerWidth - bounds.width - inset));
+    const below = window.innerHeight - trigger.bottom - inset;
+    const above = trigger.top - inset;
+    const desiredTop = bounds.height > below && above > below
+      ? trigger.top - bounds.height - 8
+      : trigger.bottom + 8;
+    const top = Math.max(inset, Math.min(desiredTop, window.innerHeight - bounds.height - inset));
+    panel.style.setProperty("--filter-panel-left", `${left}px`);
+    panel.style.setProperty("--filter-panel-top", `${top}px`);
+  }
+
+  menu.addEventListener("toggle", () => {
+    if (menu.open) positionPanel();
+    else panel.classList.remove("is-positioned");
+  });
+  window.addEventListener("resize", positionPanel);
+  window.addEventListener("scroll", positionPanel, { passive: true });
+  document.addEventListener("click", (event) => {
+    if (!menu.contains(event.target)) menu.open = false;
+  });
+  menu.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && menu.open) {
+      event.preventDefault();
+      menu.open = false;
+      menu.querySelector("summary").focus();
+    }
+  });
 })();
 
 (function () {

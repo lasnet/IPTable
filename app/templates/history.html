@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 
 {% set history_page_title = history_title | default(_('history.title')) %}
 {% set history_page_subtitle = history_subtitle | default(project.cidr if project is defined else '') %}
@@ -53,7 +54,7 @@
       </div>
       <div class="history-field">
         <span class="history-field-icon" aria-hidden="true">
-          {% if item.field_name == 'os' %}▣{% elif item.field_name == 'asset_type' %}▤{% elif item.field_name == 'comment' %}▧{% else %}⌁{% endif %}
+          {{ icon(item.field_name) }}
         </span>
         <span><strong>{{ item.field_label }}</strong><small>{{ _('history.field_changed') }}</small></span>
       </div>

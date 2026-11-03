@@ -196,15 +196,15 @@
     {% include "_project_table.html" %}
   </div>
 
-  <aside class="host-drawer" data-host-drawer aria-hidden="true">
+  <aside class="host-drawer" id="host-drawer-{{ project.id }}" data-host-drawer aria-labelledby="host-drawer-title-{{ project.id }}" aria-hidden="true" inert>
     <div class="host-drawer-head">
       <div>
         <span class="drawer-eyebrow">{{ _('drawer.title') }}</span>
-        <h3 data-drawer-ip-title></h3>
+        <h3 id="host-drawer-title-{{ project.id }}" data-drawer-ip-title></h3>
       </div>
       <button class="modal-close" type="button" data-host-drawer-close aria-label="{{ _('button.cancel') }}">×</button>
     </div>
-    <form class="host-drawer-form asset-row-form" method="post" data-host-drawer-form>
+    <form class="host-drawer-form asset-row-form" id="host-drawer-form-{{ project.id }}" method="post" data-host-drawer-form>
       {{ csrf_input(request) }}
       <input type="hidden" name="hide_empty" data-drawer-hidden="hide_empty">
       <input type="hidden" name="page" data-drawer-hidden="page">
@@ -239,12 +239,12 @@
         <span>{{ _('table.status_ping') }}</span>
         <div class="host-drawer-status" data-drawer-status></div>
       </div>
-      <div class="host-drawer-actions">
-        <button class="soft-button" type="button" data-host-drawer-edit>{{ _('button.edit') }}</button>
-        <button class="soft-button drawer-save-button" type="submit" data-host-drawer-save hidden>{{ _('button.save') }}</button>
-        <button class="soft-button" type="button" data-host-drawer-close>{{ _('button.cancel') }}</button>
-      </div>
     </form>
+    <div class="host-drawer-actions">
+      <button class="soft-button" type="button" data-host-drawer-edit>{{ _('button.edit') }}</button>
+      <button class="soft-button drawer-save-button" type="submit" form="host-drawer-form-{{ project.id }}" data-host-drawer-save hidden>{{ _('button.save') }}</button>
+      <button class="soft-button" type="button" data-host-drawer-close>{{ _('button.cancel') }}</button>
+    </div>
     <form class="host-drawer-clear-form" method="post" data-host-drawer-clear-form
       data-confirm-template="{{ _('confirm.clear_ip', address='{address}') }}">
       {{ csrf_input(request) }}

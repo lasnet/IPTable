@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 
 {% block title %}{{ _('nav.settings') }} - {{ app_name }}{% endblock %}
 
@@ -12,8 +13,6 @@
     </div>
   </div>
 
-  {% if error %}<p class="settings-notice settings-notice-error" role="alert">{{ error }}</p>{% endif %}
-  {% if message %}<p class="settings-notice settings-notice-success" role="status">{{ message }}</p>{% endif %}
 
   {% set titles = {'interface': ('Интерфейс', 'Interface'), 'security': ('Безопасность', 'Security'), 'ping': ('Проверка адресов', 'Ping'), 'limits': ('Лимиты', 'Limits')} %}
   {% set labels = {
@@ -40,7 +39,7 @@
     {% for group, fields in groups.items() %}
     <section class="settings-card settings-card-{{ group }}" id="settings-{{ group }}">
       <div class="settings-card-head">
-        <span class="settings-card-mark" aria-hidden="true">{{ {'interface':'◉','security':'◇','ping':'⌁','limits':'▦'}[group] }}</span>
+        <span class="settings-card-mark" aria-hidden="true">{{ icon(group) }}</span>
         <h2>{{ titles[group][1 if interface_language == 'EN' else 0] }}</h2>
       </div>
       <form class="settings-form" action="/settings/{{ group }}" method="post">
@@ -74,7 +73,7 @@
     {% endfor %}
 
     <section class="settings-card settings-card-integrations" id="settings-integrations">
-      <div class="settings-card-head"><span class="settings-card-mark" aria-hidden="true">↗</span><h2>{{ 'Интеграции' if interface_language == 'RU' else 'Integrations' }}</h2></div>
+      <div class="settings-card-head"><span class="settings-card-mark" aria-hidden="true">{{ icon('integrations') }}</span><h2>{{ 'Интеграции' if interface_language == 'RU' else 'Integrations' }}</h2></div>
       <p class="settings-hint">{{ 'Токен для доступа к REST API. Новый токен показывается только один раз.' if interface_language == 'RU' else 'Token for REST API access. A new token is shown only once.' }}</p>
       <span class="settings-api-status {{ 'is-active' if credential.token_hash else '' }}">{{ ('API включен' if credential.token_hash else 'API отключен') if interface_language == 'RU' else ('API enabled' if credential.token_hash else 'API disabled') }}</span>
       <div class="settings-token-actions">
@@ -88,7 +87,7 @@
     </section>
 
     <section class="settings-card settings-card-system" id="settings-system">
-      <div class="settings-card-head"><span class="settings-card-mark" aria-hidden="true">ⓘ</span><h2>{{ 'Система' if interface_language == 'RU' else 'System' }}</h2></div>
+      <div class="settings-card-head"><span class="settings-card-mark" aria-hidden="true">{{ icon('system') }}</span><h2>{{ 'Система' if interface_language == 'RU' else 'System' }}</h2></div>
       <div class="settings-system-facts">
         <div><span>{{ 'Режим' if interface_language == 'RU' else 'Mode' }}</span><strong>{{ request.app.state.bootstrap_settings.app_env }}</strong></div>
         <div><span>{{ 'Публичный адрес' if interface_language == 'RU' else 'Public origin' }}</span><strong>{{ request.app.state.bootstrap_settings.app_public_url or '—' }}</strong></div>

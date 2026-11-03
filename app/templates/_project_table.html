@@ -7,7 +7,8 @@
 {% set show_number_column = false %}
 {% set table_colspan = (7 if show_number_column else 6) + custom_fields|length %}
 <div class="asset-table-wrap">
-  <table class="asset-table">
+  <table class="asset-table"{% if not ip_records %} data-empty{% endif %}>
+    {% if ip_records %}
     <colgroup>
       {% if show_number_column %}
       <col class="col-number">
@@ -38,6 +39,7 @@
         <th>{{ _('table.status_ping') }}</th>
       </tr>
     </thead>
+    {% endif %}
     <tbody>
       {% for ip in ip_records %}
       <tr id="ip-{{ ip.id }}"
@@ -55,7 +57,7 @@
         {% if show_number_column %}
         <td class="number-cell">{{ ip.ordinal }}</td>
         {% endif %}
-        <td class="ip-cell locked-col" data-detail-field="address">{{ ip.address }}</td>
+        <td class="ip-cell locked-col" data-detail-field="address"><button class="ip-open-button" type="button" data-host-drawer-open aria-label="{{ _('drawer.open', address=ip.address) }}" aria-controls="host-drawer-{{ project.id }}" aria-expanded="false">{{ ip.address }}</button></td>
         <td data-detail-field="hostname" data-detail-value="{{ ip.hostname }}">
           <span class="{{ 'table-empty-value' if not ip.hostname else '' }}">{{ ip.hostname if ip.hostname else _('table.placeholder_empty') }}</span>
         </td>
