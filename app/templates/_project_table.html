@@ -15,13 +15,13 @@
       {% endif %}
       <col class="col-ip">
       <col class="col-hostname">
+      <col class="col-status">
       <col class="col-os">
       <col class="col-type">
       <col class="col-comment">
       {% for field in custom_fields %}
       <col class="col-custom">
       {% endfor %}
-      <col class="col-status">
     </colgroup>
     <thead>
       <tr>
@@ -30,13 +30,13 @@
         {% endif %}
         <th class="locked-col">{{ _('table.ip_address') }}</th>
         <th>Hostname</th>
+        <th>{{ _('table.status_ping') }}</th>
         <th>OS</th>
         <th>Type</th>
         <th>Comment</th>
         {% for field in custom_fields %}
         <th>{{ field.name }}</th>
         {% endfor %}
-        <th>{{ _('table.status_ping') }}</th>
       </tr>
     </thead>
     {% endif %}
@@ -57,27 +57,11 @@
         {% if show_number_column %}
         <td class="number-cell">{{ ip.ordinal }}</td>
         {% endif %}
-        <td class="ip-cell locked-col" data-detail-field="address"><button class="ip-open-button" type="button" data-host-drawer-open aria-label="{{ _('drawer.open', address=ip.address) }}" aria-controls="host-drawer-{{ project.id }}" aria-expanded="false">{{ ip.address }}</button></td>
-        <td data-detail-field="hostname" data-detail-value="{{ ip.hostname }}">
+        <td class="ip-cell locked-col" data-detail-field="address" data-mobile-label="{{ _('table.ip_address') }}"><button class="ip-open-button" type="button" data-host-drawer-open aria-label="{{ _('drawer.open', address=ip.address) }}" aria-controls="host-drawer-{{ project.id }}" aria-expanded="false">{{ ip.address }}</button></td>
+        <td data-detail-field="hostname" data-detail-value="{{ ip.hostname }}" data-mobile-label="Hostname">
           <span class="{{ 'table-empty-value' if not ip.hostname else '' }}">{{ ip.hostname if ip.hostname else _('table.placeholder_empty') }}</span>
         </td>
-        <td data-detail-field="os" data-detail-value="{{ ip.os }}">
-          <span class="{{ 'table-empty-value' if not ip.os else '' }}">{{ ip.os if ip.os else _('table.placeholder_empty') }}</span>
-        </td>
-        <td data-detail-field="asset_type" data-detail-value="{{ ip.asset_type }}">
-          <span class="{{ 'table-empty-value' if not ip.asset_type else '' }}">{{ ip.asset_type if ip.asset_type else _('table.placeholder_empty') }}</span>
-        </td>
-        <td data-detail-field="comment" data-detail-value="{{ ip.comment }}">
-          <span class="{{ 'table-empty-value' if not ip.comment else '' }}">{{ ip.comment if ip.comment else _('table.placeholder_empty') }}</span>
-        </td>
-        {% for field in custom_fields %}
-        {% set custom_value = (ip.custom_values or {}).get(field.key, '') %}
-        <td data-custom-label="{{ field.name }}" data-custom-name="custom__{{ field.key }}" data-custom-type="{{ field.field_type }}"
-          data-custom-value="{{ custom_value }}">
-          <span class="{{ 'table-empty-value' if not custom_value else '' }}">{{ custom_value if custom_value else _('table.placeholder_empty') }}</span>
-        </td>
-        {% endfor %}
-        <td class="status-cell">
+        <td class="status-cell" data-mobile-label="Ping">
           {% if ip.is_reachable is sameas true %}
           <span class="status-pill online" data-ping-status="OK"><span></span>OK</span>
           {% elif ip.is_reachable is sameas false %}
@@ -86,6 +70,22 @@
           <span class="status-pill unknown" data-ping-status="NoTest"><span></span>NoTest</span>
           {% endif %}
         </td>
+        <td data-detail-field="os" data-detail-value="{{ ip.os }}" data-mobile-label="OS">
+          <span class="{{ 'table-empty-value' if not ip.os else '' }}">{{ ip.os if ip.os else _('table.placeholder_empty') }}</span>
+        </td>
+        <td data-detail-field="asset_type" data-detail-value="{{ ip.asset_type }}" data-mobile-label="Type">
+          <span class="{{ 'table-empty-value' if not ip.asset_type else '' }}">{{ ip.asset_type if ip.asset_type else _('table.placeholder_empty') }}</span>
+        </td>
+        <td data-detail-field="comment" data-detail-value="{{ ip.comment }}" data-mobile-label="Comment">
+          <span class="{{ 'table-empty-value' if not ip.comment else '' }}">{{ ip.comment if ip.comment else _('table.placeholder_empty') }}</span>
+        </td>
+        {% for field in custom_fields %}
+        {% set custom_value = (ip.custom_values or {}).get(field.key, '') %}
+        <td data-custom-label="{{ field.name }}" data-mobile-label="{{ field.name }}" data-custom-name="custom__{{ field.key }}" data-custom-type="{{ field.field_type }}"
+          data-custom-value="{{ custom_value }}">
+          <span class="{{ 'table-empty-value' if not custom_value else '' }}">{{ custom_value if custom_value else _('table.placeholder_empty') }}</span>
+        </td>
+        {% endfor %}
       </tr>
       {% else %}
       <tr>

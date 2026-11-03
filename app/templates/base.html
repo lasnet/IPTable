@@ -5,8 +5,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css').path }}?v=20261103-ui-revision-2">
-  <script src="{{ url_for('static', path='/app.js').path }}?v=20261103-ui-revision-2" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css').path }}?v=20261103-registry-redesign">
+  <script src="{{ url_for('static', path='/app.js').path }}?v=20261103-registry-redesign" defer></script>
 </head>
 
 <body data-i18n-selected-row="{{ _('js.selected_row') }}"
@@ -43,7 +43,10 @@
 
   <main class="app-shell {{ 'with-inventory' if inventory_view else 'without-inventory' }}">
     <nav class="primary-rail" aria-label="{{ _('nav.primary') }}">
-      <a class="rail-logo" href="/" aria-label="IPtable">IP</a>
+      <a class="rail-logo" href="/" aria-label="IPtable">
+        <span class="rail-logo-mark" aria-hidden="true">IP</span>
+        <span class="rail-logo-copy"><strong>IPtable</strong><small>{{ _('nav.workspace') }}</small></span>
+      </a>
       <div class="rail-indicator" aria-hidden="true"></div>
       <div class="rail-links">
         <a class="rail-link {{ 'active' if request.url.path == '/' else '' }}" href="/" title="{{ _('nav.dashboard') }}" aria-label="{{ _('nav.dashboard') }}" {% if request.url.path == '/' %}aria-current="page"{% endif %}>
@@ -64,7 +67,10 @@
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v5h5M3.05 13A9 9 0 1 0 5.6 6.6L3 8M12 7v5l3 2"/></svg><span>{{ _('history.title') }}</span>
         </a>
       </div>
-      <div class="rail-account" title="{{ current_user.username }}">{{ current_user.username[:2] | upper }}</div>
+      <div class="rail-account" title="{{ current_user.username }}">
+        <span>{{ current_user.username[:2] | upper }}</span>
+        <span class="rail-account-copy"><strong>{{ current_user.first_name or current_user.username }}</strong><small>{{ _('nav.administrator') if current_user.is_admin else _('nav.user') }}</small></span>
+      </div>
     </nav>
     {% if inventory_view %}
     <aside class="sidebar">

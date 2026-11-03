@@ -213,6 +213,7 @@
       <input type="hidden" name="type_filter" data-drawer-hidden="type_filter">
       <input type="hidden" name="os_filter" data-drawer-hidden="os_filter">
       <div class="host-drawer-fields">
+        <h4 class="drawer-section-title">{{ _('drawer.basic') }}</h4>
         <label>
           {{ _('table.ip_address') }}
           <input name="address_display" data-drawer-field="address" disabled readonly>
@@ -234,6 +235,7 @@
           <textarea name="comment" maxlength="4000" rows="4" data-drawer-field="comment" data-drawer-editable disabled></textarea>
         </label>
       </div>
+      {% if custom_fields %}<h4 class="drawer-section-title drawer-custom-title">{{ _('drawer.additional') }}</h4>{% endif %}
       <div class="host-drawer-custom" data-drawer-custom></div>
       <div class="host-drawer-status-field">
         <span>{{ _('table.status_ping') }}</span>
