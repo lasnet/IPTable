@@ -20,7 +20,7 @@
       </div>
       <div>
         <h2>{{ history_page_title }}</h2>
-        <p class="subtle">{{ history_page_subtitle }}</p>
+        <p class="subtle{% if project is defined %} project-cidr{% endif %}">{{ history_page_subtitle }}</p>
       </div>
     </div>
 

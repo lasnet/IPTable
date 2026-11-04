@@ -69,7 +69,8 @@ class DeploymentTest(unittest.TestCase):
         client = TestClient(create_app(), base_url="http://backend:8000")
         response = client.get("/login", headers={"Host": "inventory.example:8443"})
         assets = re.findall(r'<(?:link|script)\b[^>]*(?:href|src)="([^"]+)"', response.text)
-        self.assertEqual(len(assets), 2)
+        self.assertEqual(len(assets), 3)
+        self.assertTrue(any("atlas.css" in asset for asset in assets))
         for asset in assets:
             with self.subTest(asset=asset):
                 self.assertTrue(asset.startswith("/static/"))
