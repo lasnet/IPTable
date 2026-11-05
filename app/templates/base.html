@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', path='/styles.css').path }}?v=20261103-ui-revision-2">
-  <link rel="stylesheet" href="{{ url_for('static', path='/atlas.css').path }}?v=20261104-network-atlas-2">
+  <link rel="stylesheet" href="{{ url_for('static', path='/atlas.css').path }}?v=20261105-atlas-soft-1">
   <script src="{{ url_for('static', path='/app.js').path }}?v=20261103-ui-revision-2" defer></script>
 </head>
 
@@ -121,7 +121,7 @@
             </div>
           </details>
           <details class="node-menu folder-node-menu">
-            <summary class="node-menu-button" title="{{ _('folder.menu') }}" aria-label="{{ _('folder.menu') }}">⋯</summary>
+            <summary class="node-menu-button" title="{{ _('folder.menu') }}" aria-label="{{ _('folder.menu') }}"><svg class="node-menu-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="2.6" cy="8" r="1.35"/><circle cx="8" cy="8" r="1.35"/><circle cx="13.4" cy="8" r="1.35"/></svg></summary>
             <div class="node-menu-panel">
               {% if current_user.can_create_inventory %}
               <button class="node-menu-item" type="button" data-modal-target="project-create-modal-{{ folder.id }}">{{ _('project.add') }}</button>
