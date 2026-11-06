@@ -69,15 +69,20 @@ class DeploymentTest(unittest.TestCase):
         client = TestClient(create_app(), base_url="http://backend:8000")
         response = client.get("/login", headers={"Host": "inventory.example:8443"})
         assets = re.findall(r'<(?:link|script)\b[^>]*(?:href|src)="([^"]+)"', response.text)
-        self.assertEqual(len(assets), 3)
+        self.assertEqual(len(assets), 4)
         self.assertTrue(any("atlas.css" in asset for asset in assets))
+        self.assertIn("/static/favicon.ico", assets)
         for asset in assets:
             with self.subTest(asset=asset):
                 self.assertTrue(asset.startswith("/static/"))
                 resource = client.get(asset)
                 self.assertEqual(resource.status_code, 200)
-                expected = "text/css" if ".css?" in asset else "javascript"
-                self.assertIn(expected, resource.headers["content-type"])
+                content_type = resource.headers["content-type"]
+                if asset.endswith(".ico"):
+                    self.assertIn(content_type, {"image/vnd.microsoft.icon", "image/x-icon"})
+                else:
+                    expected = "text/css" if ".css?" in asset else "javascript"
+                    self.assertIn(expected, content_type)
 
     def test_postgres_settings_encode_password_and_preserve_legacy_url(self) -> None:
         password = secrets.token_hex(12) + "@:/%$#"

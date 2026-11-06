@@ -58,15 +58,22 @@ def check_application(url: str, ca_file: str | None = None, http_url: str | None
     assets = re.findall(r'<(?:link|script)\b[^>]*(?:href|src)="([^"]+)"', login)
     expect(any("styles.css" in asset for asset in assets), "Stylesheet link missing")
     expect(any("app.js" in asset for asset in assets), "Application script missing")
+    expect(any(urlsplit(asset).path.endswith("/favicon.ico") for asset in assets), "Favicon link missing")
     origin = urlsplit(url)
     for asset in assets:
         target = urlsplit(urljoin(url.rstrip("/") + "/login", asset))
         expect((target.scheme, target.netloc) == (origin.scheme, origin.netloc),
                "Asset does not use the application's origin (possible mixed content)")
         with opener.open(target.geturl(), timeout=15) as resource:
-            expected_type = "text/css" if target.path.endswith(".css") else "javascript"
-            expect(resource.status == 200 and expected_type in resource.headers.get("Content-Type", ""),
-                   "Stylesheet or script could not be loaded")
+            if target.path.endswith(".ico"):
+                expected_types = ("image/vnd.microsoft.icon", "image/x-icon")
+            elif target.path.endswith(".css"):
+                expected_types = ("text/css",)
+            else:
+                expected_types = ("javascript",)
+            content_type = resource.headers.get("Content-Type", "")
+            expect(resource.status == 200 and any(value in content_type for value in expected_types),
+                   f"Asset could not be loaded: {target.path}")
             expect(bool(resource.read()), "Empty application asset")
     token = re.search(r'name="_csrf_token" value="([^"]+)"', login)
     expect(token is not None, "Login CSRF token missing")
