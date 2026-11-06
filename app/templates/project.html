@@ -123,46 +123,6 @@
     <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
     <input type="hidden" name="page" value="1">
     <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
-    <details class="table-filters-menu">
-      <summary class="soft-button filter-trigger" aria-label="{{ _('filter.open') }}" title="{{ _('filter.open') }}">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.5 7.5V19l-3 1v-7.5L4 5Z" /></svg>
-        <span class="active-filter-count" data-active-filter-count hidden></span>
-      </summary>
-      <div class="filter-panel">
-    <label>
-      Ping
-      <select name="ping_status">
-        {% for option in filter_options.ping_statuses %}
-        <option value="{{ option.value }}" {% if option.value == table_filters.ping_status %}selected{% endif %}>
-          {{ option.label }}
-        </option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      Type
-      <select name="type_filter">
-        <option value="">{{ _('filter.all_types') }}</option>
-        {% for option in filter_options.types %}
-        <option value="{{ option }}" {% if option == table_filters.type_filter %}selected{% endif %}>{{ option }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      OS
-      <select name="os_filter">
-        <option value="">{{ _('filter.all_os') }}</option>
-        {% for option in filter_options.oses %}
-        <option value="{{ option }}" {% if option == table_filters.os_filter %}selected{% endif %}>{{ option }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <a class="soft-button compact-action" data-filter-reset
-      href="/projects/{{ project.id }}?hide_empty={{ 'true' if hide_empty else 'false' }}&page=1&per_page={{ pagination.per_page }}">
-      {{ _('button.reset') }}
-    </a>
-      </div>
-    </details>
     <div class="project-summary" aria-label="{{ _('summary.title') }}">
       <div class="summary-item">
         <span class="summary-icon">
@@ -229,6 +189,46 @@
         </span>
       </div>
     </div>
+    <details class="table-filters-menu">
+      <summary class="soft-button filter-trigger" aria-label="{{ _('filter.open') }}" title="{{ _('filter.open') }}">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.5 7.5V19l-3 1v-7.5L4 5Z" /></svg>
+        <span class="active-filter-count" data-active-filter-count hidden></span>
+      </summary>
+      <div class="filter-panel">
+    <label>
+      Ping
+      <select name="ping_status">
+        {% for option in filter_options.ping_statuses %}
+        <option value="{{ option.value }}" {% if option.value == table_filters.ping_status %}selected{% endif %}>
+          {{ option.label }}
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      Type
+      <select name="type_filter">
+        <option value="">{{ _('filter.all_types') }}</option>
+        {% for option in filter_options.types %}
+        <option value="{{ option }}" {% if option == table_filters.type_filter %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      OS
+      <select name="os_filter">
+        <option value="">{{ _('filter.all_os') }}</option>
+        {% for option in filter_options.oses %}
+        <option value="{{ option }}" {% if option == table_filters.os_filter %}selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <a class="soft-button compact-action" data-filter-reset
+      href="/projects/{{ project.id }}?hide_empty={{ 'true' if hide_empty else 'false' }}&page=1&per_page={{ pagination.per_page }}">
+      {{ _('button.reset') }}
+    </a>
+      </div>
+    </details>
   </form>
   </div>
 
