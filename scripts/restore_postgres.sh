@@ -18,7 +18,7 @@ if [[ "${CONFIRM_RESTORE:-}" != "YES" ]]; then
   exit 1
 fi
 
-docker compose cp "$backup_file" postgres:/tmp/iptable_restore.dump
+docker compose exec -T postgres sh -c 'umask 077; cat > /tmp/iptable_restore.dump' < "$backup_file"
 docker compose exec -T postgres sh -c 'pg_restore --clean --if-exists --no-owner -U "$POSTGRES_USER" -d "$POSTGRES_DB" /tmp/iptable_restore.dump'
 docker compose exec -T postgres rm -f /tmp/iptable_restore.dump
 

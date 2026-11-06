@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}API token - {{ app_name }}{% endblock %}
+{% block content %}
+<section class="settings-page">
+  <h1>API token</h1>
+  <p>{{ 'Сохраните токен сейчас: он больше не будет показан.' if interface_language == 'RU' else 'Save this token now. It will not be shown again.' }}</p>
+  <pre>{{ token }}</pre>
+  <a href="/settings">{{ _('nav.settings') }}</a>
+</section>
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+
+{% block title %}{{ _('nav.settings') }} - {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="settings-page">
+  <div class="dashboard-heading">
+    <div>
+      <h1>{{ _('nav.settings') }}</h1>
+      <p>{{ 'Параметры приложения для всех пользователей' if interface_language == 'RU' else 'Application settings for all users' }}</p>
+    </div>
+  </div>
+
+
+  {% set titles = {'interface': ('Интерфейс', 'Interface'), 'security': ('Безопасность', 'Security'), 'ping': ('Проверка адресов', 'Ping'), 'limits': ('Лимиты', 'Limits')} %}
+  {% set labels = {
+    'app_name': ('Название установки', 'Installation name'),
+    'interface_language': ('Язык интерфейса', 'Interface language'),
+    'project_table_default_page_size': ('Строк на странице', 'Rows per page'),
+    'session_idle_timeout_seconds': ('Сессия, с', 'Session, s'),
+    'login_rate_limit_attempts': ('Попытки входа', 'Login attempts'),
+    'login_rate_limit_window_seconds': ('Окно входа, с', 'Login window, s'),
+    'login_rate_limit_lockout_seconds': ('Блокировка, с', 'Lockout, s'),
+    'ping_interval_seconds': ('Интервал новых расписаний, с', 'New schedule interval, s'),
+    'ping_timeout_seconds': ('Тайм-аут адреса, с', 'Probe timeout, s'),
+    'ping_concurrency': ('Параллелизм worker', 'Worker concurrency'),
+    'ping_batch_size': ('Размер пакета', 'Batch size'),
+    'ping_batch_pause_seconds': ('Пауза пакетов, с', 'Batch pause, s'),
+    'ping_project_pause_seconds': ('Пауза проектов, с', 'Project pause, s'),
+    'ping_queue_poll_seconds': ('Опрос очереди, с', 'Queue poll, s'),
+    'ping_running_job_timeout_seconds': ('Срок зависшей задачи, с', 'Stale job timeout, s'),
+    'max_project_addresses': ('Максимум адресов', 'Maximum addresses'),
+    'csv_import_max_bytes': ('Размер импорта, байт', 'Import size, bytes')
+  } %}
+
+  <div class="settings-layout">
+    {% for group, fields in groups.items() %}
+    <section class="settings-card settings-card-{{ group }}" id="settings-{{ group }}">
+      <div class="settings-card-head">
+        <span class="settings-card-mark" aria-hidden="true">{{ icon(group) }}</span>
+        <h2>{{ titles[group][1 if interface_language == 'EN' else 0] }}</h2>
+      </div>
+      <form class="settings-form" action="/settings/{{ group }}" method="post">
+        {{ csrf_input(request) }}
+        <input type="hidden" name="revision" value="{{ configuration.revision }}">
+        <div class="settings-fields">
+          {% for name in fields %}
+          <label class="settings-field">
+            <span>{{ labels[name][1 if interface_language == 'EN' else 0] }}</span>
+            {% if name == 'interface_language' %}
+            <select name="{{ name }}">
+              <option value="RU" {{ 'selected' if configuration.interface_language == 'RU' }}>RU</option>
+              <option value="EN" {{ 'selected' if configuration.interface_language == 'EN' }}>EN</option>
+            </select>
+            {% elif name == 'project_table_default_page_size' %}
+            <select name="{{ name }}">
+              {% for size in (25, 50, 100, 250) %}<option value="{{ size }}" {{ 'selected' if configuration.project_table_default_page_size == size }}>{{ size }}</option>{% endfor %}
+            </select>
+            {% else %}
+            <input name="{{ name }}" value="{{ configuration | attr(name) }}" required {% if name != 'app_name' %}type="number" step="{{ 'any' if 'pause' in name or name == 'ping_queue_poll_seconds' else '1' }}"{% endif %}>
+            {% endif %}
+          </label>
+          {% endfor %}
+        </div>
+        {% if group == 'ping' %}<p class="settings-hint">{{ 'Общий интервал применяется только к новым расписаниям.' if interface_language == 'RU' else 'The default interval applies only to new schedules.' }}</p>{% endif %}
+        {% if group == 'security' %}<p class="settings-hint">{{ 'Уменьшение срока сессии может потребовать повторного входа.' if interface_language == 'RU' else 'Reducing the session timeout may require another sign-in.' }}</p>{% endif %}
+        {% if group == 'limits' %}<p class="settings-hint">{{ 'Встроенный HTTPS gateway ограничивает весь запрос 3 MiB.' if interface_language == 'RU' else 'The bundled HTTPS gateway limits the entire request to 3 MiB.' }}</p>{% endif %}
+        <div class="settings-actions"><button type="submit">{{ _('button.save') }}</button></div>
+      </form>
+    </section>
+    {% endfor %}
+
+    <section class="settings-card settings-card-integrations" id="settings-integrations">
+      <div class="settings-card-head"><span class="settings-card-mark" aria-hidden="true">{{ icon('integrations') }}</span><h2>{{ 'Интеграции' if interface_language == 'RU' else 'Integrations' }}</h2></div>
+      <p class="settings-hint">{{ 'Токен для доступа к REST API. Новый токен показывается только один раз.' if interface_language == 'RU' else 'Token for REST API access. A new token is shown only once.' }}</p>
+      <span class="settings-api-status {{ 'is-active' if credential.token_hash else '' }}">{{ ('API включен' if credential.token_hash else 'API отключен') if interface_language == 'RU' else ('API enabled' if credential.token_hash else 'API disabled') }}</span>
+      <div class="settings-token-actions">
+        {% for action in (('replace', 'disable') if credential.token_hash else ('create',)) %}
+        <form action="/settings/integrations/token/{{ action }}" method="post">
+          {{ csrf_input(request) }}<input type="hidden" name="version" value="{{ credential.version }}">
+          <button class="{{ 'settings-secondary-button' if action == 'disable' else 'settings-primary-button' }}" type="submit">{{ {'create':'Создать токен','replace':'Заменить токен','disable':'Отключить API'}[action] if interface_language == 'RU' else {'create':'Create token','replace':'Replace token','disable':'Disable API'}[action] }}</button>
+        </form>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="settings-card settings-card-system" id="settings-system">
+      <div class="settings-card-head"><span class="settings-card-mark" aria-hidden="true">{{ icon('system') }}</span><h2>{{ 'Система' if interface_language == 'RU' else 'System' }}</h2></div>
+      <div class="settings-system-facts">
+        <div><span>{{ 'Режим' if interface_language == 'RU' else 'Mode' }}</span><strong>{{ request.app.state.bootstrap_settings.app_env }}</strong></div>
+        <div><span>{{ 'Публичный адрес' if interface_language == 'RU' else 'Public origin' }}</span><strong>{{ request.app.state.bootstrap_settings.app_public_url or '—' }}</strong></div>
+        <div><span>{{ 'База данных' if interface_language == 'RU' else 'Database' }}</span><strong>{{ 'PostgreSQL' if request.app.state.bootstrap_settings.database_url.startswith('postgresql') else 'SQLite' }}</strong></div>
+      </div>
+      <h3 class="settings-history-title">{{ 'Последние изменения' if interface_language == 'RU' else 'Recent changes' }}</h3>
+      <ul class="settings-history">{% for item in history %}<li><time>{{ item.created_at.strftime('%d.%m.%Y %H:%M') }}</time><span>{{ item.actor_name }}</span><strong>{{ item.section }}</strong></li>{% endfor %}</ul>
+    </section>
+  </div>
+</section>
+{% endblock %}

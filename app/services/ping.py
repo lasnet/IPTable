@@ -2,6 +2,7 @@ import asyncio
 import logging
 import platform
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -349,13 +350,15 @@ def requeue_stale_ping_jobs(db, settings: Settings) -> int:
         db.query(PingJob)
         .filter(
             PingJob.status == PING_JOB_RUNNING,
-            or_(PingJob.started_at.is_(None), PingJob.started_at <= stale_before),
+            or_(PingJob.started_at.is_(None), PingJob.lease_expires_at <= now,
+                (PingJob.lease_expires_at.is_(None) & (PingJob.started_at <= stale_before))),
         )
         .update(
             {
                 PingJob.status: PING_JOB_QUEUED,
                 PingJob.run_after: now,
                 PingJob.started_at: None,
+                PingJob.lease_expires_at: None,
                 PingJob.finished_at: None,
                 PingJob.error: "Requeued after worker timeout",
             },
@@ -367,7 +370,7 @@ def requeue_stale_ping_jobs(db, settings: Settings) -> int:
     return requeued_count
 
 
-def _claim_next_ping_job(db) -> tuple[int, int] | None:
+def _claim_next_ping_job(db, timeout_seconds: int = 7200) -> tuple[int, int] | None:
     now = datetime.utcnow()
     if not _supports_postgres_advisory_locks(db):
         job = db.scalar(
@@ -381,6 +384,7 @@ def _claim_next_ping_job(db) -> tuple[int, int] | None:
 
         job.status = PING_JOB_RUNNING
         job.started_at = now
+        job.lease_expires_at = now + timedelta(seconds=timeout_seconds)
         job.error = ""
         job_id = job.id
         project_id = job.project_id
@@ -406,6 +410,7 @@ def _claim_next_ping_job(db) -> tuple[int, int] | None:
                 {
                     PingJob.status: PING_JOB_RUNNING,
                     PingJob.started_at: now,
+                    PingJob.lease_expires_at: now + timedelta(seconds=timeout_seconds),
                     PingJob.error: "",
                 }
             )
@@ -422,7 +427,7 @@ def _claim_next_ping_job(db) -> tuple[int, int] | None:
 
 async def run_next_ping_job(settings: Settings) -> bool:
     with SessionLocal() as db:
-        claimed_job = _claim_next_ping_job(db)
+        claimed_job = _claim_next_ping_job(db, settings.ping_running_job_timeout_seconds)
         if claimed_job is None:
             return False
         job_id, project_id = claimed_job
@@ -465,22 +470,29 @@ async def run_ping_pass(settings: Settings) -> int:
 
 async def run_ping_scheduler(settings: Settings) -> None:
     await asyncio.sleep(5)
+    next_poll_at = 0.0
+    last_poll_seconds = settings.ping_queue_poll_seconds
     while True:
         try:
             with SessionLocal() as db:
+                from app.services.settings import current
+                settings = current(db, settings)
+                if settings.ping_queue_poll_seconds != last_poll_seconds:
+                    next_poll_at = min(next_poll_at, time.monotonic() + settings.ping_queue_poll_seconds)
+                    last_poll_seconds = settings.ping_queue_poll_seconds
                 ensure_default_project_schedules(db, settings)
                 requeued_count = requeue_stale_ping_jobs(db, settings)
                 if requeued_count:
                     logger.warning("Requeued stale ping jobs: %s", requeued_count)
                 enqueue_due_ping_schedules(db, settings)
 
-            processed = await run_next_ping_job(settings)
-            if processed and settings.ping_project_pause_seconds:
-                await asyncio.sleep(settings.ping_project_pause_seconds)
-                continue
+            if time.monotonic() >= next_poll_at:
+                processed = await run_next_ping_job(settings)
+                delay = settings.ping_project_pause_seconds if processed else settings.ping_queue_poll_seconds
+                next_poll_at = time.monotonic() + delay
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Ping worker iteration failed")
 
-        await asyncio.sleep(settings.ping_queue_poll_seconds)
+        await asyncio.sleep(min(5, max(0.05, next_poll_at - time.monotonic())))

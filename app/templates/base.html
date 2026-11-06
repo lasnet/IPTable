@@ -4,9 +4,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}IPtable{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260917-columns">
-  <script src="{{ url_for('static', path='/app.js') }}?v=20260917-columns" defer></script>
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css').path }}?v=20261106-filter-count">
+  <link rel="stylesheet" href="{{ url_for('static', path='/atlas.css').path }}?v=20261106-project-toolbar-3">
+  <script src="{{ url_for('static', path='/app.js').path }}?v=20261103-ui-revision-2" defer></script>
 </head>
 
 <body data-i18n-selected-row="{{ _('js.selected_row') }}"
@@ -14,7 +15,10 @@
   data-i18n-unsaved-leave="{{ _('js.unsaved_leave') }}"
   data-i18n-empty-value="{{ _('table.placeholder_empty') }}">
   {% if current_user is defined %}
+  {% set history_view = request.url.path == '/history' or request.url.path.endswith('/history') %}
+  {% set inventory_view = request.url.path == '/inventory' or ((request.url.path.startswith('/projects/') or request.url.path.startswith('/folders/')) and not history_view) %}
   <header class="topbar">
+    <a class="topbar-brand" href="/" aria-label="{{ app_name }}">{{ app_name }}<small> / {{ _('nav.workspace') }}</small></a>
     <form class="global-search" action="/search" method="get">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
         <path d="m21 21-4.35-4.35m1.35-5.15a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z" />
@@ -22,9 +26,8 @@
       <input type="search" name="q" value="{{ q | default('') }}" placeholder="{{ _('search.placeholder') }}">
     </form>
     <div class="top-actions">
-      {% if current_user.is_admin %}
-      <a class="ghost-button" href="/admin/users">{{ _('nav.admin') }}</a>
-      {% endif %}
+      <span class="topbar-avatar" aria-hidden="true">{{ (current_user.first_name or current_user.username)[:2] | upper }}</span>
+      <span class="topbar-profile"><strong>{{ current_user.first_name or current_user.username }}</strong><small>{{ _('nav.administrator') if current_user.is_admin else _('nav.user') }}</small></span>
       <form action="/logout" method="post">
         {{ csrf_input(request) }}
         <button class="ghost-button" type="submit">
@@ -39,8 +42,35 @@
     </div>
   </header>
 
-  <main class="app-shell">
+  <main class="app-shell {{ 'with-inventory' if inventory_view else 'without-inventory' }}">
+    <nav class="primary-rail" aria-label="{{ _('nav.primary') }}">
+      <a class="rail-logo" href="/" aria-label="IPtable">IP</a>
+      <div class="rail-indicator" aria-hidden="true"></div>
+      <div class="rail-links">
+        <a class="rail-link {{ 'active' if request.url.path == '/' else '' }}" href="/" title="{{ _('nav.dashboard') }}" aria-label="{{ _('nav.dashboard') }}" {% if request.url.path == '/' %}aria-current="page"{% endif %}>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z"/></svg><span>{{ _('nav.dashboard') }}</span>
+        </a>
+        <a class="rail-link {{ 'active' if inventory_view else '' }}" href="/inventory" title="{{ _('nav.inventory') }}" aria-label="{{ _('nav.inventory') }}" {% if inventory_view %}aria-current="page"{% endif %}>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v16H3zM3 10h18M9 10v10M15 10v10"/></svg><span>{{ _('nav.inventory') }}</span>
+        </a>
+        {% if current_user.is_admin %}
+        <a class="rail-link {{ 'active' if request.url.path.startswith('/admin/') else '' }}" href="/admin/users" title="{{ _('admin.title') }}" aria-label="{{ _('admin.title') }}" {% if request.url.path.startswith('/admin/') %}aria-current="page"{% endif %}>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>{{ _('admin.title') }}</span>
+        </a>
+        {% endif %}
+        {% if current_user.is_admin %}<a class="rail-link {{ 'active' if request.url.path == '/settings' else '' }}" href="/settings" title="{{ _('nav.settings') }}" aria-label="{{ _('nav.settings') }}" {% if request.url.path == '/settings' %}aria-current="page"{% endif %}>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM4 12a8 8 0 0 1 .2-1.8L2.7 8.7l2-3.4 2 .6A8 8 0 0 1 9.8 4l.4-2h4l.4 2a8 8 0 0 1 3.2 1.9l2-.6 2 3.4-1.5 1.5a8 8 0 0 1 0 3.6l1.5 1.5-2 3.4-2-.6a8 8 0 0 1-3.2 1.9l-.4 2h-4l-.4-2a8 8 0 0 1-3.2-1.9l-2 .6-2-3.4 1.5-1.5A8 8 0 0 1 4 12Z"/></svg><span>{{ _('nav.settings') }}</span>
+        </a>
+        {% endif %}<a class="rail-link {{ 'active' if history_view else '' }}" href="/history" title="{{ _('history.title') }}" aria-label="{{ _('history.title') }}" {% if history_view %}aria-current="page"{% endif %}>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v5h5M3.05 13A9 9 0 1 0 5.6 6.6L3 8M12 7v5l3 2"/></svg><span>{{ _('history.title') }}</span>
+        </a>
+      </div>
+      <div class="rail-account" title="{{ current_user.username }}">{{ current_user.username[:2] | upper }}</div>
+    </nav>
+    {% if inventory_view %}
     <aside class="sidebar">
+      <div class="inventory-pane-card">
+      <div class="inventory-sidebar-head"><span class="eyebrow">IPtable</span><h2>{{ _('nav.inventory') }}</h2><p>{{ _('nav.inventory_hint') }}</p></div>
 
       <div class="folders-title">
         <span>{{ _('folder.title') }}</span>
@@ -86,16 +116,12 @@
               {% else %}
               <div class="folder-empty-state">
                 <p>{{ _('folder.no_projects_yet') }}</p>
-                {% if current_user.can_create_inventory %}
-                <button class="soft-button compact-action" type="button"
-                  data-modal-target="project-create-modal-{{ folder.id }}">{{ _('project.add') }}</button>
-                {% endif %}
               </div>
               {% endfor %}
             </div>
           </details>
           <details class="node-menu folder-node-menu">
-            <summary class="node-menu-button" title="{{ _('folder.menu') }}" aria-label="{{ _('folder.menu') }}">⋯</summary>
+            <summary class="node-menu-button" title="{{ _('folder.menu') }}" aria-label="{{ _('folder.menu') }}"><svg class="node-menu-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="2.6" cy="8" r="1.35"/><circle cx="8" cy="8" r="1.35"/><circle cx="13.4" cy="8" r="1.35"/></svg></summary>
             <div class="node-menu-panel">
               {% if current_user.can_create_inventory %}
               <button class="node-menu-item" type="button" data-modal-target="project-create-modal-{{ folder.id }}">{{ _('project.add') }}</button>
@@ -128,19 +154,22 @@
         <span class="skeleton-line wide"></span>
         <span class="skeleton-line medium"></span>
       </div>
+      </div>
     </aside>
+    {% endif %}
 
     <section class="workspace">
       {% if message %}
-      <div class="notice success">{{ message }}</div>
+      <div class="notice success" role="status">{{ message }}</div>
       {% endif %}
       {% if error %}
-      <div class="notice error">{{ error }}</div>
+      <div class="notice error" role="alert">{{ error }}</div>
       {% endif %}
       {% block content %}{% endblock %}
     </section>
   </main>
 
+  {% if inventory_view %}
   {% if current_user.can_create_inventory %}
   <dialog class="modal-dialog" id="folder-create-modal" {% if request.query_params.get('new_folder') == 'true' %}data-open-on-load{% endif %}>
     <form class="modal-form" action="/folders" method="post">
@@ -299,6 +328,7 @@
   </dialog>
   {% endif %}
   {% endfor %}
+  {% endif %}
 
   {% block modals %}{% endblock %}
   {% else %}

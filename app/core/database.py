@@ -40,6 +40,7 @@ REQUIRED_TABLES = {
     "alembic_version",
     "folders",
     "users",
+    "user_sessions",
     "projects",
     "ip_addresses",
     "ip_address_history",
@@ -47,6 +48,9 @@ REQUIRED_TABLES = {
     "login_rate_limit_events",
     "ping_schedules",
     "ping_jobs",
+    "app_configuration",
+    "app_configuration_audit",
+    "integration_credential",
 }
 
 

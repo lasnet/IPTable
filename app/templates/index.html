@@ -1,13 +1,47 @@
 {% extends "base.html" %}
 
-{% block title %}IPtable - {{ _('search.projects') }}{% endblock %}
+{% block title %}{{ _('nav.dashboard') }} - {{ app_name }}{% endblock %}
 
 {% block content %}
-<section class="empty-workspace">
-  <div class="empty-icon">
-    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h5l2 2h9v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"/></svg>
+<section class="dashboard-page" id="dashboard-overview">
+  <div class="dashboard-heading">
+    <div><h1>{{ _('dashboard.title') }}</h1><p>{{ _('dashboard.subtitle') }}</p></div>
+    <a class="dashboard-link" href="/inventory">{{ _('dashboard.open_inventory') }} <span aria-hidden="true">↗</span></a>
   </div>
-  <h2>{{ _('index.select_project') }}</h2>
-  <p>{{ _('index.empty_text') }}</p>
+  <div class="stat-grid">
+    <article class="stat-card stat-card-primary" id="dashboard-active"><span>{{ _('dashboard.active_hosts') }}</span><strong>{{ stats.active }}</strong><small>{{ _('dashboard.active_hint') }}</small></article>
+    <article class="stat-card"><span>{{ _('dashboard.subnets') }}</span><strong>{{ stats.projects }}</strong><small>{{ _('dashboard.in_folders') }}: {{ stats.folders }}</small></article>
+    <article class="stat-card"><span>{{ _('dashboard.addresses') }}</span><strong>{{ stats.addresses }}</strong><small>{{ _('dashboard.total_addresses') }}</small></article>
+    <article class="stat-card"><span>{{ _('dashboard.offline') }}</span><strong>{{ stats.offline }}</strong><small>{{ _('dashboard.untested') }}: {{ stats.untested }}</small></article>
+  </div>
+  <div class="dashboard-panels">
+    <section class="dashboard-panel overview-panel" id="dashboard-networks">
+      <div class="panel-heading"><div><h2>{{ _('dashboard.networks') }}</h2></div><a href="/inventory">{{ _('dashboard.all_subnets') }} →</a></div>
+      <div class="dashboard-network-list">
+        {% set shown = namespace(count=0) %}
+        {% for folder in folders %}
+          {% for item in folder.projects %}
+          {% if shown.count < 5 %}
+          <a class="dashboard-network" href="/projects/{{ item.id }}"><span class="network-dot"></span><span><strong>{{ item.name }}</strong><small>{{ folder.name }}</small></span><code>{{ item.cidr }}</code><span aria-hidden="true">↗</span></a>
+          {% set shown.count = shown.count + 1 %}
+          {% endif %}
+          {% endfor %}
+        {% endfor %}
+        {% if shown.count == 0 %}
+          <p class="dashboard-empty">{{ _('dashboard.no_subnets') }}</p>
+        {% endif %}
+      </div>
+    </section>
+    <section class="dashboard-panel activity-panel" id="dashboard-activity">
+      <div class="panel-heading"><div><h2>{{ _('dashboard.latest_changes') }}</h2></div><a href="/history">{{ _('dashboard.all_history') }} →</a></div>
+      <div class="dashboard-activity-list">
+        {% for item in recent_history %}
+        <a class="dashboard-activity" href="/projects/{{ item.project_id }}/history?address={{ item.address | urlencode }}"><span class="activity-marker"></span><span><strong><span>{{ item.address }}</span> <span class="activity-field">{{ item.field_label }}</span></strong><small><span>{{ item.username or _('history.deleted_user') }}</span> <span class="activity-cidr">{{ item.project.cidr }}</span></small></span><time>{{ item.created_at.strftime('%d.%m %H:%M') }}</time></a>
+        {% else %}
+        <p class="dashboard-empty">{{ _('history.empty') }}</p>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
 </section>
 {% endblock %}

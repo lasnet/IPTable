@@ -10,3 +10,6 @@ python-multipart==0.0.31
 itsdangerous==2.2.0
 pyzipper==0.4.0
 openpyxl==3.1.5
+# Pin transitive runtime fixes as well as the direct dependencies.
+anyio==4.16.0
+Mako==1.4.3

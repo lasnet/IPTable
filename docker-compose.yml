@@ -15,7 +15,9 @@ x-app-environment: &app-environment
   INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
   INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-} # Required: at least 12 characters.
   INTERFACE_LANGUAGE: ${INTERFACE_LANGUAGE:-RU} # RU or EN.
-  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false} # Set true when using HTTPS.
+  # Public URL controls Secure cookies and HSTS, including behind an external proxy.
+  APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:${APP_PORT:-8000}}
+  HTTPS_ENABLED: ${HTTPS_ENABLED:-false}
   SESSION_IDLE_TIMEOUT_SECONDS: ${SESSION_IDLE_TIMEOUT_SECONDS:-86400}
   LOGIN_RATE_LIMIT_ATTEMPTS: ${LOGIN_RATE_LIMIT_ATTEMPTS:-5}
   LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-300}
@@ -40,7 +42,8 @@ x-app: &app
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ${COMPOSE_PROJECT_NAME:-iptable}-postgres
+    build: ./deploy/postgres
     environment: *database-environment
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -53,7 +56,7 @@ services:
 
   migrate:
     <<: *app
-    command: ["alembic", "upgrade", "head"]
+    command: ["python", "-m", "app.manage", "migrate"]
     healthcheck:
       disable: true
     depends_on:
@@ -66,6 +69,7 @@ services:
     environment:
       <<: *app-environment
       ENABLE_PING_WORKER: "false"
+      FORWARDED_ALLOW_IPS: ${TRUSTED_PROXY_IPS:-127.0.0.1}
     ports:
       - "${APP_BIND_ADDRESS:-0.0.0.0}:${APP_PORT:-8000}:8000"
     depends_on:

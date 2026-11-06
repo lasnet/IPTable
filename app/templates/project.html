@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 
-{% block title %}{{ project.name }} - {{ project.cidr }} - IPtable{% endblock %}
+{% block title %}{{ project.name }} - {{ project.cidr }} - {{ app_name }}{% endblock %}
 
 {% block content %}
 <section class="project-card">
+  <div class="project-toolbar">
   <div class="project-card-head">
     <div class="project-title">
       <div class="title-icon">
@@ -18,40 +19,131 @@
       </div>
       <div>
         <h2>{{ project.name }}</h2>
-        <p class="subtle">{{ project.cidr }}</p>
+        <p class="subtle project-cidr">{{ project.cidr }}</p>
       </div>
     </div>
-
+  </div>
+  <div class="project-toolbar-tools">
+    <div class="project-summary" aria-label="{{ _('summary.title') }}">
+      <div class="summary-item">
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+            <path d="m3 12 9 5 9-5" />
+            <path d="m3 16 9 5 9-5" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.total_ips') }}</span>
+          <strong class="summary-value">{{ total_count }}</strong>
+        </span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M20 21a8 8 0 0 0-16 0" />
+            <circle cx="12" cy="8" r="4" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.used') }}</span>
+          <strong class="summary-value">{{ filled_count }}</strong>
+        </span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="m3 3 18 18" />
+            <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+            <path d="M9.9 5.2A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.2 17.2 0 0 1-3.1 4.2" />
+            <path d="M6.3 6.3A17.2 17.2 0 0 0 2 12s3.5 7 10 7a10.4 10.4 0 0 0 4.1-.8" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.empty_hidden') }}</span>
+          <strong class="summary-value">{{ empty_count }}</strong>
+        </span>
+      </div>
+      <div class="summary-item summary-ok">
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="9" />
+            <path d="m8 12 2.5 2.5L16 9" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.ping_ok') }}</span>
+          <strong class="summary-value">{{ online_count }}</strong>
+        </span>
+      </div>
+      <div class="summary-item summary-no">
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v6" />
+            <path d="M12 16h.01" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.ping_no') }}</span>
+          <strong class="summary-value">{{ offline_count }}</strong>
+        </span>
+      </div>
+    </div>
     <div class="project-actions">
-      <a class="soft-button project-action-button" href="{{ hide_toggle_url }}" data-hide-toggle>
-        {% if hide_empty %}
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M17.94 17.94A10.9 10.9 0 0 1 12 20C7 20 2.73 16.89 1 12a12.2 12.2 0 0 1 5.06-5.94" />
-          <path d="M10.58 10.58a2 2 0 0 0 2.83 2.83" />
-          <path d="M9.9 4.24A10.8 10.8 0 0 1 12 4c5 0 9.27 3.11 11 8a12.3 12.3 0 0 1-2.16 3.19" />
-          <path d="M3 3l18 18" />
-        </svg>
-        {{ _('table.show_hidden') }}
-        {% else %}
+      <form class="table-filter-form" action="/projects/{{ project.id }}" method="get">
+        <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
+        <input type="hidden" name="page" value="1">
+        <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
+        <details class="table-filters-menu">
+          <summary class="soft-button filter-trigger" aria-label="{{ _('filter.open') }}" title="{{ _('filter.open') }}">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.5 7.5V19l-3 1v-7.5L4 5Z" /></svg>
+            <span class="active-filter-count" data-active-filter-count hidden></span>
+          </summary>
+          <div class="filter-panel">
+            <label>
+              Ping
+              <select name="ping_status">
+                {% for option in filter_options.ping_statuses %}
+                <option value="{{ option.value }}" {% if option.value == table_filters.ping_status %}selected{% endif %}>
+                  {{ option.label }}
+                </option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              Type
+              <select name="type_filter">
+                <option value="">{{ _('filter.all_types') }}</option>
+                {% for option in filter_options.types %}
+                <option value="{{ option }}" {% if option == table_filters.type_filter %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              OS
+              <select name="os_filter">
+                <option value="">{{ _('filter.all_os') }}</option>
+                {% for option in filter_options.oses %}
+                <option value="{{ option }}" {% if option == table_filters.os_filter %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <a class="soft-button compact-action" data-filter-reset
+              href="/projects/{{ project.id }}?hide_empty={{ 'true' if hide_empty else 'false' }}&page=1&per_page={{ pagination.per_page }}">
+              {{ _('button.reset') }}
+            </a>
+          </div>
+        </details>
+      </form>
+      <a class="soft-button project-action-button project-hide-toggle" href="{{ hide_toggle_url }}" data-hide-toggle>
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
           <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
         </svg>
-        {{ _('table.hide_empty') }}
-        {% endif %}
+        <span data-show-hidden-label {% if not hide_empty %}hidden{% endif %}>{{ _('table.show_hidden') }}</span>
+        <span data-hide-empty-label {% if hide_empty %}hidden{% endif %}>{{ _('table.hide_empty') }}</span>
       </a>
-
-      {% if current_user.can_manage_project_columns %}
-      <button class="soft-button project-action-button" type="button"
-        data-modal-target="project-columns-modal-{{ project.id }}">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 4h16v16H4z" />
-            <path d="M10 4v16" />
-            <path d="M16 4v16" />
-          </svg>
-          {{ _('field.columns') }}
-      </button>
-      {% endif %}
 
       <details class="field-details project-action-menu">
         <summary class="icon-button project-menu-button" aria-label="{{ _('project.menu') }}">
@@ -62,6 +154,12 @@
           </svg>
         </summary>
         <div class="floating-form project-action-panel">
+          {% if current_user.can_manage_project_columns %}
+          <button class="node-menu-item" type="button" data-modal-target="project-columns-modal-{{ project.id }}">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM10 4v16M16 4v16" /></svg>
+            {{ _('field.columns') }}
+          </button>
+          {% endif %}
           {% if current_user.is_admin %}
           <button class="node-menu-item project-menu-primary" type="button"
             data-modal-target="project-schedule-modal-{{ project.id }}">
@@ -132,84 +230,25 @@
       </details>
     </div>
   </div>
+  </div>
 
   {% if project.description %}
   <p class="project-description">{{ project.description }}</p>
   {% endif %}
 
-  <form class="table-filter-form" action="/projects/{{ project.id }}" method="get">
-    <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
-    <input type="hidden" name="page" value="1">
-    <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
-    <label>
-      Ping
-      <select name="ping_status">
-        {% for option in filter_options.ping_statuses %}
-        <option value="{{ option.value }}" {% if option.value == table_filters.ping_status %}selected{% endif %}>
-          {{ option.label }}
-        </option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      Type
-      <select name="type_filter">
-        <option value="">{{ _('filter.all_types') }}</option>
-        {% for option in filter_options.types %}
-        <option value="{{ option }}" {% if option == table_filters.type_filter %}selected{% endif %}>{{ option }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      OS
-      <select name="os_filter">
-        <option value="">{{ _('filter.all_os') }}</option>
-        {% for option in filter_options.oses %}
-        <option value="{{ option }}" {% if option == table_filters.os_filter %}selected{% endif %}>{{ option }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <a class="soft-button compact-action" data-filter-reset
-      href="/projects/{{ project.id }}?hide_empty={{ 'true' if hide_empty else 'false' }}&page=1&per_page={{ pagination.per_page }}">
-      {{ _('button.reset') }}
-    </a>
-    <div class="project-summary" aria-label="{{ _('summary.title') }}">
-      <div class="summary-item">
-        <span>{{ _('summary.total_ips') }}</span>
-        <strong>{{ total_count }}</strong>
-      </div>
-      <div class="summary-item">
-        <span>{{ _('summary.used') }}</span>
-        <strong>{{ filled_count }}</strong>
-      </div>
-      <div class="summary-item">
-        <span>{{ _('summary.empty_hidden') }}</span>
-        <strong>{{ empty_count }}</strong>
-      </div>
-      <div class="summary-item summary-ok">
-        <span>{{ _('summary.ping_ok') }}</span>
-        <strong>{{ online_count }}</strong>
-      </div>
-      <div class="summary-item summary-no">
-        <span>{{ _('summary.ping_no') }}</span>
-        <strong>{{ offline_count }}</strong>
-      </div>
-    </div>
-  </form>
-
   <div class="project-table-region" data-project-table-region>
     {% include "_project_table.html" %}
   </div>
 
-  <aside class="host-drawer" data-host-drawer aria-hidden="true">
+  <aside class="host-drawer" id="host-drawer-{{ project.id }}" data-host-drawer aria-labelledby="host-drawer-title-{{ project.id }}" aria-hidden="true" inert>
     <div class="host-drawer-head">
       <div>
         <span class="drawer-eyebrow">{{ _('drawer.title') }}</span>
-        <h3 data-drawer-ip-title></h3>
+        <h3 id="host-drawer-title-{{ project.id }}" data-drawer-ip-title></h3>
       </div>
       <button class="modal-close" type="button" data-host-drawer-close aria-label="{{ _('button.cancel') }}">×</button>
     </div>
-    <form class="host-drawer-form asset-row-form" method="post" data-host-drawer-form>
+    <form class="host-drawer-form asset-row-form" id="host-drawer-form-{{ project.id }}" method="post" data-host-drawer-form>
       {{ csrf_input(request) }}
       <input type="hidden" name="hide_empty" data-drawer-hidden="hide_empty">
       <input type="hidden" name="page" data-drawer-hidden="page">
@@ -244,12 +283,12 @@
         <span>{{ _('table.status_ping') }}</span>
         <div class="host-drawer-status" data-drawer-status></div>
       </div>
-      <div class="host-drawer-actions">
-        <button class="soft-button" type="button" data-host-drawer-edit>{{ _('button.edit') }}</button>
-        <button class="soft-button drawer-save-button" type="submit" data-host-drawer-save hidden>{{ _('button.save') }}</button>
-        <button class="soft-button" type="button" data-host-drawer-close>{{ _('button.cancel') }}</button>
-      </div>
     </form>
+    <div class="host-drawer-actions">
+      <button class="soft-button" type="button" data-host-drawer-edit>{{ _('button.edit') }}</button>
+      <button class="soft-button drawer-save-button" type="submit" form="host-drawer-form-{{ project.id }}" data-host-drawer-save hidden>{{ _('button.save') }}</button>
+      <button class="soft-button" type="button" data-host-drawer-close>{{ _('button.cancel') }}</button>
+    </div>
     <form class="host-drawer-clear-form" method="post" data-host-drawer-clear-form
       data-confirm-template="{{ _('confirm.clear_ip', address='{address}') }}">
       {{ csrf_input(request) }}

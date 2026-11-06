@@ -14,6 +14,7 @@ __pycache__
 .env.*
 !.env.example
 data
+security-audit
 logs
 backups
 *.sqlite
@@ -30,6 +31,7 @@ README.md
 AGENT.md
 DEVELOPMENT.md
 requirements-dev.txt
+requirements-dev.lock
 docker-compose.yml
 .idea
 node_modules

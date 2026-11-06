@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, User
+from app.models import AppConfiguration, AppConfigurationAudit, IntegrationCredential
+from app.services.settings import GROUPS, RevisionConflict, replace_token, save_group
 from app.services.auth import authenticate_user, create_user, hash_password
 from app.services.csv_io import (
     CSVImportError,
@@ -43,6 +45,7 @@ from app.services.ping import (
     set_project_ping_schedule,
 )
 from app.services.security import login_rate_limit_retry_after, record_login_failure, require_csrf_token, reset_login_failures
+from app.services.sessions import SESSION_TOKEN_KEY, issue_session, revoke_session, revoke_user_sessions, session_user
 
 router = APIRouter(dependencies=[Depends(require_csrf_token)])
 SESSION_LAST_ACTIVITY_KEY = "last_activity_at"
@@ -164,8 +167,8 @@ def require_user(
         request.session.clear()
         raise _login_redirect()
 
-    user = db.get(User, user_pk)
-    if user is None or not user.is_active:
+    user = session_user(db, request.session.get(SESSION_TOKEN_KEY), user_pk, settings.session_idle_timeout_seconds)
+    if user is None:
         request.session.clear()
         raise _login_redirect()
 
@@ -420,14 +423,18 @@ def login(
         return _redirect_error("/login", _ui("login.invalid"))
 
     reset_login_failures(db, client_ip, username)
+    revoke_session(db, request.session.get(SESSION_TOKEN_KEY))
+    session_token = issue_session(db, user, settings.session_idle_timeout_seconds)
     request.session.clear()
     request.session["user_id"] = user.id
+    request.session[SESSION_TOKEN_KEY] = session_token
     request.session[SESSION_LAST_ACTIVITY_KEY] = int(time.time())
     return _redirect("/")
 
 
 @router.post("/logout")
-def logout(request: Request) -> RedirectResponse:
+def logout(request: Request, db: Annotated[Session, Depends(get_db)]) -> RedirectResponse:
+    revoke_session(db, request.session.get(SESSION_TOKEN_KEY))
     request.session.clear()
     return _redirect("/login")
 
@@ -441,12 +448,50 @@ def index(
     message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> Response:
     folders = _load_sidebar_folders(db)
+    stats = {
+        "folders": len(folders),
+        "projects": sum(len(folder.projects) for folder in folders),
+        "addresses": db.scalar(select(func.count(IPAddress.id))) or 0,
+        "active": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(True))) or 0,
+        "offline": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(False))) or 0,
+        "untested": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(None))) or 0,
+    }
+    recent_history = db.scalars(
+        select(IPAddressHistory)
+        .options(selectinload(IPAddressHistory.project))
+        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
+        .limit(5)
+    ).all()
     return _templates(request).TemplateResponse(
         request,
         "index.html",
         {
             "request": request,
             "folders": folders,
+            "active_project": None,
+            "current_user": current_user,
+            "stats": stats,
+            "recent_history": recent_history,
+            "error": error,
+            "message": message,
+        },
+    )
+
+
+@router.get("/inventory", response_class=HTMLResponse)
+def inventory(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+    error: Annotated[str | None, Query(max_length=240)] = None,
+    message: Annotated[str | None, Query(max_length=240)] = None,
+) -> HTMLResponse:
+    return _templates(request).TemplateResponse(
+        request,
+        "inventory.html",
+        {
+            "request": request,
+            "folders": _load_sidebar_folders(db),
             "folder_schedules": _load_folder_schedules(db),
             "default_ping_interval_minutes": _default_ping_interval_minutes(),
             "active_project": None,
@@ -457,15 +502,116 @@ def index(
     )
 
 
+@router.get("/settings", response_class=HTMLResponse)
+def settings_page(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    error: Annotated[str | None, Query(max_length=240)] = None,
+    message: Annotated[str | None, Query(max_length=240)] = None,
+) -> HTMLResponse:
+    row = db.get(AppConfiguration, 1)
+    credential = db.get(IntegrationCredential, 1)
+    history = db.scalars(select(AppConfigurationAudit).order_by(AppConfigurationAudit.id.desc()).limit(30)).all()
+    return _templates(request).TemplateResponse(
+        request,
+        "settings.html",
+        {
+            "request": request,
+            "folders": [],
+            "active_project": None,
+            "current_user": current_user,
+            "configuration": row,
+            "credential": credential,
+            "groups": GROUPS,
+            "history": history,
+            "error": error,
+            "message": message,
+        },
+    )
+
+
+@router.post("/settings/{group}")
+async def settings_save(group: str, request: Request, db: Annotated[Session, Depends(get_db)],
+                        current_user: Annotated[User, Depends(require_admin)]) -> RedirectResponse:
+    if group not in GROUPS:
+        raise HTTPException(status_code=404)
+    form = await request.form()
+    try:
+        revision = int(str(form.get("revision", "")))
+        values = {name: str(form[name]) for name in GROUPS[group]}
+        save_group(db, group, values, revision, actor_id=current_user.id, actor_name=current_user.username)
+    except RevisionConflict:
+        db.rollback()
+        return HTMLResponse("Настройки изменены другим администратором. Обновите страницу.", status_code=409)
+    except (ValueError, KeyError, TypeError) as exc:
+        db.rollback()
+        return _redirect_error("/settings", str(exc)[:180])
+    return _redirect_message("/settings", "Настройки сохранены")
+
+
+@router.post("/settings/integrations/token/{action}")
+async def settings_token(action: str, request: Request, db: Annotated[Session, Depends(get_db)],
+                         current_user: Annotated[User, Depends(require_admin)]) -> Response:
+    if action not in {"create", "replace", "disable"}:
+        raise HTTPException(status_code=404)
+    form = await request.form()
+    try:
+        token = replace_token(db, int(str(form.get("version", ""))), current_user.id,
+                              disable=action == "disable", actor_name=current_user.username)
+    except RevisionConflict:
+        return HTMLResponse("Токен изменен другим администратором. Обновите страницу.", status_code=409)
+    except (ValueError, TypeError):
+        return _redirect_error("/settings", "Токен уже изменен, обновите страницу")
+    if token is None:
+        return _redirect_message("/settings", "Доступ к API отключен")
+    return _templates(request).TemplateResponse(request, "token_issued.html", {
+        "request": request, "current_user": current_user, "token": token,
+    }, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/history", response_class=HTMLResponse)
+def global_history(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+    q: Annotated[str, Query(max_length=64)] = "",
+) -> HTMLResponse:
+    history_query = _clean_text(q, 64)
+    history_conditions = [IPAddressHistory.address.startswith(history_query, autoescape=True)] if history_query else []
+    history_items = db.scalars(
+        select(IPAddressHistory)
+        .where(*history_conditions)
+        .options(selectinload(IPAddressHistory.project))
+        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
+        .limit(200)
+    ).all()
+    return _templates(request).TemplateResponse(
+        request,
+        "history.html",
+        {
+            "request": request,
+            "history_subtitle": _ui("history.global_hint"),
+            "history_back_url": "/inventory",
+            "history_items": history_items,
+            "history_query": history_query,
+            "show_history_project": True,
+            "folders": [],
+            "active_project": None,
+            "current_user": current_user,
+        },
+    )
+
+
 @router.post("/folders")
 def create_folder(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_user)],
     name: Annotated[str, Form(min_length=1, max_length=120)],
 ) -> RedirectResponse:
-    error_path = "/?new_folder=true"
+    error_path = "/inventory?new_folder=true"
     if not current_user.can_create_inventory:
-        return _redirect_error("/", _ui("folder.create_denied"))
+        return _redirect_error("/inventory", _ui("folder.create_denied"))
 
     clean_name = _clean_text(name, 120)
     if not clean_name:
@@ -481,7 +627,7 @@ def create_folder(
     except IntegrityError:
         db.rollback()
         return _redirect_error(error_path, _ui("folder.duplicate"))
-    return _redirect("/")
+    return _redirect("/inventory")
 
 
 @router.post("/folders/{folder_id}/update")
@@ -491,13 +637,13 @@ def update_folder(
     current_user: Annotated[User, Depends(require_user)],
     name: Annotated[str, Form(min_length=1, max_length=120)],
 ) -> RedirectResponse:
-    error_path = f"/?edit_folder={folder_id}"
+    error_path = f"/inventory?edit_folder={folder_id}"
     if not current_user.can_edit_inventory:
-        return _redirect_error("/", _ui("folder.edit_denied"))
+        return _redirect_error("/inventory", _ui("folder.edit_denied"))
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", _ui("folder.not_found"))
+        return _redirect_error("/inventory", _ui("folder.not_found"))
 
     clean_name = _clean_text(name, 120)
     if not clean_name:
@@ -509,7 +655,7 @@ def update_folder(
     except IntegrityError:
         db.rollback()
         return _redirect_error(error_path, _ui("folder.duplicate"))
-    return _redirect("/")
+    return _redirect("/inventory")
 
 
 @router.post("/folders/{folder_id}/delete")
@@ -519,15 +665,15 @@ def delete_folder(
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
     if not current_user.can_delete_inventory:
-        return _redirect_error("/", _ui("folder.delete_denied"))
+        return _redirect_error("/inventory", _ui("folder.delete_denied"))
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", _ui("folder.not_found"))
+        return _redirect_error("/inventory", _ui("folder.not_found"))
 
     db.delete(folder)
     db.commit()
-    return _redirect("/")
+    return _redirect("/inventory")
 
 
 @router.post("/projects")
@@ -541,12 +687,12 @@ async def create_project(
     description: Annotated[str, Form(max_length=2000)] = "",
 ) -> RedirectResponse:
     if not current_user.can_create_inventory:
-        return _redirect_error("/", _ui("project.create_denied"))
+        return _redirect_error("/inventory", _ui("project.create_denied"))
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", _ui("folder.not_found"))
-    error_path = f"/?new_project_folder={folder.id}"
+        return _redirect_error("/inventory", _ui("folder.not_found"))
+    error_path = f"/inventory?new_project_folder={folder.id}"
 
     clean_name = _clean_text(name, 160)
     if not clean_name:
@@ -592,7 +738,7 @@ async def import_project_csv(
     description: Annotated[str, Form(max_length=2000)] = "",
     csv_file: UploadFile = File(...),
 ) -> RedirectResponse:
-    error_path = f"/?new_project_folder={folder_id}"
+    error_path = f"/inventory?new_project_folder={folder_id}"
     if not _can_import_csv(current_user):
         return _redirect_error(
             error_path,
@@ -601,7 +747,7 @@ async def import_project_csv(
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", _ui("folder.not_found"))
+        return _redirect_error("/inventory", _ui("folder.not_found"))
 
     clean_name = _clean_text(name, 160)
     if not clean_name:
@@ -689,7 +835,7 @@ def update_project(
 
     project = db.get(Project, project_id)
     if project is None:
-        return _redirect_error("/", _ui("project.not_found"))
+        return _redirect_error("/inventory", _ui("project.not_found"))
 
     clean_name = _clean_text(name, 160)
     if not clean_name:
@@ -716,11 +862,11 @@ def delete_project(
 
     project = db.get(Project, project_id)
     if project is None:
-        return _redirect_error("/", _ui("project.not_found"))
+        return _redirect_error("/inventory", _ui("project.not_found"))
 
     db.delete(project)
     db.commit()
-    return _redirect("/")
+    return _redirect("/inventory")
 
 
 @router.post("/projects/{project_id}/schedule")
@@ -734,7 +880,7 @@ def update_project_ping_schedule(
 ) -> RedirectResponse:
     project = db.get(Project, project_id)
     if project is None:
-        return _redirect_error("/", _ui("project.not_found"))
+        return _redirect_error("/inventory", _ui("project.not_found"))
 
     set_project_ping_schedule(
         db,
@@ -760,7 +906,7 @@ def update_folder_ping_schedule(
 ) -> RedirectResponse:
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/", _ui("folder.not_found"))
+        return _redirect_error("/inventory", _ui("folder.not_found"))
 
     set_folder_ping_schedule(
         db,
@@ -775,9 +921,9 @@ def update_folder_ping_schedule(
         for project_id in project_ids:
             enqueue_project_ping(db, project_id, reason="manual-folder", commit=False)
         db.commit()
-        return _redirect_message("/", _ui("schedule.folder_saved_queued"))
+        return _redirect_message("/inventory", _ui("schedule.folder_saved_queued"))
 
-    return _redirect_message("/", _ui("schedule.folder_saved"))
+    return _redirect_message("/inventory", _ui("schedule.folder_saved"))
 
 
 @router.get("/projects/{project_id}", response_class=HTMLResponse)
@@ -799,7 +945,6 @@ def project_detail(
     project = db.scalar(
         select(Project)
         .where(Project.id == project_id)
-        .options(selectinload(Project.custom_fields), selectinload(Project.folder))
     )
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -819,7 +964,6 @@ def project_detail(
         os_filter=clean_os_filter,
     )
 
-    total_count = db.scalar(select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id)) or 0
     filled_total = db.scalar(
         select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, filled_condition)
     ) or 0
@@ -842,6 +986,38 @@ def project_detail(
     if hide_empty:
         ip_query = ip_query.where(filled_condition)
     ip_records = db.scalars(ip_query.offset(pagination["offset"]).limit(page_size)).all()
+    hide_toggle_url = _project_table_url(
+        project.id,
+        hide_empty=not hide_empty,
+        page=1,
+        per_page=pagination["per_page"],
+        ping_status=clean_ping_status,
+        type_filter=clean_type_filter,
+        os_filter=clean_os_filter,
+    )
+    table_filters = {
+        "ping_status": clean_ping_status,
+        "type_filter": clean_type_filter,
+        "os_filter": clean_os_filter,
+    }
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return _templates(request).TemplateResponse(
+            request,
+            "_project_table.html",
+            {
+                "request": request,
+                "project": project,
+                "custom_fields": custom_fields,
+                "ip_records": ip_records,
+                "hide_empty": hide_empty,
+                "hide_toggle_url": hide_toggle_url,
+                "pagination": pagination,
+                "table_filters": table_filters,
+                "filled_count": filled_total,
+            },
+        )
+
+    total_count = db.scalar(select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id)) or 0
     online_count = db.scalar(
         select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, IPAddress.is_reachable.is_(True))
     ) or 0
@@ -882,21 +1058,9 @@ def project_detail(
         "project_schedule_minutes": _schedule_interval_minutes(project_schedule, settings),
         "ip_records": ip_records,
         "hide_empty": hide_empty,
-        "hide_toggle_url": _project_table_url(
-            project.id,
-            hide_empty=not hide_empty,
-            page=1,
-            per_page=pagination["per_page"],
-            ping_status=clean_ping_status,
-            type_filter=clean_type_filter,
-            os_filter=clean_os_filter,
-        ),
+        "hide_toggle_url": hide_toggle_url,
         "pagination": pagination,
-        "table_filters": {
-            "ping_status": clean_ping_status,
-            "type_filter": clean_type_filter,
-            "os_filter": clean_os_filter,
-        },
+        "table_filters": table_filters,
         "filter_options": {
             "ping_statuses": [
                 {"value": "", "label": _ui("filter.all_statuses")},
@@ -917,8 +1081,7 @@ def project_detail(
         "shown_count": len(ip_records),
         "visible_count": visible_count,
     }
-    template_name = "_project_table.html" if request.headers.get("x-requested-with") == "XMLHttpRequest" else "project.html"
-    return _templates(request).TemplateResponse(request, template_name, context)
+    return _templates(request).TemplateResponse(request, "project.html", context)
 
 
 @router.get("/admin/users", response_class=HTMLResponse)
@@ -935,9 +1098,7 @@ def admin_users(
         "admin_users.html",
         {
             "request": request,
-            "folders": _load_sidebar_folders(db),
-            "folder_schedules": _load_folder_schedules(db),
-            "default_ping_interval_minutes": _default_ping_interval_minutes(),
+            "folders": [],
             "active_project": None,
             "current_user": current_user,
             "users": users,
@@ -1045,6 +1206,8 @@ def admin_update_user(
         user.can_manage_columns = _checked(can_manage_columns)
     if clean_password:
         user.password_hash = hash_password(clean_password)
+    if clean_password or not user.is_active:
+        revoke_user_sessions(db, user.id)
 
     try:
         db.commit()
@@ -1085,7 +1248,7 @@ def export_project(
 ) -> Response:
     project = db.get(Project, project_id)
     if project is None:
-        return _redirect_error("/", _ui("project.not_found"))
+        return _redirect_error("/inventory", _ui("project.not_found"))
 
     ip_records = db.scalars(
         select(IPAddress).where(IPAddress.project_id == project.id).order_by(IPAddress.ordinal.asc())
@@ -1125,8 +1288,8 @@ def export_folder(
         .options(selectinload(Folder.projects).selectinload(Project.ip_addresses))
     )
     if folder is None:
-        return _redirect_error("/", _ui("folder.not_found"))
-    error_path = f"/?export_folder={folder.id}"
+        return _redirect_error("/inventory", _ui("folder.not_found"))
+    error_path = f"/inventory?export_folder={folder.id}"
     if not folder.projects:
         return _redirect_error(error_path, _ui("export.folder_empty"))
 
@@ -1257,6 +1420,9 @@ async def update_ip_address(
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
+    if not current_user.can_edit_inventory:
+        raise HTTPException(status_code=403, detail="IP address edit permission required")
+
     ip_record = db.scalar(select(IPAddress).where(IPAddress.id == ip_id, IPAddress.project_id == project_id))
     if ip_record is None:
         raise HTTPException(status_code=404, detail="IP address not found")
@@ -1326,6 +1492,9 @@ async def clear_ip_address(
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
+    if not current_user.can_edit_inventory:
+        raise HTTPException(status_code=403, detail="IP address edit permission required")
+
     ip_record = db.scalar(select(IPAddress).where(IPAddress.id == ip_id, IPAddress.project_id == project_id))
     if ip_record is None:
         raise HTTPException(status_code=404, detail="IP address not found")
@@ -1387,6 +1556,7 @@ def project_history(
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_user)],
     address: Annotated[str, Query(max_length=64)] = "",
+    q: Annotated[str, Query(max_length=64)] = "",
 ) -> HTMLResponse:
     project = db.scalar(
         select(Project)
@@ -1397,9 +1567,12 @@ def project_history(
         raise HTTPException(status_code=404, detail="Project not found")
 
     clean_address = _clean_text(address, 64)
+    history_query = _clean_text(q, 64)
     history_conditions = [IPAddressHistory.project_id == project.id]
     if clean_address:
         history_conditions.append(IPAddressHistory.address == clean_address)
+    if history_query:
+        history_conditions.append(IPAddressHistory.address.startswith(history_query, autoescape=True))
     history_items = db.scalars(
         select(IPAddressHistory)
         .where(*history_conditions)
@@ -1415,6 +1588,8 @@ def project_history(
             "project": project,
             "history_subtitle": f"{project.cidr} / {clean_address}" if clean_address else project.cidr,
             "history_items": history_items,
+            "history_query": history_query,
+            "history_address": clean_address,
             "folders": _load_sidebar_folders(db),
             "folder_schedules": _load_folder_schedules(db),
             "default_ping_interval_minutes": _default_ping_interval_minutes(),
@@ -1430,15 +1605,18 @@ def folder_history(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_user)],
+    q: Annotated[str, Query(max_length=64)] = "",
 ) -> HTMLResponse:
     folder = db.get(Folder, folder_id)
     if folder is None:
         raise HTTPException(status_code=404, detail="Folder not found")
 
+    history_query = _clean_text(q, 64)
+    history_conditions = [IPAddressHistory.address.startswith(history_query, autoescape=True)] if history_query else []
     history_items = db.scalars(
         select(IPAddressHistory)
         .join(Project, IPAddressHistory.project_id == Project.id)
-        .where(Project.folder_id == folder.id)
+        .where(Project.folder_id == folder.id, *history_conditions)
         .options(selectinload(IPAddressHistory.project))
         .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
         .limit(200)
@@ -1451,8 +1629,9 @@ def folder_history(
             "request": request,
             "history_title": _ui("history.title"),
             "history_subtitle": folder.name,
-            "history_back_url": "/",
+            "history_back_url": "/inventory",
             "history_items": history_items,
+            "history_query": history_query,
             "show_history_project": True,
             "folders": _load_sidebar_folders(db),
             "folder_schedules": _load_folder_schedules(db),
@@ -1513,9 +1692,7 @@ def search(
         {
             "request": request,
             "q": query,
-            "folders": _load_sidebar_folders(db),
-            "folder_schedules": _load_folder_schedules(db),
-            "default_ping_interval_minutes": _default_ping_interval_minutes(),
+            "folders": [],
             "active_project": None,
             "current_user": current_user,
             "found_folders": found_folders,

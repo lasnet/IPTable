@@ -1,5 +1,67 @@
 (function () {
+  const transitionKey = "iptable-rail-transition";
+  const rail = document.querySelector(".primary-rail");
+  const indicator = rail?.querySelector(".rail-indicator");
+  const active = rail?.querySelector(".rail-link.active");
+  if (!rail || !indicator || !active) return;
+
+  const activeTop = active.getBoundingClientRect().top - rail.getBoundingClientRect().top - 5;
+  let previousTop = null;
+  try {
+    const transition = JSON.parse(sessionStorage.getItem(transitionKey) || "null");
+    sessionStorage.removeItem(transitionKey);
+    if (transition?.path === window.location.pathname && Date.now() - transition.time < 5000) {
+      previousTop = transition.top;
+    }
+  } catch (_) {
+    // Navigation and the active item still work without session storage.
+  }
+
+  indicator.style.top = `${previousTop ?? activeTop}px`;
+  rail.classList.add("rail-ready");
+  if (Number.isFinite(previousTop) && previousTop !== activeTop) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      indicator.style.top = `${activeTop}px`;
+      document.body.classList.add("rail-arriving");
+      window.setTimeout(() => document.body.classList.remove("rail-arriving"), 520);
+    }));
+  }
+
+  document.addEventListener("click", (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    const link = event.target.closest(".rail-link[href]");
+    if (!link || link.origin !== window.location.origin || link.pathname === window.location.pathname) {
+      return;
+    }
+    try {
+      sessionStorage.setItem(transitionKey, JSON.stringify({ path: link.pathname, top: activeTop, time: Date.now() }));
+    } catch (_) {
+      // Navigation still works when session storage is unavailable.
+    }
+  });
+
+})();
+
+(function () {
+  const links = [...document.querySelectorAll(".section-pane-link[href^='#']")];
+  if (!links.length) return;
+  function selectCurrent() {
+    const selected = links.find((link) => link.hash === window.location.hash) || links[0];
+    links.forEach((link) => {
+      link.classList.toggle("selected", link === selected);
+      if (link === selected) link.setAttribute("aria-current", "location");
+      else link.removeAttribute("aria-current");
+    });
+  }
+  window.addEventListener("hashchange", selectCurrent);
+  selectCurrent();
+})();
+
+(function () {
   let dirtyRow = null;
+  let drawerOpener = null;
   let allowSubmit = false;
   let tableRequestId = 0;
   let currentTableUrl = window.location.href;
@@ -123,7 +185,18 @@
       nextParams.set("hide_empty", hideEmpty === "true" ? "false" : "true");
       nextParams.set("page", "1");
       hideToggle.href = `${parsedUrl.pathname}?${nextParams.toString()}`;
+      const showLabel = hideToggle.querySelector("[data-show-hidden-label]");
+      const hideLabel = hideToggle.querySelector("[data-hide-empty-label]");
+      if (showLabel) showLabel.hidden = hideEmpty !== "true";
+      if (hideLabel) hideLabel.hidden = hideEmpty === "true";
     });
+
+    const activeFilterCount = [pingStatus, typeFilter, osFilter].filter(Boolean).length;
+    const filterCount = document.querySelector("[data-active-filter-count]");
+    if (filterCount) {
+      filterCount.hidden = activeFilterCount === 0;
+      filterCount.textContent = activeFilterCount ? String(activeFilterCount) : "";
+    }
 
     const resetLink = document.querySelector("[data-filter-reset]");
     if (resetLink) {
@@ -190,11 +263,18 @@
       warnAboutDirtyRow();
       return;
     }
+    const returnFocus = drawer.contains(document.activeElement) && !force;
     drawer.classList.remove("open");
     drawer.setAttribute("aria-hidden", "true");
+    drawer.inert = true;
+    drawerOpener?.setAttribute("aria-expanded", "false");
     setDrawerEditMode(drawer, false);
     clearDirtyState();
     document.querySelector(".asset-table tr.row-selected")?.classList.remove("row-selected");
+    if (returnFocus && drawerOpener?.isConnected) {
+      drawerOpener.focus({ preventScroll: true });
+    }
+    drawerOpener = null;
   }
 
   function tableCellValue(row, fieldName) {
@@ -230,12 +310,15 @@
     });
   }
 
-  function openHostDrawer(row) {
+  function openHostDrawer(row, opener = row?.querySelector("[data-host-drawer-open]")) {
     const drawer = document.querySelector("[data-host-drawer]");
     if (!drawer || !row) {
       return;
     }
 
+    drawerOpener?.setAttribute("aria-expanded", "false");
+    drawerOpener = opener;
+    drawerOpener?.setAttribute("aria-expanded", "true");
     const address = row.dataset.rowAddress || "";
     drawer.dataset.rowId = row.id;
     setDrawerEditMode(drawer, false);
@@ -289,6 +372,8 @@
     row.classList.add("row-selected");
     drawer.classList.add("open");
     drawer.setAttribute("aria-hidden", "false");
+    drawer.inert = false;
+    drawer.querySelector("[data-host-drawer-close]")?.focus({ preventScroll: true });
   }
 
   function editRow(row) {
@@ -329,11 +414,12 @@
         window.location.href = response.url;
         return;
       }
-      if (!response.ok || !new DOMParser().parseFromString(html, "text/html").querySelector(".asset-table")) {
+      const parsed = new DOMParser().parseFromString(html, "text/html");
+      if (!response.ok || !parsed.querySelector(".asset-table")) {
         window.location.href = url;
         return;
       }
-      region.innerHTML = html;
+      region.replaceChildren(...parsed.body.childNodes);
     } catch (error) {
       if (requestId === tableRequestId) {
         window.location.href = url;
@@ -443,7 +529,8 @@
     if (!link) {
       const row = event.target.closest(".asset-table tbody tr[data-row-address]");
       const interactive = event.target.closest("button, input, textarea, select, label, summary, details, .node-menu");
-      if (row && !interactive) {
+      const opener = event.target.closest("[data-host-drawer-open]");
+      if (row && (!interactive || opener)) {
         if (hasDirtyRow()) {
           if (row !== dirtyRow) {
             warnAboutDirtyRow();
@@ -452,7 +539,7 @@
           focusDirtyRow();
           return;
         }
-        openHostDrawer(row);
+        openHostDrawer(row, opener || row.querySelector("[data-host-drawer-open]"));
       }
       return;
     }
@@ -490,12 +577,22 @@
   }, true);
 
   window.addEventListener("popstate", () => {
+    if (!projectTableRegion()) {
+      return;
+    }
     if (hasDirtyRow()) {
       window.history.pushState(null, "", currentTableUrl);
       warnAboutDirtyRow();
       return;
     }
     loadTablePage(window.location.href, false);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && event.target.closest(".host-drawer.open")) {
+      event.preventDefault();
+      closeHostDrawer();
+    }
   });
 
   window.addEventListener("beforeunload", (event) => {
@@ -510,11 +607,13 @@
 })();
 
 (function () {
-  function setGlobalLoading(enabled) {
+  let loadingForm = null;
+  function setGlobalLoading(enabled, form = loadingForm) {
+    if (enabled) loadingForm = form;
     document.body.classList.toggle("is-loading", enabled);
     document.querySelector(".tree")?.toggleAttribute("hidden", enabled);
     document.querySelector(".tree-loading")?.toggleAttribute("hidden", !enabled);
-    document.querySelectorAll("button").forEach((button) => {
+    Array.from(form?.elements || []).filter((element) => element.matches("button")).forEach((button) => {
       if (enabled) {
         button.dataset.wasDisabled = button.disabled ? "true" : "false";
         button.disabled = true;
@@ -523,6 +622,7 @@
         delete button.dataset.wasDisabled;
       }
     });
+    if (!enabled) loadingForm = null;
   }
 
   document.addEventListener("submit", (event) => {
@@ -537,25 +637,7 @@
     ) {
       return;
     }
-    window.setTimeout(() => setGlobalLoading(true), 0);
-  });
-
-  document.addEventListener("click", (event) => {
-    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
-      return;
-    }
-    const link = event.target.closest("a");
-    if (!link || link.target || link.hasAttribute("download")) {
-      return;
-    }
-    if (link.closest("[data-host-drawer-history]") || link.closest(".pagination-controls")) {
-      return;
-    }
-    const href = link.getAttribute("href") || "";
-    if (!href || href.startsWith("#") || href.startsWith("mailto:") || href.startsWith("tel:")) {
-      return;
-    }
-    window.setTimeout(() => setGlobalLoading(true), 0);
+    window.setTimeout(() => setGlobalLoading(true, form), 0);
   });
 
   window.addEventListener("pageshow", () => setGlobalLoading(false));
@@ -662,6 +744,46 @@
 
   window.addEventListener("resize", () => allMenus().forEach(closeMenu));
   document.querySelector(".tree")?.addEventListener("scroll", () => allMenus().forEach(closeMenu));
+})();
+
+(function () {
+  const menu = document.querySelector(".table-filters-menu");
+  const panel = menu?.querySelector(".filter-panel");
+  if (!panel) return;
+
+  function positionPanel() {
+    if (!menu.open) return;
+    panel.classList.add("is-positioned");
+    const trigger = menu.querySelector("summary").getBoundingClientRect();
+    const bounds = panel.getBoundingClientRect();
+    const inset = 12;
+    const left = Math.max(inset, Math.min(trigger.right - bounds.width, window.innerWidth - bounds.width - inset));
+    const below = window.innerHeight - trigger.bottom - inset;
+    const above = trigger.top - inset;
+    const desiredTop = bounds.height > below && above > below
+      ? trigger.top - bounds.height - 8
+      : trigger.bottom + 8;
+    const top = Math.max(inset, Math.min(desiredTop, window.innerHeight - bounds.height - inset));
+    panel.style.setProperty("--filter-panel-left", `${left}px`);
+    panel.style.setProperty("--filter-panel-top", `${top}px`);
+  }
+
+  menu.addEventListener("toggle", () => {
+    if (menu.open) positionPanel();
+    else panel.classList.remove("is-positioned");
+  });
+  window.addEventListener("resize", positionPanel);
+  window.addEventListener("scroll", positionPanel, { passive: true });
+  document.addEventListener("click", (event) => {
+    if (!menu.contains(event.target)) menu.open = false;
+  });
+  menu.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && menu.open) {
+      event.preventDefault();
+      menu.open = false;
+      menu.querySelector("summary").focus();
+    }
+  });
 })();
 
 (function () {

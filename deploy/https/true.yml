@@ -1,0 +1,35 @@
+# Selected by COMPOSE_FILE in .env; paths are relative to the repository root.
+# Requires Docker Compose 2.24.4 or newer.
+services:
+  web:
+    ports: !override []
+    environment:
+      # Only the gateway exposes this backend; trust the private Compose network.
+      FORWARDED_ALLOW_IPS: "*"
+  gateway:
+    image: ${COMPOSE_PROJECT_NAME:-iptable}-gateway
+    build: ./deploy/gateway
+    group_add: ["${TLS_KEY_GID:-0}"]
+    environment:
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?Set APP_PUBLIC_URL to the external HTTPS origin}
+      TLS_SERVER_NAME: ${TLS_SERVER_NAME:?Set TLS_SERVER_NAME to the certificate DNS name or IP}
+    ports:
+      - "${APP_BIND_ADDRESS:-0.0.0.0}:${APP_PORT:-8000}:8080"
+      - "${APP_BIND_ADDRESS:-0.0.0.0}:${HTTPS_PORT:-443}:8443"
+    volumes:
+      - type: bind
+        source: ${TLS_CERT_FILE:?Set TLS_CERT_FILE to the full-chain PEM certificate}
+        target: /etc/nginx/certs/server.crt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TLS_KEY_FILE:?Set TLS_KEY_FILE to the PEM private key}
+        target: /etc/nginx/certs/server.key
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
