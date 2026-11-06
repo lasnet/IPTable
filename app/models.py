@@ -67,6 +67,7 @@ class User(TimestampMixin, Base):
         ForeignKey("roles.id", name="fk_users_role_id_roles", ondelete="RESTRICT"), index=True,
     )
     role: Mapped[Role | None] = relationship(lazy="joined")
+    column_preferences: Mapped[list["ProjectColumnVisibility"]] = relationship(cascade="all, delete-orphan")
 
     @property
     def has_admin_access(self) -> bool:
@@ -114,9 +115,20 @@ class Project(TimestampMixin, Base):
     folder: Mapped[Folder] = relationship(back_populates="projects")
     ip_addresses: Mapped[list["IPAddress"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     custom_fields: Mapped[list["CustomField"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    column_preferences: Mapped[list["ProjectColumnVisibility"]] = relationship(cascade="all, delete-orphan")
     ping_jobs: Mapped[list["PingJob"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     ping_schedules: Mapped[list["PingSchedule"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     ip_history: Mapped[list["IPAddressHistory"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+
+
+class ProjectColumnVisibility(Base):
+    __tablename__ = "project_column_visibility"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True, index=True,
+    )
+    hidden_columns: Mapped[list[str]] = mapped_column(JSON, nullable=False)
 
 
 class IPAddress(TimestampMixin, Base):
@@ -187,6 +199,11 @@ class CustomField(TimestampMixin, Base):
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     project: Mapped[Project] = relationship(back_populates="custom_fields")
+
+    @property
+    def visibility_key(self) -> str:
+        # SQLite may reuse an ID after deletion. A new field starts visible.
+        return f"custom:{self.id}:{self.created_at.isoformat()}"
 
 
 class PingSchedule(TimestampMixin, Base):

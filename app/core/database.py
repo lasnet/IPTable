@@ -43,6 +43,7 @@ REQUIRED_TABLES = {
     "roles",
     "user_sessions",
     "projects",
+    "project_column_visibility",
     "ip_addresses",
     "ip_address_history",
     "custom_fields",

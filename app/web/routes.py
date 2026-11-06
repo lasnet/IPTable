@@ -7,13 +7,15 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import String, cast, delete, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.datastructures import FormData
 
 from app.core.config import InterfaceTheme, Settings, _request_settings, get_settings
 from app.core.database import get_db
-from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, Role, User
+from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, ProjectColumnVisibility, Role, User
 from app.models import AppConfiguration, AppConfigurationAudit, IntegrationCredential
 from app.services import address_locks
 from app.services.settings import GROUPS, RevisionConflict, replace_token, save_group
@@ -55,6 +57,12 @@ SESSION_LAST_ACTIVITY_KEY = "last_activity_at"
 PROJECT_TABLE_PAGE_SIZE_OPTIONS = (25, 50, 100, 250)
 PROJECT_TABLE_FALLBACK_PAGE_SIZE = 25
 PING_STATUS_FILTERS = {"ok", "no", "notest"}
+BASE_ADDRESS_COLUMNS = (
+    ("hostname", "Hostname", "hostname"),
+    ("os", "OS", "os"),
+    ("asset_type", "Type", "type"),
+    ("comment", "Comment", "comment"),
+)
 INTERFACE_LANGUAGES = ("RU", "EN")
 INTERFACE_THEMES = get_args(InterfaceTheme)
 ADMIN_SETTINGS_GROUPS = {name: fields for name, fields in GROUPS.items() if name != "interface"}
@@ -1030,6 +1038,13 @@ def project_detail(
     custom_fields = db.scalars(
         select(CustomField).where(CustomField.project_id == project.id).order_by(CustomField.position.asc())
     ).all()
+    column_preferences = db.get(ProjectColumnVisibility, (current_user.id, project.id))
+    hidden_columns = set(column_preferences.hidden_columns) if column_preferences else set()
+    if hidden_columns:
+        hidden_columns.intersection_update(
+            {key for key, _, _ in BASE_ADDRESS_COLUMNS} | {field.visibility_key for field in custom_fields},
+        )
+    column_context = {"base_address_columns": BASE_ADDRESS_COLUMNS, "hidden_columns": hidden_columns}
     filled_condition = _ip_record_filled_condition(list(custom_fields))
     clean_ping_status = _clean_filter_value(ping_status, 20).lower()
     if clean_ping_status not in PING_STATUS_FILTERS:
@@ -1085,7 +1100,9 @@ def project_detail(
             {
                 "request": request,
                 "project": project,
+                "current_user": current_user,
                 "custom_fields": custom_fields,
+                **column_context,
                 "ip_records": ip_records,
                 "hide_empty": hide_empty,
                 "hide_toggle_url": hide_toggle_url,
@@ -1131,6 +1148,7 @@ def project_detail(
         "active_project": project,
         "current_user": current_user,
         "custom_fields": custom_fields,
+        **column_context,
         "max_custom_fields": MAX_CUSTOM_FIELDS,
         "project_schedule": project_schedule,
         "project_schedule_minutes": _schedule_interval_minutes(project_schedule, settings),
@@ -1566,6 +1584,33 @@ def add_custom_field(
     clean_type = field_type if field_type in allowed_types else "text"
     create_custom_field(db, project_id=project_id, name=clean_name, field_type=clean_type)
     return _redirect(f"/projects/{project_id}?hide_empty=false")
+
+
+@router.post("/projects/{project_id}/fields/visibility")
+async def save_column_visibility(
+    project_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    if db.get(Project, project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    form = await request.form()
+    custom_fields = db.scalars(select(CustomField).where(CustomField.project_id == project_id))
+    allowed = {key for key, _, _ in BASE_ADDRESS_COLUMNS}
+    allowed.update(field.visibility_key for field in custom_fields)
+    hidden = sorted(allowed.intersection(form.getlist("hidden_column")))
+    insert = sqlite_insert if db.get_bind().dialect.name == "sqlite" else postgres_insert
+    statement = insert(ProjectColumnVisibility).values(
+        user_id=current_user.id, project_id=project_id, hidden_columns=hidden,
+    )
+    db.execute(statement.on_conflict_do_update(
+        index_elements=[ProjectColumnVisibility.user_id, ProjectColumnVisibility.project_id],
+        set_={"hidden_columns": statement.excluded.hidden_columns},
+    ))
+    db.commit()
+    return _redirect_message(_address_form_table_url(project_id, form, settings, current_user), _ui("field.visibility_saved"))
 
 
 @router.post("/projects/{project_id}/fields/configure")

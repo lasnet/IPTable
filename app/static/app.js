@@ -181,6 +181,15 @@
       setFormValue(filterForm, "type_filter", typeFilter);
       setFormValue(filterForm, "os_filter", osFilter);
     }
+    document.querySelectorAll("[data-column-visibility], [data-columns-manager]").forEach((form) => {
+      const row = document.querySelector(".asset-table [data-row-address]");
+      setFormValue(form, "hide_empty", hideEmpty);
+      setFormValue(form, "page", row?.dataset.page || "1");
+      if (perPage) setFormValue(form, "per_page", perPage);
+      setFormValue(form, "ping_status", pingStatus);
+      setFormValue(form, "type_filter", typeFilter);
+      setFormValue(form, "os_filter", osFilter);
+    });
 
     document.querySelectorAll("[data-hide-toggle]").forEach((hideToggle) => {
       const nextParams = new URLSearchParams(params);
@@ -270,6 +279,7 @@
     const notice = state.drawer.querySelector("[data-drawer-lock-notice]");
     notice.textContent = message;
     notice.hidden = !message;
+    notice.classList.toggle("error", state.blocked || state.lost);
     setDrawerEditMode(state.drawer, Boolean(state.token));
     state.drawer.querySelectorAll("[data-drawer-lock-token]").forEach((input) => {
       input.value = state.token;
@@ -1008,6 +1018,13 @@
 })();
 
 (function () {
+  document.querySelectorAll("[data-column-visibility]").forEach((form) => {
+    form.closest("dialog")?.addEventListener("close", () => {
+      form.querySelectorAll("input[type='checkbox']").forEach((input) => {
+        input.checked = input.defaultChecked;
+      });
+    });
+  });
   const managers = document.querySelectorAll("[data-columns-manager]");
   managers.forEach((form) => {
     const dialog = form.closest(".modal-dialog");

@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.main import create_app
-from app.models import Base, Folder, IPAddress, IPAddressHistory, Project, Role, User, UserSession
+from app.models import Base, CustomField, Folder, IPAddress, IPAddressHistory, Project, Role, User, UserSession
 from app.services.auth import hash_password
 
 
@@ -366,3 +366,51 @@ class BrowserSessionTest(unittest.TestCase):
             "_csrf_token": second_csrf, "edit_lock_token": next_lease["token"], "hostname": "expired",
         }).status_code, 409)
         self.assertEqual(first.post(lock, data={"_csrf_token": first_csrf}).status_code, 200)
+
+    def test_column_visibility_is_personal_and_preserves_address_values(self) -> None:
+        with self.factory() as db:
+            db.add(Folder(id=1, name="Office"))
+            db.add_all([
+                Project(id=1, folder_id=1, name="LAN", cidr="192.0.2.0/24"),
+                Project(id=2, folder_id=1, name="Lab", cidr="198.51.100.0/24"),
+            ])
+            field = CustomField(project_id=1, name="Rack", key="rack")
+            db.add(field)
+            db.add_all([
+                IPAddress(project_id=1, ordinal=1, address="192.0.2.1", comment="Only value",
+                          custom_values={"rack": "A1"}),
+                IPAddress(project_id=2, ordinal=1, address="198.51.100.1", comment="Other project"),
+            ])
+            db.commit()
+            custom_key = field.visibility_key
+
+        reader, admin = self.client(), self.client()
+        csrf_token = self.login(reader)
+        self.login(admin, "admin", "admin-password")
+        path = "/projects/1"
+        visibility_path = f"{path}/fields/visibility"
+        self.assertIn(f'action="{visibility_path}"', reader.get(path).text)
+        self.assertNotIn(f'action="{path}/fields/configure"', reader.get(path).text)
+        self.assertEqual(reader.post(visibility_path, data={"hidden_column": "comment"}).status_code, 403)
+        response = reader.post(visibility_path, data={
+            "_csrf_token": csrf_token, "hidden_column": ["comment", custom_key, "address", "status"],
+            "hide_empty": "true",
+        })
+        self.assertEqual(response.status_code, 303)
+        for headers in ({}, {"X-Requested-With": "XMLHttpRequest"}):
+            body = reader.get(response.headers["location"], headers=headers).text
+            self.assertNotIn("<th>Comment</th>", body)
+            self.assertNotIn("<th>Rack</th>", body)
+            self.assertIn('data-detail-value="Only value" hidden', body)
+            self.assertIn('data-custom-value="A1" hidden', body)
+            self.assertIn('data-row-address="192.0.2.1"', body)
+            self.assertIn('class="col-ip"', body)
+            self.assertIn('class="col-status"', body)
+        self.assertIn("<th>Comment</th>", reader.get("/projects/2").text)
+        self.assertIn("<th>Comment</th>", admin.get(path).text)
+        self.assertIn("<th>Rack</th>", admin.get(path).text)
+        editor_fragment = admin.get(path, headers={"X-Requested-With": "XMLHttpRequest"})
+        self.assertIn("data-update-url=", editor_fragment.text)
+        reader.post(visibility_path, data={"_csrf_token": csrf_token})
+        self.assertIn("<th>Comment</th>", reader.get(path).text)
+        self.assertIn("<th>Rack</th>", reader.get(path).text)

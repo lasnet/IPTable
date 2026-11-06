@@ -469,8 +469,49 @@ button {
   width: min(780px, calc(100vw - 32px));
 }
 
-.columns-manager-form {
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+.columns-manager-form,
+.columns-visibility-form {
+  display: grid;
+  gap: 12px;
+}
+
+.column-visibility-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 8px;
+}
+
+.columns-dialog-content .column-visibility-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.column-visibility-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.column-visibility-control input { accent-color: var(--accent); }
+
+.columns-structure { border-top: 1px solid var(--line); padding-top: 12px; }
+.columns-structure > summary { cursor: pointer; font-weight: 650; color: var(--accent); }
+.columns-structure > form { margin-top: 12px; }
+
+.columns-dialog-content {
+  grid-template-rows: auto auto auto;
 }
 
 .columns-manager-list {
@@ -2891,7 +2932,7 @@ body { background: var(--bg); color: var(--text); font-family: Inter, ui-sans-se
 .project-table-region { overflow: hidden; border: 1px solid #dbe6f5; border-radius: 17px; background: #fff; box-shadow: var(--shadow); }
 .asset-table-wrap { border: 0; border-radius: 0; }
 .asset-table { min-width: 790px; }
-.asset-table[data-empty] { min-width: 0; }
+.asset-table[data-empty], .asset-table[data-personal-columns] { min-width: 0; }
 .asset-table[data-empty] .empty-project-cell { padding: 24px 16px; }
 .asset-table[data-empty] .table-empty-state { max-width: 100%; }
 .ip-open-button { display: block; width: 100%; min-height: 40px; padding: 0; border: 1px solid transparent; border-radius: 4px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
