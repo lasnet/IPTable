@@ -2873,7 +2873,7 @@ body { background: var(--bg); color: var(--text); font-family: Inter, ui-sans-se
 .filter-trigger { display: flex; align-items: center; gap: 5px; width: 41px; height: 40px; min-height: 40px; padding: 0; border: 0; border-radius: 10px; background: #fff; box-shadow: var(--shadow); list-style: none; }
 .filter-trigger::-webkit-details-marker { display: none; }
 .filter-trigger .icon { width: 18px; height: 18px; }
-.active-filter-count { position: absolute; top: -5px; right: -5px; min-width: 17px; height: 17px; padding: 1px 4px; border-radius: 99px; background: #3b82f6; color: #fff; font-size: 10px; line-height: 16px; text-align: center; }
+.active-filter-count { flex: 0 0 auto; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 99px; background: #3b82f6; color: #fff; font-size: 10px; line-height: 16px; text-align: center; }
 .filter-panel { position: absolute; top: 48px; right: 0; z-index: 60; display: grid; gap: 12px; width: 240px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; padding: 16px; border: 1px solid #e2e9f3; border-radius: 14px; background: #fff; box-shadow: 0 18px 45px rgba(32, 53, 88, .15); }
 .filter-panel.is-positioned { position: fixed; top: var(--filter-panel-top); left: var(--filter-panel-left); right: auto; }
 .table-filter-form label { color: #5b687e; font-size: 12px; }

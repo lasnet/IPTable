@@ -525,6 +525,7 @@ textarea {
 }
 
 .project-toolbar-tools .filter-trigger {
+  gap: 3px;
   border-start-start-radius: 15px;
   border-end-start-radius: 15px;
 }
@@ -629,10 +630,10 @@ textarea {
 .summary-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
   min-height: 54px;
-  padding: 7px 10px;
+  padding: 7px 8px;
   border: 0;
   border-right: 1px solid var(--atlas-line);
   border-radius: 0;
@@ -685,7 +686,7 @@ textarea {
 .summary-item strong.summary-value {
   color: var(--atlas-ink);
   font-family: inherit;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   line-height: 1.05;
@@ -1839,7 +1840,7 @@ textarea {
   }
 
   .summary-item strong.summary-value {
-    font-size: 20px;
+    font-size: 19px;
   }
 
   .project-table-region {
