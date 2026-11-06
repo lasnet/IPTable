@@ -7,8 +7,8 @@
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
   <link rel="icon" href="{{ url_for('static', path='/favicon.ico').path }}">
   <link rel="stylesheet" href="{{ url_for('static', path='/styles.css').path }}?v=user-interface-1">
-  <link rel="stylesheet" href="{{ url_for('static', path='/atlas.css').path }}?v=users-1">
-  <script src="{{ url_for('static', path='/app.js').path }}?v=20261103-ui-revision-2" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='/atlas.css').path }}?v=roles-1">
+  <script src="{{ url_for('static', path='/app.js').path }}?v=roles-1" defer></script>
 </head>
 
 <body data-i18n-selected-row="{{ _('js.selected_row') }}"
@@ -28,7 +28,7 @@
     </form>
     <div class="top-actions">
       <span class="topbar-avatar" aria-hidden="true">{{ (current_user.first_name or current_user.username)[:2] | upper }}</span>
-      <span class="topbar-profile"><strong>{{ current_user.first_name or current_user.username }}</strong><small>{{ _('nav.administrator') if current_user.is_admin else _('nav.user') }}</small></span>
+      <span class="topbar-profile"><strong>{{ current_user.first_name or current_user.username }}</strong><small>{{ _('nav.administrator') if current_user.has_admin_access else _('nav.user') }}</small></span>
       <form action="/logout" method="post">
         {{ csrf_input(request) }}
         <button class="ghost-button" type="submit">
@@ -54,7 +54,7 @@
         <a class="rail-link {{ 'active' if inventory_view else '' }}" href="/inventory" title="{{ _('nav.inventory') }}" aria-label="{{ _('nav.inventory') }}" {% if inventory_view %}aria-current="page"{% endif %}>
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v16H3zM3 10h18M9 10v10M15 10v10"/></svg><span>{{ _('nav.inventory') }}</span>
         </a>
-        {% if current_user.is_admin %}
+        {% if current_user.has_admin_access %}
         <a class="rail-link {{ 'active' if request.url.path.startswith('/admin/') else '' }}" href="/admin/users" title="{{ _('admin.users') }}" aria-label="{{ _('admin.users') }}" {% if request.url.path.startswith('/admin/') %}aria-current="page"{% endif %}>
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>{{ _('admin.users') }}</span>
         </a>
@@ -131,7 +131,7 @@
               <button class="node-menu-item" type="button" data-modal-target="folder-rename-modal-{{ folder.id }}">{{ _('folder.rename') }}</button>
               {% endif %}
               <a class="node-menu-item" href="/folders/{{ folder.id }}/history">{{ _('history.title') }}</a>
-              {% if current_user.is_admin %}
+              {% if current_user.has_admin_access %}
               <button class="node-menu-item" type="button" data-modal-target="folder-schedule-modal-{{ folder.id }}">{{ _('folder.schedule') }}</button>
               <button class="node-menu-item" type="button" data-modal-target="folder-export-modal-{{ folder.id }}">{{ _('export.folder') }}</button>
               {% endif %}
@@ -223,7 +223,7 @@
         {{ _('project.comment_label') }}
         <textarea name="description" maxlength="2000" rows="3" placeholder="{{ _('project.description_placeholder') }}"></textarea>
       </label>
-      {% if current_user.is_admin or (current_user.can_create and current_user.can_edit) %}
+      {% if current_user.can_create_inventory and current_user.can_edit_inventory %}
       <label>
         {{ _('import.open') }}
         <input type="file" name="csv_file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
@@ -260,7 +260,7 @@
   </dialog>
   {% endif %}
 
-  {% if current_user.is_admin %}
+  {% if current_user.has_admin_access %}
   {% set folder_schedule = folder_schedules.get(folder.id) if folder_schedules is defined else none %}
   <dialog class="modal-dialog" id="folder-schedule-modal-{{ folder.id }}" {% if request.query_params.get('schedule_folder') == folder.id|string %}data-open-on-load{% endif %}>
     <form class="modal-form" action="/folders/{{ folder.id }}/schedule" method="post">

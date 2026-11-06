@@ -16,7 +16,16 @@
 {% endmacro %}
 
 {% macro role_badge(account) %}
-<span class="users-role {{ 'is-admin' if account.is_admin }}">{{ _('nav.administrator' if account.is_admin else 'nav.user') }}</span>
+<span class="users-role {{ 'is-admin' if account.has_admin_access }}">{{ role_name(account.role) if account.role else _('roles.admin' if account.has_admin_access else 'roles.user') }}</span>
+{% endmacro %}
+
+{% macro role_name(role) %}{{ _('roles.' ~ role.code) if role.code else role.name }}{% endmacro %}
+
+{% macro tabs(active) %}
+<nav class="users-tabs" aria-label="{{ _('admin.users') }}">
+  <a href="/admin/users" {% if active == 'users' %}aria-current="page"{% endif %}>{{ _('admin.users') }}</a>
+  <a href="/admin/roles" {% if active == 'roles' %}aria-current="page"{% endif %}>{{ _('roles.title') }}</a>
+</nav>
 {% endmacro %}
 
 {% macro back_link() %}

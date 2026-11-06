@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% from "_user_ui.html" import role_name, tabs %}
+
+{% set permissions = (
+  ('can_create', 'admin.allow_create'), ('can_edit', 'admin.allow_edit'),
+  ('can_delete', 'admin.allow_delete'), ('can_manage_columns', 'admin.edit_columns')
+) %}
+
+{% block title %}{{ _('roles.title') }} - {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="users-page">
+  <header class="dashboard-heading users-heading">
+    <div><h1>{{ _('roles.title') }}</h1><p>{{ _('roles.description') }}</p></div>
+    <a class="settings-primary-button users-button" href="/admin/roles?new_role=true" data-modal-target="role-new-modal">{{ icon('plus') }}{{ _('roles.add') }}</a>
+  </header>
+  {{ tabs('roles') }}
+  <section class="users-panel" aria-label="{{ _('roles.title') }}">
+    <div class="users-table-wrap">
+      <table class="users-table">
+        <thead>
+          <tr><th scope="col">{{ _('roles.name') }}</th><th scope="col">{{ _('admin.permissions') }}</th><th scope="col">{{ _('admin.action') }}</th></tr>
+        </thead>
+        <tbody>
+          {% for role in roles %}
+          <tr>
+            <td><strong>{{ role_name(role) }}</strong>{% if role.code %}<small class="role-built-in">{{ _('roles.built_in') }}</small>{% endif %}</td>
+            <td>
+              {% if role.code == 'admin' %}
+              {{ _('roles.full_access') }}
+              {% else %}
+              <ul class="role-permission-list">
+                {% for key, label in permissions if role | attr(key) %}
+                <li class="users-role">{{ _(label) }}</li>
+                {% else %}
+                <li>{{ _('admin.no_permissions') }}</li>
+                {% endfor %}
+              </ul>
+              {% endif %}
+            </td>
+            <td>
+              {% if not role.code %}
+              <a class="icon-button users-edit" href="/admin/roles?edit_role={{ role.id }}" data-modal-target="role-edit-modal-{{ role.id }}"
+                aria-label="{{ _('admin.edit') }}: {{ role.name }}" title="{{ _('admin.edit') }}">{{ icon('edit') }}</a>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+{% endblock %}
+
+{% block modals %}
+{{ super() }}
+{% with role=none, open_on_load=new_role %}{% include "_role_form.html" %}{% endwith %}
+{% for role in roles if not role.code %}
+  {% with open_on_load=edit_role == role.id %}{% include "_role_form.html" %}{% endwith %}
+{% endfor %}
+{% endblock %}

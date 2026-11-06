@@ -31,6 +31,19 @@ class Folder(TimestampMixin, Base):
     projects: Mapped[list["Project"]] = relationship(back_populates="folder", cascade="all, delete-orphan")
 
 
+class Role(Base):
+    __tablename__ = "roles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str | None] = mapped_column(String(24), unique=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    name_key: Mapped[str] = mapped_column(String(300), unique=True, nullable=False)
+    can_create: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_edit: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_delete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_manage_columns: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
 class User(TimestampMixin, Base):
     __tablename__ = "users"
 
@@ -50,22 +63,30 @@ class User(TimestampMixin, Base):
     interface_language: Mapped[str | None] = mapped_column(String(8), nullable=True)
     interface_theme: Mapped[str | None] = mapped_column(String(8), nullable=True)
     project_table_page_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    role_id: Mapped[int | None] = mapped_column(
+        ForeignKey("roles.id", name="fk_users_role_id_roles", ondelete="RESTRICT"), index=True,
+    )
+    role: Mapped[Role | None] = relationship(lazy="joined")
+
+    @property
+    def has_admin_access(self) -> bool:
+        return self.is_admin or (self.role is not None and self.role.code == "admin")
 
     @property
     def can_create_inventory(self) -> bool:
-        return bool(self.is_admin or self.can_create)
+        return self.has_admin_access or bool(self.role.can_create if self.role else self.can_create)
 
     @property
     def can_edit_inventory(self) -> bool:
-        return bool(self.is_admin or self.can_edit)
+        return self.has_admin_access or bool(self.role.can_edit if self.role else self.can_edit)
 
     @property
     def can_delete_inventory(self) -> bool:
-        return bool(self.is_admin or self.can_delete)
+        return self.has_admin_access or bool(self.role.can_delete if self.role else self.can_delete)
 
     @property
     def can_manage_project_columns(self) -> bool:
-        return bool(self.is_admin or self.can_manage_columns)
+        return self.has_admin_access or bool(self.role.can_manage_columns if self.role else self.can_manage_columns)
 
 
 class UserSession(Base):

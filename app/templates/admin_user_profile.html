@@ -13,7 +13,7 @@
       <h1>{{ full_name or account.username }}</h1>
       <p>{{ _('admin.profile') }}</p>
     </div>
-    <a class="soft-button users-button" href="/admin/users/{{ account.id }}/edit">{{ icon('edit') }}{{ _('admin.edit') }}</a>
+    <a class="soft-button users-button" href="/admin/users/{{ account.id }}/edit" data-modal-target="user-edit-modal-{{ account.id }}">{{ icon('edit') }}{{ _('admin.edit') }}</a>
   </header>
 
   <div class="users-profile-layout">
@@ -81,4 +81,9 @@
     </aside>
   </div>
 </section>
+{% endblock %}
+
+{% block modals %}
+{{ super() }}
+{% with from_profile=true %}{% include "admin_user_form.html" %}{% endwith %}
 {% endblock %}

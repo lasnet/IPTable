@@ -160,7 +160,7 @@
             {{ _('field.columns') }}
           </button>
           {% endif %}
-          {% if current_user.is_admin %}
+          {% if current_user.has_admin_access %}
           <button class="node-menu-item project-menu-primary" type="button"
             data-modal-target="project-schedule-modal-{{ project.id }}">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -180,7 +180,7 @@
             {{ _('history.title') }}
           </a>
 
-          {% if current_user.is_admin %}
+          {% if current_user.has_admin_access %}
           <button class="node-menu-item" type="button" data-modal-target="project-export-modal-{{ project.id }}">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 3v12" />
@@ -409,7 +409,7 @@
   </form>
 </dialog>
 {% endif %}
-{% if current_user.is_admin %}
+{% if current_user.has_admin_access %}
 <dialog class="modal-dialog" id="project-schedule-modal-{{ project.id }}">
   <form class="modal-form" action="/projects/{{ project.id }}/schedule" method="post">
     {{ csrf_input(request) }}

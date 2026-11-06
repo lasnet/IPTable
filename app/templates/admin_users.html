@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
-{% from "_user_ui.html" import avatar, role_badge, status_badge %}
+{% from "_user_ui.html" import avatar, role_badge, status_badge, tabs %}
 
 {% block title %}{{ _('admin.users') }} - {{ app_name }}{% endblock %}
 
@@ -11,9 +11,10 @@
       <h1>{{ _('admin.users') }}</h1>
       <p>{{ _('admin.description') }}</p>
     </div>
-    <a class="settings-primary-button users-button" href="/admin/users/new">{{ icon('plus') }}{{ _('button.add') }}</a>
+    <a class="settings-primary-button users-button" href="/admin/users/new" data-modal-target="user-new-modal">{{ icon('plus') }}{{ _('button.add') }}</a>
   </header>
 
+  {{ tabs('users') }}
   <section class="users-panel" aria-label="{{ _('admin.users') }}">
     <form class="users-filters" action="/admin/users" method="get" role="search">
       <label class="users-search">
@@ -55,6 +56,7 @@
             <td>{{ status_badge(account) }}</td>
             <td>{{ role_badge(account) }}</td>
             <td><a class="icon-button users-edit" href="/admin/users/{{ account.id }}/edit"
+              data-modal-target="user-edit-modal-{{ account.id }}"
               title="{{ _('admin.edit') }}" aria-label="{{ _('admin.edit') }}: {{ account.username }}">{{ icon('edit') }}</a></td>
           </tr>
           {% else %}
@@ -65,4 +67,21 @@
     </div>
   </section>
 </section>
+{% endblock %}
+
+{% block modals %}
+{{ super() }}
+{% with account=none, open_on_load=new_user %}
+  {% include "admin_user_form.html" %}
+{% endwith %}
+{% for account in users %}
+  {% with open_on_load=edit_account and edit_account.id == account.id %}
+    {% include "admin_user_form.html" %}
+  {% endwith %}
+{% endfor %}
+{% if edit_account and edit_account not in users %}
+  {% with account=edit_account, open_on_load=true %}
+    {% include "admin_user_form.html" %}
+  {% endwith %}
+{% endif %}
 {% endblock %}

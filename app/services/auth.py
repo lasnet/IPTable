@@ -6,7 +6,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.models import User
+from app.models import Role, User
 
 PBKDF2_ALGORITHM = "pbkdf2_sha256"
 PBKDF2_ITERATIONS = 390_000
@@ -60,6 +60,8 @@ def bootstrap_initial_admin(db: Session, settings: Settings) -> None:
         return
 
     username = settings.initial_admin_username.strip()
+    admin_role = db.scalar(select(Role).where(Role.code == "admin"))
+    user_role = db.scalar(select(Role).where(Role.code == "user"))
     db.execute(
         update(User)
         .where(func.lower(User.username) != username.lower(), User.is_admin.is_(True))
@@ -69,11 +71,13 @@ def bootstrap_initial_admin(db: Session, settings: Settings) -> None:
             can_edit=False,
             can_delete=False,
             can_manage_columns=False,
+            role_id=user_role.id if user_role else None,
         )
     )
     existing = db.scalar(select(User).where(func.lower(User.username) == username.lower()))
     if existing is not None:
         existing.is_admin = True
+        existing.role = admin_role
         existing.is_active = True
         existing.can_create = True
         existing.can_edit = True
@@ -87,6 +91,7 @@ def bootstrap_initial_admin(db: Session, settings: Settings) -> None:
             username=username,
             password_hash=hash_password(settings.initial_admin_password),
             is_admin=True,
+            role=admin_role,
             can_create=True,
             can_edit=True,
             can_delete=True,
@@ -104,10 +109,7 @@ def create_user(
     first_name: str,
     last_name: str,
     description: str,
-    can_create: bool = False,
-    can_edit: bool = False,
-    can_delete: bool = False,
-    can_manage_columns: bool = False,
+    role: Role,
     is_active: bool = True,
 ) -> User:
     user = User(
@@ -117,10 +119,7 @@ def create_user(
         last_name=last_name.strip(),
         description=description.strip(),
         is_active=is_active,
-        can_create=can_create,
-        can_edit=can_edit,
-        can_delete=can_delete,
-        can_manage_columns=can_manage_columns,
+        role=role,
     )
     db.add(user)
     db.commit()

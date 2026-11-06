@@ -8,7 +8,7 @@
   <div class="dashboard-heading">
     <div>
       <h1>{{ _('nav.settings') }}</h1>
-      <p>{{ _('settings.admin_subtitle' if current_user.is_admin else 'settings.personal_subtitle') }}</p>
+      <p>{{ _('settings.admin_subtitle' if current_user.has_admin_access else 'settings.personal_subtitle') }}</p>
     </div>
   </div>
 
@@ -31,7 +31,7 @@
     'csv_import_max_bytes': ('Размер импорта, байт', 'Import size, bytes')
   } %}
 
-  <div class="settings-layout {{ 'settings-layout-personal' if not current_user.is_admin }}">
+  <div class="settings-layout {{ 'settings-layout-personal' if not current_user.has_admin_access }}">
     <section class="settings-card settings-card-interface" id="settings-interface">
       <div class="settings-card-head">
         <span class="settings-card-mark" aria-hidden="true">{{ icon('interface') }}</span>
@@ -73,7 +73,7 @@
       </form>
     </section>
 
-    {% if current_user.is_admin %}
+    {% if current_user.has_admin_access %}
     {% for group, fields in groups.items() %}
     <section class="settings-card settings-card-{{ group }}" id="settings-{{ group }}">
       <div class="settings-card-head">

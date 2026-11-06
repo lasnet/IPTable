@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import InterfaceTheme, Settings, _request_settings, get_settings
 from app.core.database import get_db
-from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, User
+from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, Role, User
 from app.models import AppConfiguration, AppConfigurationAudit, IntegrationCredential
 from app.services.settings import GROUPS, RevisionConflict, replace_token, save_group
 from app.services.auth import authenticate_user, create_user, hash_password
@@ -197,7 +197,7 @@ async def require_user(current_user: Annotated[User, Depends(_authenticate_sessi
 
 
 def require_admin(current_user: Annotated[User, Depends(require_user)]) -> User:
-    if not current_user.is_admin:
+    if not current_user.has_admin_access:
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
 
@@ -218,7 +218,7 @@ def _login_rate_limit_message(retry_after_seconds: int) -> str:
 
 
 def _can_import_csv(user: User) -> bool:
-    return user.is_admin or (user.can_create and user.can_edit)
+    return user.can_create_inventory and user.can_edit_inventory
 
 
 def _nearest_page_size(value: int) -> int:
@@ -531,7 +531,7 @@ def settings_page(
     message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
     admin_context = {}
-    if current_user.is_admin:
+    if current_user.has_admin_access:
         admin_context = {
             "configuration": db.get(AppConfiguration, 1),
             "credential": db.get(IntegrationCredential, 1),
@@ -1139,6 +1139,8 @@ def admin_users(
     current_user: Annotated[User, Depends(require_admin)],
     q: Annotated[str, Query(max_length=120)] = "",
     status: Literal["all", "active", "inactive"] = "all",
+    new_user: bool = False,
+    edit_user: Annotated[int | None, Query(ge=1)] = None,
     error: Annotated[str | None, Query(max_length=240)] = None,
     message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
@@ -1152,6 +1154,9 @@ def admin_users(
         users = [user for user in users if any(needle in value.casefold() for value in (
             user.username, f"{user.first_name} {user.last_name}", f"{user.last_name} {user.first_name}",
         ))]
+    edit_account = db.get(User, edit_user) if edit_user is not None else None
+    if edit_user is not None and edit_account is None:
+        raise HTTPException(status_code=404, detail=_ui("admin.user_not_found"))
     return _templates(request).TemplateResponse(
         request,
         "admin_users.html",
@@ -1159,9 +1164,13 @@ def admin_users(
             "request": request,
             "current_user": current_user,
             "users": users,
+            "roles": _available_roles(db),
+            "new_user": new_user and edit_account is None,
+            "edit_account": edit_account,
             "user_query": query,
             "status": status,
-            "error": error,
+            "error": error if not (new_user or edit_account) else None,
+            "dialog_error": error,
             "message": message,
         },
     )
@@ -1169,13 +1178,9 @@ def admin_users(
 
 @router.get("/admin/users/new", response_class=HTMLResponse)
 def admin_new_user(
-    request: Request,
     current_user: Annotated[User, Depends(require_admin)],
-    error: Annotated[str | None, Query(max_length=240)] = None,
-) -> HTMLResponse:
-    return _templates(request).TemplateResponse(request, "admin_user_form.html", {
-        "current_user": current_user, "account": None, "error": error,
-    })
+) -> RedirectResponse:
+    return _redirect("/admin/users?new_user=true")
 
 
 @router.get("/admin/users/{user_id}", response_class=HTMLResponse)
@@ -1184,6 +1189,9 @@ def admin_user_profile(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
+    edit: bool = False,
+    error: Annotated[str | None, Query(max_length=240)] = None,
+    message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
     account = db.get(User, user_id)
     if account is None:
@@ -1196,24 +1204,84 @@ def admin_user_profile(
         .limit(50)
     ).all()
     return _templates(request).TemplateResponse(request, "admin_user_profile.html", {
-        "current_user": current_user, "account": account, "activity": activity,
+        "current_user": current_user, "account": account, "activity": activity, "roles": _available_roles(db),
+        "open_on_load": edit, "dialog_error": error, "error": error if not edit else None, "message": message,
     })
 
 
 @router.get("/admin/users/{user_id}/edit", response_class=HTMLResponse)
 def admin_edit_user(
     user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+) -> RedirectResponse:
+    if db.get(User, user_id) is None:
+        raise HTTPException(status_code=404, detail=_ui("admin.user_not_found"))
+    return _redirect(f"/admin/users?edit_user={user_id}")
+
+
+def _available_roles(db: Session) -> list[Role]:
+    return list(db.scalars(select(Role).order_by(Role.code.is_(None), Role.id)))
+
+
+@router.get("/admin/roles", response_class=HTMLResponse)
+def admin_roles(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
+    new_role: bool = False,
+    edit_role: Annotated[int | None, Query(ge=1)] = None,
     error: Annotated[str | None, Query(max_length=240)] = None,
+    message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
-    account = db.get(User, user_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail=_ui("admin.user_not_found"))
-    return _templates(request).TemplateResponse(request, "admin_user_form.html", {
-        "current_user": current_user, "account": account, "error": error,
+    roles = _available_roles(db)
+    if edit_role is not None and not any(role.id == edit_role and role.code is None for role in roles):
+        raise HTTPException(status_code=404, detail=_ui("roles.not_found"))
+    return _templates(request).TemplateResponse(request, "admin_roles.html", {
+        "current_user": current_user, "roles": roles,
+        "new_role": new_role and edit_role is None, "edit_role": edit_role, "dialog_error": error,
+        "error": error if not (new_role or edit_role) else None, "message": message,
     })
+
+
+@router.post("/admin/roles")
+def save_role(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    name: Annotated[str, Form(min_length=1, max_length=100)],
+    role_id: Annotated[int | None, Form(ge=1)] = None,
+    can_create: Annotated[str | None, Form()] = None,
+    can_edit: Annotated[str | None, Form()] = None,
+    can_delete: Annotated[str | None, Form()] = None,
+    can_manage_columns: Annotated[str | None, Form()] = None,
+) -> RedirectResponse:
+    role = db.get(Role, role_id) if role_id is not None else Role()
+    if role is None or role.code is not None:
+        raise HTTPException(status_code=404, detail=_ui("roles.not_found"))
+    target = f"/admin/roles?edit_role={role_id}" if role_id is not None else "/admin/roles?new_role=true"
+    clean_name = name.strip()
+    name_key = clean_name.casefold()
+    reserved = {
+        translate(language, f"roles.{code}").casefold()
+        for language in INTERFACE_LANGUAGES for code in ("admin", "user", "editor")
+    }
+    if not name_key:
+        return _redirect_error(target, _ui("roles.name_empty"))
+    if name_key in reserved:
+        return _redirect_error(target, _ui("roles.duplicate"))
+    role.name = clean_name
+    role.name_key = name_key
+    role.can_create = _checked(can_create)
+    role.can_edit = _checked(can_edit)
+    role.can_delete = _checked(can_delete)
+    role.can_manage_columns = _checked(can_manage_columns)
+    db.add(role)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return _redirect_error(target, _ui("roles.duplicate"))
+    return _redirect_message("/admin/roles", _ui("roles.saved"))
 
 
 @router.post("/admin/users")
@@ -1225,19 +1293,21 @@ def admin_create_user(
     first_name: Annotated[str, Form(max_length=120)] = "",
     last_name: Annotated[str, Form(max_length=120)] = "",
     description: Annotated[str, Form(max_length=2000)] = "",
-    can_create: Annotated[str | None, Form()] = None,
-    can_edit: Annotated[str | None, Form()] = None,
-    can_delete: Annotated[str | None, Form()] = None,
-    can_manage_columns: Annotated[str | None, Form()] = None,
+    role_id: Annotated[int | None, Form(ge=1)] = None,
     is_active: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
+    target = "/admin/users?new_user=true"
     clean_username = _clean_text(username, 80)
     if not clean_username:
-        return _redirect_error("/admin/users/new", _ui("admin.username_empty"))
+        return _redirect_error(target, _ui("admin.username_empty"))
 
     existing = db.scalar(select(User).where(func.lower(User.username) == clean_username.lower()))
     if existing:
-        return _redirect_error("/admin/users/new", _ui("admin.duplicate"))
+        return _redirect_error(target, _ui("admin.duplicate"))
+
+    role = db.get(Role, role_id) if role_id is not None else db.scalar(select(Role).where(Role.code == "user"))
+    if role is None:
+        return _redirect_error(target, _ui("roles.not_found"))
 
     try:
         create_user(
@@ -1247,15 +1317,12 @@ def admin_create_user(
             first_name=_clean_text(first_name, 120),
             last_name=_clean_text(last_name, 120),
             description=_clean_text(description, 2000),
-            can_create=_checked(can_create),
-            can_edit=_checked(can_edit),
-            can_delete=_checked(can_delete),
-            can_manage_columns=_checked(can_manage_columns),
+            role=role,
             is_active=_checked(is_active),
         )
     except IntegrityError:
         db.rollback()
-        return _redirect_error("/admin/users/new", _ui("admin.create_failed_unique"))
+        return _redirect_error(target, _ui("admin.create_failed_unique"))
 
     return _redirect_message("/admin/users", _ui("admin.created"))
 
@@ -1270,22 +1337,27 @@ def admin_update_user(
     last_name: Annotated[str, Form(max_length=120)] = "",
     description: Annotated[str, Form(max_length=2000)] = "",
     password: Annotated[str, Form(max_length=200)] = "",
-    can_create: Annotated[str | None, Form()] = None,
-    can_edit: Annotated[str | None, Form()] = None,
-    can_delete: Annotated[str | None, Form()] = None,
-    can_manage_columns: Annotated[str | None, Form()] = None,
+    role_id: Annotated[int | None, Form(ge=1)] = None,
     is_active: Annotated[str | None, Form()] = None,
+    from_profile: Annotated[bool, Form()] = False,
 ) -> RedirectResponse:
     user = db.get(User, user_id)
     if user is None:
         return _redirect_error("/admin/users", _ui("admin.user_not_found"))
 
-    edit_url = f"/admin/users/{user_id}/edit"
+    profile_url = f"/admin/users/{user_id}"
+    edit_url = f"{profile_url}?edit=true" if from_profile else f"/admin/users?edit_user={user_id}"
     clean_username = _clean_text(username, 80)
     if not clean_username:
         return _redirect_error(edit_url, _ui("admin.username_empty"))
     if user.is_admin and clean_username != user.username:
         return _redirect_error(edit_url, _ui("admin.username_env"))
+    protected = user.is_admin or user.id == current_user.id
+    if role_id is not None and role_id != user.role_id and protected:
+        return _redirect_error(edit_url, _ui("roles.protected_account"))
+    role = db.get(Role, role_id) if role_id is not None else user.role
+    if role_id is not None and role is None:
+        return _redirect_error(edit_url, _ui("roles.not_found"))
 
     existing = db.scalar(
         select(User).where(func.lower(User.username) == clean_username.lower(), User.id != user.id)
@@ -1294,6 +1366,8 @@ def admin_update_user(
         return _redirect_error(edit_url, _ui("admin.duplicate"))
 
     clean_password = password.strip()
+    if clean_password and user.is_admin and user.id != current_user.id:
+        return _redirect_error(edit_url, _ui("roles.protected_password"))
     if clean_password and len(clean_password) < 8:
         return _redirect_error(edit_url, _ui("admin.password_too_short"))
 
@@ -1301,21 +1375,12 @@ def admin_update_user(
     user.first_name = _clean_text(first_name, 120)
     user.last_name = _clean_text(last_name, 120)
     user.description = _clean_text(description, 2000)
-    if user.is_admin:
-        user.is_active = True
-        user.can_create = True
-        user.can_edit = True
-        user.can_delete = True
-        user.can_manage_columns = True
-    else:
-        user.is_active = _checked(is_active)
-        user.can_create = _checked(can_create)
-        user.can_edit = _checked(can_edit)
-        user.can_delete = _checked(can_delete)
-        user.can_manage_columns = _checked(can_manage_columns)
+    role_changed = role is not None and role.id != user.role_id
+    user.role = role
+    user.is_active = protected or _checked(is_active)
     if clean_password:
         user.password_hash = hash_password(clean_password)
-    if clean_password or not user.is_active:
+    if clean_password or not user.is_active or role_changed:
         revoke_user_sessions(db, user.id)
 
     try:
@@ -1324,7 +1389,7 @@ def admin_update_user(
         db.rollback()
         return _redirect_error(edit_url, _ui("admin.update_failed_unique"))
 
-    return _redirect_message("/admin/users", _ui("admin.updated"))
+    return _redirect_message(profile_url if from_profile else "/admin/users", _ui("admin.updated"))
 
 
 @router.post("/admin/users/{user_id}/delete")

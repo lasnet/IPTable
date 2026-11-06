@@ -801,7 +801,8 @@
       dialog.showModal();
     }
     window.setTimeout(() => {
-      const focusTarget = dialog.querySelector("input:not([type='hidden']), select, textarea, button");
+      const focusTarget = dialog.querySelector("[autofocus]")
+        || dialog.querySelector("input:not([type='hidden']), select, textarea, button");
       focusTarget?.focus();
     }, 0);
   }
@@ -818,13 +819,14 @@
       return;
     }
 
+    const dialog = document.getElementById(trigger.dataset.modalTarget);
+    if (!canUseNativeDialog || !(dialog instanceof HTMLDialogElement)) {
+      return;
+    }
     event.preventDefault();
     trigger.closest(".node-menu")?.removeAttribute("open");
     trigger.closest(".field-details")?.removeAttribute("open");
-    const dialog = document.getElementById(trigger.dataset.modalTarget);
-    if (canUseNativeDialog && dialog instanceof HTMLDialogElement) {
-      openDialog(dialog);
-    }
+    openDialog(dialog);
   });
 
   document.addEventListener("click", (event) => {

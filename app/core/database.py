@@ -40,6 +40,7 @@ REQUIRED_TABLES = {
     "alembic_version",
     "folders",
     "users",
+    "roles",
     "user_sessions",
     "projects",
     "ip_addresses",
