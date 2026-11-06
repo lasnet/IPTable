@@ -165,24 +165,68 @@
     </details>
     <div class="project-summary" aria-label="{{ _('summary.title') }}">
       <div class="summary-item">
-        <span>{{ _('summary.total_ips') }}</span>
-        <strong>{{ total_count }}</strong>
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+            <path d="m3 12 9 5 9-5" />
+            <path d="m3 16 9 5 9-5" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.total_ips') }}</span>
+          <strong class="summary-value">{{ total_count }}</strong>
+        </span>
       </div>
       <div class="summary-item">
-        <span>{{ _('summary.used') }}</span>
-        <strong>{{ filled_count }}</strong>
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M20 21a8 8 0 0 0-16 0" />
+            <circle cx="12" cy="8" r="4" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.used') }}</span>
+          <strong class="summary-value">{{ filled_count }}</strong>
+        </span>
       </div>
       <div class="summary-item">
-        <span>{{ _('summary.empty_hidden') }}</span>
-        <strong>{{ empty_count }}</strong>
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="m3 3 18 18" />
+            <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+            <path d="M9.9 5.2A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.2 17.2 0 0 1-3.1 4.2" />
+            <path d="M6.3 6.3A17.2 17.2 0 0 0 2 12s3.5 7 10 7a10.4 10.4 0 0 0 4.1-.8" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.empty_hidden') }}</span>
+          <strong class="summary-value">{{ empty_count }}</strong>
+        </span>
       </div>
       <div class="summary-item summary-ok">
-        <span>{{ _('summary.ping_ok') }}</span>
-        <strong>{{ online_count }}</strong>
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="9" />
+            <path d="m8 12 2.5 2.5L16 9" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.ping_ok') }}</span>
+          <strong class="summary-value">{{ online_count }}</strong>
+        </span>
       </div>
       <div class="summary-item summary-no">
-        <span>{{ _('summary.ping_no') }}</span>
-        <strong>{{ offline_count }}</strong>
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v6" />
+            <path d="M12 16h.01" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.ping_no') }}</span>
+          <strong class="summary-value">{{ offline_count }}</strong>
+        </span>
       </div>
     </div>
   </form>
