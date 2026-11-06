@@ -475,42 +475,104 @@ textarea {
   font-size: 13px;
 }
 
-.project-toolbar :is(.filter-trigger, .project-hide-toggle, .project-menu-button) {
-  height: 42px;
-  min-height: 42px;
-  border: 1px solid var(--atlas-line);
-  border-radius: 10px;
-  background: var(--surface-soft);
+.project-toolbar-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  order: 2;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  margin-inline-start: auto;
+}
+
+.project-toolbar-tools .project-actions {
+  --project-action-size: 54px;
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 0;
+  border: 1px solid var(--atlas-line-strong);
+  border-radius: 16px;
+  background: var(--atlas-white);
+}
+
+.project-toolbar-tools .table-filter-form {
+  display: block;
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.project-toolbar-tools :is(.filter-trigger, .project-hide-toggle, .project-menu-button) {
+  order: 0;
+  height: var(--project-action-size);
+  min-height: var(--project-action-size);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--atlas-deep);
   box-shadow: none;
-}
-
-.project-toolbar :is(.filter-trigger, .project-menu-button) {
-  width: 42px;
-}
-
-.project-toolbar .project-hide-toggle {
-  padding-inline: 11px 13px;
   --icon-stroke: 2px;
 }
 
+.project-toolbar-tools :is(.filter-trigger, .project-menu-button) {
+  width: var(--project-action-size);
+}
+
+.project-toolbar-tools .filter-trigger {
+  border-start-start-radius: 15px;
+  border-end-start-radius: 15px;
+}
+
+.project-toolbar-tools .project-menu-button {
+  border-start-end-radius: 15px;
+  border-end-end-radius: 15px;
+}
+
+.project-toolbar-tools .project-action-menu {
+  order: 0;
+}
+
+.project-toolbar-tools .project-hide-toggle {
+  padding-inline: 11px 13px;
+  border-inline: 1px solid var(--atlas-line-strong);
+  font-size: 12px;
+}
+
+.project-toolbar-tools :is(.filter-trigger, .project-hide-toggle, .project-menu-button) .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.project-toolbar-tools .project-action-panel {
+  top: calc(100% + 8px);
+  max-width: calc(100vw - 32px);
+}
+
 @media (hover: hover) {
-  .project-toolbar :is(.filter-trigger, .project-hide-toggle, .project-menu-button):hover {
-    border-color: var(--atlas-line-strong);
+  .project-toolbar-tools :is(.filter-trigger, .project-hide-toggle, .project-menu-button):hover {
     background: var(--table-head);
   }
 }
 
-.project-toolbar :is(.table-filters-menu[open] > .filter-trigger,
+.project-toolbar-tools :is(.table-filters-menu[open] > .filter-trigger,
     .project-action-menu[open] > .project-menu-button,
     .project-hide-toggle:has([data-hide-empty-label]:not([hidden]))) {
-  border-color: var(--accent-border);
   background: var(--accent-soft);
 }
 
-.project-toolbar :is(.filter-trigger, .project-hide-toggle, .project-menu-button):focus-visible {
+.project-toolbar-tools :is(.filter-trigger, .project-hide-toggle, .project-menu-button):active {
+  background: var(--table-head);
+}
+
+.project-toolbar-tools :is(.filter-trigger, .project-hide-toggle, .project-menu-button):focus-visible {
   outline: 2px solid var(--atlas-blue);
-  outline-offset: 2px;
+  outline-offset: -3px;
   box-shadow: none;
 }
 
@@ -547,21 +609,6 @@ textarea {
 /* --------------------------------------------------------------------------
    Project summary: one soft panel divided into five metric sections
    -------------------------------------------------------------------------- */
-
-.project-toolbar .table-filter-form {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  order: 2;
-  gap: 10px;
-  min-width: 0;
-  width: max-content;
-  max-width: 100%;
-  margin: 0 0 0 auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
 
 .project-summary {
   display: grid;
@@ -965,6 +1012,10 @@ textarea {
 }
 
 @media (max-width: 760px) {
+  .project-toolbar-tools .project-actions {
+    --project-action-size: 44px;
+  }
+
 
   .host-drawer-actions .soft-button,
   .host-drawer-secondary-actions .soft-button {
@@ -1826,6 +1877,23 @@ textarea {
 
   .login-card {
     padding: 26px;
+  }
+}
+
+@media (max-width: 540px) {
+  .project-toolbar .project-title {
+    flex-basis: 100%;
+  }
+
+  .project-toolbar-tools {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: max-content;
+    margin-inline-start: 0;
+  }
+
+  .project-toolbar-tools .project-hide-toggle {
+    flex: 1 1 auto;
   }
 }
 

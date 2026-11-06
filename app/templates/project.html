@@ -22,8 +22,120 @@
         <p class="subtle project-cidr">{{ project.cidr }}</p>
       </div>
     </div>
-
+  </div>
+  <div class="project-toolbar-tools">
+    <div class="project-summary" aria-label="{{ _('summary.title') }}">
+      <div class="summary-item">
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+            <path d="m3 12 9 5 9-5" />
+            <path d="m3 16 9 5 9-5" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.total_ips') }}</span>
+          <strong class="summary-value">{{ total_count }}</strong>
+        </span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M20 21a8 8 0 0 0-16 0" />
+            <circle cx="12" cy="8" r="4" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.used') }}</span>
+          <strong class="summary-value">{{ filled_count }}</strong>
+        </span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="m3 3 18 18" />
+            <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+            <path d="M9.9 5.2A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.2 17.2 0 0 1-3.1 4.2" />
+            <path d="M6.3 6.3A17.2 17.2 0 0 0 2 12s3.5 7 10 7a10.4 10.4 0 0 0 4.1-.8" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.empty_hidden') }}</span>
+          <strong class="summary-value">{{ empty_count }}</strong>
+        </span>
+      </div>
+      <div class="summary-item summary-ok">
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="9" />
+            <path d="m8 12 2.5 2.5L16 9" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.ping_ok') }}</span>
+          <strong class="summary-value">{{ online_count }}</strong>
+        </span>
+      </div>
+      <div class="summary-item summary-no">
+        <span class="summary-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7v6" />
+            <path d="M12 16h.01" />
+          </svg>
+        </span>
+        <span class="summary-copy">
+          <span class="summary-label">{{ _('summary.ping_no') }}</span>
+          <strong class="summary-value">{{ offline_count }}</strong>
+        </span>
+      </div>
+    </div>
     <div class="project-actions">
+      <form class="table-filter-form" action="/projects/{{ project.id }}" method="get">
+        <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
+        <input type="hidden" name="page" value="1">
+        <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
+        <details class="table-filters-menu">
+          <summary class="soft-button filter-trigger" aria-label="{{ _('filter.open') }}" title="{{ _('filter.open') }}">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.5 7.5V19l-3 1v-7.5L4 5Z" /></svg>
+            <span class="active-filter-count" data-active-filter-count hidden></span>
+          </summary>
+          <div class="filter-panel">
+            <label>
+              Ping
+              <select name="ping_status">
+                {% for option in filter_options.ping_statuses %}
+                <option value="{{ option.value }}" {% if option.value == table_filters.ping_status %}selected{% endif %}>
+                  {{ option.label }}
+                </option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              Type
+              <select name="type_filter">
+                <option value="">{{ _('filter.all_types') }}</option>
+                {% for option in filter_options.types %}
+                <option value="{{ option }}" {% if option == table_filters.type_filter %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <label>
+              OS
+              <select name="os_filter">
+                <option value="">{{ _('filter.all_os') }}</option>
+                {% for option in filter_options.oses %}
+                <option value="{{ option }}" {% if option == table_filters.os_filter %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <a class="soft-button compact-action" data-filter-reset
+              href="/projects/{{ project.id }}?hide_empty={{ 'true' if hide_empty else 'false' }}&page=1&per_page={{ pagination.per_page }}">
+              {{ _('button.reset') }}
+            </a>
+          </div>
+        </details>
+      </form>
       <a class="soft-button project-action-button project-hide-toggle" href="{{ hide_toggle_url }}" data-hide-toggle>
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
@@ -118,118 +230,6 @@
       </details>
     </div>
   </div>
-
-  <form class="table-filter-form" action="/projects/{{ project.id }}" method="get">
-    <input type="hidden" name="hide_empty" value="{{ 'true' if hide_empty else 'false' }}">
-    <input type="hidden" name="page" value="1">
-    <input type="hidden" name="per_page" value="{{ pagination.per_page }}">
-    <div class="project-summary" aria-label="{{ _('summary.title') }}">
-      <div class="summary-item">
-        <span class="summary-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-            <path d="m12 3 9 5-9 5-9-5 9-5Z" />
-            <path d="m3 12 9 5 9-5" />
-            <path d="m3 16 9 5 9-5" />
-          </svg>
-        </span>
-        <span class="summary-copy">
-          <span class="summary-label">{{ _('summary.total_ips') }}</span>
-          <strong class="summary-value">{{ total_count }}</strong>
-        </span>
-      </div>
-      <div class="summary-item">
-        <span class="summary-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-            <path d="M20 21a8 8 0 0 0-16 0" />
-            <circle cx="12" cy="8" r="4" />
-          </svg>
-        </span>
-        <span class="summary-copy">
-          <span class="summary-label">{{ _('summary.used') }}</span>
-          <strong class="summary-value">{{ filled_count }}</strong>
-        </span>
-      </div>
-      <div class="summary-item">
-        <span class="summary-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-            <path d="m3 3 18 18" />
-            <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
-            <path d="M9.9 5.2A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.2 17.2 0 0 1-3.1 4.2" />
-            <path d="M6.3 6.3A17.2 17.2 0 0 0 2 12s3.5 7 10 7a10.4 10.4 0 0 0 4.1-.8" />
-          </svg>
-        </span>
-        <span class="summary-copy">
-          <span class="summary-label">{{ _('summary.empty_hidden') }}</span>
-          <strong class="summary-value">{{ empty_count }}</strong>
-        </span>
-      </div>
-      <div class="summary-item summary-ok">
-        <span class="summary-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-            <circle cx="12" cy="12" r="9" />
-            <path d="m8 12 2.5 2.5L16 9" />
-          </svg>
-        </span>
-        <span class="summary-copy">
-          <span class="summary-label">{{ _('summary.ping_ok') }}</span>
-          <strong class="summary-value">{{ online_count }}</strong>
-        </span>
-      </div>
-      <div class="summary-item summary-no">
-        <span class="summary-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 7v6" />
-            <path d="M12 16h.01" />
-          </svg>
-        </span>
-        <span class="summary-copy">
-          <span class="summary-label">{{ _('summary.ping_no') }}</span>
-          <strong class="summary-value">{{ offline_count }}</strong>
-        </span>
-      </div>
-    </div>
-    <details class="table-filters-menu">
-      <summary class="soft-button filter-trigger" aria-label="{{ _('filter.open') }}" title="{{ _('filter.open') }}">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.5 7.5V19l-3 1v-7.5L4 5Z" /></svg>
-        <span class="active-filter-count" data-active-filter-count hidden></span>
-      </summary>
-      <div class="filter-panel">
-    <label>
-      Ping
-      <select name="ping_status">
-        {% for option in filter_options.ping_statuses %}
-        <option value="{{ option.value }}" {% if option.value == table_filters.ping_status %}selected{% endif %}>
-          {{ option.label }}
-        </option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      Type
-      <select name="type_filter">
-        <option value="">{{ _('filter.all_types') }}</option>
-        {% for option in filter_options.types %}
-        <option value="{{ option }}" {% if option == table_filters.type_filter %}selected{% endif %}>{{ option }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>
-      OS
-      <select name="os_filter">
-        <option value="">{{ _('filter.all_os') }}</option>
-        {% for option in filter_options.oses %}
-        <option value="{{ option }}" {% if option == table_filters.os_filter %}selected{% endif %}>{{ option }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <a class="soft-button compact-action" data-filter-reset
-      href="/projects/{{ project.id }}?hide_empty={{ 'true' if hide_empty else 'false' }}&page=1&per_page={{ pagination.per_page }}">
-      {{ _('button.reset') }}
-    </a>
-      </div>
-    </details>
-  </form>
   </div>
 
   {% if project.description %}
