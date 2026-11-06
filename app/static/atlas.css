@@ -318,6 +318,7 @@ textarea {
 
 .rail-link {
   color: var(--theme-rail-muted, #b9cadc);
+  cursor: pointer;
 }
 
 .rail-link span {
@@ -387,7 +388,14 @@ textarea {
   text-transform: none;
 }
 
+.folder-node {
+  --folder-line-height: 39px;
+  --folder-menu-size: 34px;
+}
+
 .folder-line {
+  min-height: var(--folder-line-height);
+  padding-inline-end: calc(var(--folder-menu-size) + 8px);
   color: var(--theme-secondary, #38516d);
   font-weight: 600;
   letter-spacing: 0;
@@ -409,7 +417,9 @@ textarea {
 
 .tree-project {
   position: relative;
+  align-self: stretch;
   color: var(--theme-muted, #526a84);
+  cursor: pointer;
   font-size: 11.5px;
   letter-spacing: -.01em;
 }
@@ -427,6 +437,7 @@ textarea {
   width: 3px;
   border-radius: 3px;
   background: var(--atlas-cyan);
+  pointer-events: none;
 }
 
 .tree-project-row.active .tree-project {
@@ -447,14 +458,13 @@ textarea {
 
 /* Compact, centred menu affordance: 34px hit area, quiet idle surface. */
 .folder-node > .folder-node-menu {
-  top: 50%;
+  top: calc((var(--folder-line-height) - var(--folder-menu-size)) / 2);
   right: 3px;
-  margin-top: -17px;
 }
 
 .folder-node-menu .node-menu-button {
-  width: 34px;
-  height: 34px;
+  width: var(--folder-menu-size);
+  height: var(--folder-menu-size);
   border: 0;
   border-radius: 8px;
   background: transparent;

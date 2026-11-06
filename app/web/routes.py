@@ -1,6 +1,7 @@
 import time
-from typing import Annotated
+from collections.abc import AsyncIterator
 from ipaddress import ip_network
+from typing import Annotated, get_args
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -9,7 +10,7 @@ from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.config import Settings, get_settings
+from app.core.config import InterfaceTheme, Settings, _request_settings, get_settings
 from app.core.database import get_db
 from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, User
 from app.models import AppConfiguration, AppConfigurationAudit, IntegrationCredential
@@ -52,6 +53,9 @@ SESSION_LAST_ACTIVITY_KEY = "last_activity_at"
 PROJECT_TABLE_PAGE_SIZE_OPTIONS = (25, 50, 100, 250)
 PROJECT_TABLE_FALLBACK_PAGE_SIZE = 25
 PING_STATUS_FILTERS = {"ok", "no", "notest"}
+INTERFACE_LANGUAGES = ("RU", "EN")
+INTERFACE_THEMES = get_args(InterfaceTheme)
+ADMIN_SETTINGS_GROUPS = {name: fields for name, fields in GROUPS.items() if name != "interface"}
 
 
 def _templates(request: Request):
@@ -147,7 +151,7 @@ def _session_idle_expired(request: Request, settings: Settings, *, now: int | No
     return current_time - last_activity_at > settings.session_idle_timeout_seconds
 
 
-def require_user(
+def _authenticate_session(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -172,8 +176,24 @@ def require_user(
         request.session.clear()
         raise _login_redirect()
 
+    db.refresh(user)  # The session renewal commits and expires ORM attributes.
     request.session[SESSION_LAST_ACTIVITY_KEY] = now
     return user
+
+
+async def require_user(current_user: Annotated[User, Depends(_authenticate_session)]) -> AsyncIterator[User]:
+    # Set the locale and theme in the request task so both templates and
+    # synchronous handlers inherit them. Never mutate the shared defaults.
+    defaults = get_settings()
+    settings = defaults.model_copy(update={
+        "interface_language": current_user.interface_language or defaults.interface_language,
+        "interface_theme": current_user.interface_theme or defaults.interface_theme,
+    })
+    marker = _request_settings.set(settings)
+    try:
+        yield current_user
+    finally:
+        _request_settings.reset(marker)
 
 
 def require_admin(current_user: Annotated[User, Depends(require_user)]) -> User:
@@ -205,11 +225,11 @@ def _nearest_page_size(value: int) -> int:
     return min(PROJECT_TABLE_PAGE_SIZE_OPTIONS, key=lambda option: abs(option - value))
 
 
-def _normalize_project_page_size(value: int | None, settings: Settings) -> int:
+def _normalize_project_page_size(value: int | None, settings: Settings, preferred: int | None = None) -> int:
     if value in PROJECT_TABLE_PAGE_SIZE_OPTIONS:
         return int(value)
 
-    default_size = settings.project_table_default_page_size
+    default_size = preferred or settings.project_table_default_page_size
     if default_size in PROJECT_TABLE_PAGE_SIZE_OPTIONS:
         return default_size
     return _nearest_page_size(default_size or PROJECT_TABLE_FALLBACK_PAGE_SIZE)
@@ -506,13 +526,18 @@ def inventory(
 def settings_page(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_user)],
     error: Annotated[str | None, Query(max_length=240)] = None,
     message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
-    row = db.get(AppConfiguration, 1)
-    credential = db.get(IntegrationCredential, 1)
-    history = db.scalars(select(AppConfigurationAudit).order_by(AppConfigurationAudit.id.desc()).limit(30)).all()
+    admin_context = {}
+    if current_user.is_admin:
+        admin_context = {
+            "configuration": db.get(AppConfiguration, 1),
+            "credential": db.get(IntegrationCredential, 1),
+            "groups": ADMIN_SETTINGS_GROUPS,
+            "history": db.scalars(select(AppConfigurationAudit).order_by(AppConfigurationAudit.id.desc()).limit(30)).all(),
+        }
     return _templates(request).TemplateResponse(
         request,
         "settings.html",
@@ -521,25 +546,48 @@ def settings_page(
             "folders": [],
             "active_project": None,
             "current_user": current_user,
-            "configuration": row,
-            "credential": credential,
-            "groups": GROUPS,
-            "history": history,
+            "languages": INTERFACE_LANGUAGES,
+            "themes": INTERFACE_THEMES,
+            "page_sizes": PROJECT_TABLE_PAGE_SIZE_OPTIONS,
             "error": error,
             "message": message,
+            **admin_context,
         },
     )
+
+
+@router.post("/settings/interface")
+async def save_interface_preferences(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    defaults: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    form = await request.form()
+    language = form.get("interface_language")
+    theme = form.get("interface_theme")
+    page_size = form.get("project_table_page_size")
+    valid_page_sizes = {str(size) for size in PROJECT_TABLE_PAGE_SIZE_OPTIONS}
+    if (language not in ("", *INTERFACE_LANGUAGES) or theme not in ("", *INTERFACE_THEMES)
+            or not isinstance(page_size, str) or (page_size and page_size not in valid_page_sizes)):
+        return _redirect_error("/settings", _ui("settings.interface_invalid"))
+
+    current_user.interface_language = language or None
+    current_user.interface_theme = theme or None
+    current_user.project_table_page_size = int(page_size) if page_size else None
+    db.commit()
+    return _redirect_message("/settings", translate(language or defaults.interface_language, "settings.saved"))
 
 
 @router.post("/settings/{group}")
 async def settings_save(group: str, request: Request, db: Annotated[Session, Depends(get_db)],
                         current_user: Annotated[User, Depends(require_admin)]) -> RedirectResponse:
-    if group not in GROUPS:
+    if group not in ADMIN_SETTINGS_GROUPS:
         raise HTTPException(status_code=404)
     form = await request.form()
     try:
         revision = int(str(form.get("revision", "")))
-        values = {name: str(form[name]) for name in GROUPS[group]}
+        values = {name: str(form[name]) for name in ADMIN_SETTINGS_GROUPS[group]}
         save_group(db, group, values, revision, actor_id=current_user.id, actor_name=current_user.username)
     except RevisionConflict:
         db.rollback()
@@ -971,7 +1019,7 @@ def project_detail(
     if hide_empty:
         visible_conditions.append(filled_condition)
     visible_count = db.scalar(select(func.count(IPAddress.id)).where(*visible_conditions)) or 0
-    page_size = _normalize_project_page_size(per_page, settings)
+    page_size = _normalize_project_page_size(per_page, settings, current_user.project_table_page_size)
     pagination = _pagination_context(
         project.id,
         hide_empty=hide_empty,
@@ -1352,7 +1400,9 @@ async def configure_custom_fields(
     form = await request.form()
     hide_empty = form.get("hide_empty") == "true"
     page = _safe_positive_int(form.get("page"), 1)
-    per_page = _normalize_project_page_size(_safe_positive_int(form.get("per_page"), 0), settings)
+    per_page = _normalize_project_page_size(
+        _safe_positive_int(form.get("per_page"), 0), settings, current_user.project_table_page_size,
+    )
     ping_status = _clean_filter_value(str(form.get("ping_status", "")), 20).lower()
     if ping_status not in PING_STATUS_FILTERS:
         ping_status = ""
@@ -1464,7 +1514,9 @@ async def update_ip_address(
     db.commit()
     hide_empty = form.get("hide_empty") == "true"
     page = _safe_positive_int(form.get("page"), 1)
-    per_page = _normalize_project_page_size(_safe_positive_int(form.get("per_page"), 0), settings)
+    per_page = _normalize_project_page_size(
+        _safe_positive_int(form.get("per_page"), 0), settings, current_user.project_table_page_size,
+    )
     ping_status = _clean_filter_value(str(form.get("ping_status", "")), 20).lower()
     if ping_status not in PING_STATUS_FILTERS:
         ping_status = ""
@@ -1530,7 +1582,9 @@ async def clear_ip_address(
     form = await request.form()
     hide_empty = form.get("hide_empty") == "true"
     page = _safe_positive_int(form.get("page"), 1)
-    per_page = _normalize_project_page_size(_safe_positive_int(form.get("per_page"), 0), settings)
+    per_page = _normalize_project_page_size(
+        _safe_positive_int(form.get("per_page"), 0), settings, current_user.project_table_page_size,
+    )
     ping_status = _clean_filter_value(str(form.get("ping_status", "")), 20).lower()
     if ping_status not in PING_STATUS_FILTERS:
         ping_status = ""
@@ -1685,7 +1739,7 @@ def search(
             .limit(50)
         ).all()
 
-    project_page_size = _normalize_project_page_size(None, settings)
+    project_page_size = _normalize_project_page_size(None, settings, current_user.project_table_page_size)
     return _templates(request).TemplateResponse(
         request,
         "search.html",

@@ -47,6 +47,9 @@ class User(TimestampMixin, Base):
     can_delete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     can_manage_columns: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    interface_language: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    interface_theme: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    project_table_page_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     @property
     def can_create_inventory(self) -> bool:

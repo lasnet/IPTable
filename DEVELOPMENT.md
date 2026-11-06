@@ -106,6 +106,12 @@ URL.create, поэтому специальные символы пароля к
 прежние runtime-переменные в БД. При повторном запуске импорт не повторяется.
 `app/core/config.py` читает bootstrap-параметры из окружения; значения для
 интерфейса, ping, ограничений, сессий и интеграции после импорта читаются из БД.
+Личные тема, язык и число строк хранятся в `users`. Пустые значения наследуют
+настройки установки, в том числе после миграции существующей базы.
+Название приложения и общие значения интерфейса меняются только с сервера:
+`python -m app.manage settings show` выводит текущие значения и ревизию,
+а `python -m app.manage settings set --group interface --expected-revision REVISION app_name=IPtable interface_language=RU interface_theme=blue project_table_default_page_size=25`
+сохраняет всю группу. Личные настройки пользователей при этом сохраняются.
 
 APP_ENV=production выключает OpenAPI и проверяет секреты в обоих режимах доступа.
 Compose по умолчанию публикует HTTP, без gateway. APP_PUBLIC_URL определяет Secure

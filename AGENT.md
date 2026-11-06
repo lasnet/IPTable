@@ -55,7 +55,8 @@ app/main.py настраивает auth cookies, security headers и OpenAPI.
 app/services/security.py - CSRF и DB-backed login rate limit.
 app/services/ping.py - очереди, advisory locks, расписания и probes.
 app/services/settings.py - общие настройки из БД, ревизии и API-токен.
-Тема интерфейса (blue, green, dark) хранится в общих настройках установки.
+Личные тема, язык и число строк хранятся в users; пустые значения наследуют
+настройки установки. Название приложения меняется только через app.manage.
 app/manage.py запускает Alembic и однократный импорт прежних env-значений.
 scripts/update_stable.py - перенос проверенного dev в stable с сохранением merge-истории.
 

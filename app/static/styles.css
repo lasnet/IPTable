@@ -716,8 +716,7 @@ body.is-loading button {
 }
 
 @media (hover: hover) {
-  .folder-node:has(> .tree-folder > .folder-line:hover) > .folder-node-menu,
-  .folder-node > .folder-node-menu:hover,
+  .folder-node:hover > .folder-node-menu,
   .tree-project-row:hover > .node-menu {
     opacity: 1;
     pointer-events: auto;
@@ -3025,6 +3024,9 @@ body { background: var(--bg); color: var(--text); font-family: Inter, ui-sans-se
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: stretch;
   gap: 18px;
+}
+.settings-layout-personal {
+  grid-template-columns: minmax(0, 640px);
 }
 .settings-card {
   display: flex;
