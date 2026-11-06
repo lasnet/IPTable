@@ -8,12 +8,15 @@
   <link rel="icon" href="{{ url_for('static', path='/favicon.ico').path }}">
   <link rel="stylesheet" href="{{ url_for('static', path='/styles.css').path }}?v=role-actions-1">
   <link rel="stylesheet" href="{{ url_for('static', path='/atlas.css').path }}?v=role-actions-1">
-  <script src="{{ url_for('static', path='/app.js').path }}?v=role-actions-1" defer></script>
+  <script src="{{ url_for('static', path='/app.js').path }}?v=address-lock-1" defer></script>
 </head>
 
 <body data-i18n-selected-row="{{ _('js.selected_row') }}"
   data-i18n-unsaved-row="{{ _('js.unsaved_row') }}"
   data-i18n-unsaved-leave="{{ _('js.unsaved_leave') }}"
+  data-i18n-drawer-locked="{{ _('drawer.locked', username='{username}') }}"
+  data-i18n-drawer-lock-lost="{{ _('drawer.lock_lost') }}"
+  data-i18n-drawer-lock-unavailable="{{ _('drawer.lock_unavailable') }}"
   data-i18n-empty-value="{{ _('table.placeholder_empty') }}">
   {% if current_user is defined %}
   {% set history_view = request.url.path == '/history' or request.url.path.endswith('/history') %}

@@ -140,6 +140,9 @@ class IPAddress(TimestampMixin, Base):
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ping_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    edit_lock_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    edit_lock_token: Mapped[str | None] = mapped_column(String(43), nullable=True)
+    edit_lock_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="ip_addresses")
     history: Mapped[list["IPAddressHistory"]] = relationship(back_populates="ip_address", cascade="all, delete-orphan")

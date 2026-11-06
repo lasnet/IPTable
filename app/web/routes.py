@@ -5,7 +5,7 @@ from typing import Annotated, Literal, get_args
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import String, cast, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -15,6 +15,7 @@ from app.core.config import InterfaceTheme, Settings, _request_settings, get_set
 from app.core.database import get_db
 from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, Role, User
 from app.models import AppConfiguration, AppConfigurationAudit, IntegrationCredential
+from app.services import address_locks
 from app.services.settings import GROUPS, RevisionConflict, replace_token, save_group
 from app.services.auth import authenticate_user, create_user, hash_password
 from app.services.csv_io import (
@@ -291,6 +292,13 @@ def _address_edit_denied(request: Request, table_url: str) -> RedirectResponse:
     if "text/html" in request.headers.get("accept", ""):
         return _redirect_error(table_url, _ui("drawer.edit_denied"))
     raise HTTPException(status_code=403, detail="IP address edit permission required")
+
+
+def _address_write_conflict(request: Request, table_url: str, owner: str | None) -> RedirectResponse:
+    message = _ui("drawer.locked", username=owner) if owner else _ui("drawer.lock_lost")
+    if "text/html" in request.headers.get("accept", ""):
+        return _redirect_error(table_url, message)
+    raise HTTPException(status_code=409, detail=message)
 
 
 def _filled_value(column):
@@ -1637,6 +1645,76 @@ async def configure_custom_fields(
     return _redirect_message(return_url, _ui("field.saved"))
 
 
+def _get_address(db: Session, project_id: int, ip_id: int) -> IPAddress:
+    address = address_locks.find_address(db, project_id, ip_id)
+    if address is None:
+        raise HTTPException(status_code=404, detail="IP address not found")
+    return address
+
+
+@router.get("/projects/{project_id}/addresses/{ip_id}/edit-lock")
+def address_edit_lock_status(
+    project_id: int, ip_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> dict:
+    if not current_user.can_edit_inventory:
+        raise HTTPException(status_code=403, detail=_ui("drawer.edit_denied"))
+    return {"owner": address_locks.lock_owner(db, _get_address(db, project_id, ip_id))}
+
+
+@router.post("/projects/{project_id}/addresses/{ip_id}/edit-lock")
+def acquire_address_edit_lock(
+    project_id: int, ip_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> JSONResponse:
+    if not current_user.can_edit_inventory:
+        raise HTTPException(status_code=403, detail=_ui("drawer.edit_denied"))
+    token = address_locks.acquire(db, project_id, ip_id, current_user.id)
+    address = _get_address(db, project_id, ip_id)
+    if token is None:
+        return JSONResponse({"owner": address_locks.lock_owner(db, address)}, status_code=409)
+    content = {
+        "token": token,
+        "fields": {
+            "hostname": address.hostname, "os": address.os,
+            "asset_type": address.asset_type, "comment": address.comment,
+        },
+        "custom_values": address.custom_values,
+    }
+    db.commit()
+    return JSONResponse(content)
+
+
+@router.post("/projects/{project_id}/addresses/{ip_id}/edit-lock/renew")
+def renew_address_edit_lock(
+    project_id: int, ip_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+    token: Annotated[str, Form(min_length=43, max_length=43)],
+) -> Response:
+    if not current_user.can_edit_inventory:
+        raise HTTPException(status_code=403, detail=_ui("drawer.edit_denied"))
+    if not address_locks.renew(db, project_id, ip_id, current_user.id, token):
+        return JSONResponse({"owner": address_locks.lock_owner(db, _get_address(db, project_id, ip_id))},
+                            status_code=409)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/projects/{project_id}/addresses/{ip_id}/edit-lock/release")
+def release_address_edit_lock(
+    project_id: int, ip_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+    token: Annotated[str, Form(min_length=43, max_length=43)],
+) -> Response:
+    address_locks.release(db, project_id, ip_id, current_user.id, token)
+    db.commit()
+    return Response(status_code=204)
+
+
 @router.post("/projects/{project_id}/addresses/{ip_id}")
 async def update_ip_address(
     project_id: int,
@@ -1651,9 +1729,14 @@ async def update_ip_address(
     if not current_user.can_edit_inventory:
         return _address_edit_denied(request, table_url)
 
-    ip_record = db.scalar(select(IPAddress).where(IPAddress.id == ip_id, IPAddress.project_id == project_id))
-    if ip_record is None:
-        raise HTTPException(status_code=404, detail="IP address not found")
+    token = str(form.get("edit_lock_token", ""))
+    browser_form = "text/html" in request.headers.get("accept", "")
+    if (browser_form and not token) or not address_locks.reserve_write(
+        db, project_id, ip_id, user_id=current_user.id, token=token,
+    ):
+        owner = address_locks.lock_owner(db, _get_address(db, project_id, ip_id))
+        return _address_write_conflict(request, table_url, owner)
+    ip_record = _get_address(db, project_id, ip_id)
 
     new_hostname = _clean_text(str(form.get("hostname", "")), 255)
     new_os = _clean_text(str(form.get("os", "")), 120)
@@ -1679,6 +1762,8 @@ async def update_ip_address(
     ).all()
     custom_values = dict(ip_record.custom_values or {})
     for field in custom_fields:
+        if token and f"custom__{field.key}" not in form:
+            continue
         old_value = custom_values.get(field.key, "")
         new_value = _clean_text(str(form.get(f"custom__{field.key}", "")), 1000)
         change = build_field_change(f"custom.{field.key}", field.name, old_value, new_value)
@@ -1706,9 +1791,12 @@ async def clear_ip_address(
     if not current_user.can_edit_inventory:
         return _address_edit_denied(request, table_url)
 
-    ip_record = db.scalar(select(IPAddress).where(IPAddress.id == ip_id, IPAddress.project_id == project_id))
-    if ip_record is None:
-        raise HTTPException(status_code=404, detail="IP address not found")
+    if not address_locks.reserve_write(
+        db, project_id, ip_id, user_id=current_user.id, token=str(form.get("edit_lock_token", "")),
+    ):
+        owner = address_locks.lock_owner(db, _get_address(db, project_id, ip_id))
+        return _address_write_conflict(request, table_url, owner)
+    ip_record = _get_address(db, project_id, ip_id)
 
     custom_fields = db.scalars(
         select(CustomField).where(CustomField.project_id == project_id).order_by(CustomField.position.asc())

@@ -65,6 +65,8 @@
   let allowSubmit = false;
   let tableRequestId = 0;
   let currentTableUrl = window.location.href;
+  let drawerLock = null;
+  let submittingDrawer = false;
 
   const editableSelector = ".host-drawer [data-drawer-editable]";
   const i18n = document.body.dataset;
@@ -239,6 +241,77 @@
     document.querySelector("[data-host-drawer]")?.classList.remove("drawer-dirty");
   }
 
+  function lockRequest(state, action, token = "") {
+    const base = state.url;
+    if (action === "status") {
+      return fetch(base, { cache: "no-store" });
+    }
+    const body = new URLSearchParams({ _csrf_token: state.csrf, token });
+    const url = action === "acquire" ? base : `${base}/${action}`;
+    return fetch(url, { method: "POST", body, keepalive: action === "release" });
+  }
+
+  function releaseDrawerLock() {
+    const state = drawerLock;
+    drawerLock = null;
+    if (!state) return;
+    clearTimeout(state.timer);
+    if (state.token && !submittingDrawer) {
+      lockRequest(state, "release", state.token).catch(() => {});
+    }
+  }
+
+  function lockNotice(owner) {
+    return owner ? formatMessage(i18n.i18nDrawerLocked, { username: owner }) : i18n.i18nDrawerLockLost;
+  }
+
+  function renderDrawerLock(state, message = "") {
+    if (drawerLock !== state) return;
+    const notice = state.drawer.querySelector("[data-drawer-lock-notice]");
+    notice.textContent = message;
+    notice.hidden = !message;
+    setDrawerEditMode(state.drawer, Boolean(state.token));
+    state.drawer.querySelectorAll("[data-drawer-lock-token]").forEach((input) => {
+      input.value = state.token;
+    });
+  }
+
+  function scheduleLockCheck(state, delay) {
+    clearTimeout(state.timer);
+    if (drawerLock === state && !state.lost) {
+      state.timer = window.setTimeout(() => refreshDrawerLock(state), delay);
+    }
+  }
+
+  async function refreshDrawerLock(state) {
+    if (drawerLock !== state || state.busy || state.lost || submittingDrawer) return;
+    const token = state.token;
+    try {
+      const response = await lockRequest(state, token ? "renew" : "status", token);
+      if (drawerLock !== state || state.token !== token || submittingDrawer) return;
+      if (token && [403, 404, 409].includes(response.status)) {
+        const result = response.status === 409 ? await response.json() : {};
+        if (drawerLock !== state || submittingDrawer) return;
+        state.token = "";
+        state.lost = true;
+        renderDrawerLock(state, lockNotice(result.owner));
+        return;
+      }
+      if (!response.ok || response.redirected) throw new Error("Edit lock check failed");
+      const result = token ? {} : await response.json();
+      if (drawerLock !== state || state.token !== token || submittingDrawer) return;
+      state.blocked = !token && result.owner !== null;
+      state.unverified = false;
+      renderDrawerLock(state, state.blocked ? lockNotice(result.owner) : "");
+      if (token || state.blocked) scheduleLockCheck(state, token ? 20000 : 4000);
+    } catch (error) {
+      if (drawerLock !== state || state.token !== token || submittingDrawer) return;
+      state.unverified = true;
+      renderDrawerLock(state, i18n.i18nDrawerLockUnavailable);
+      scheduleLockCheck(state, 4000);
+    }
+  }
+
   function setDrawerEditMode(drawer, enabled) {
     const editButton = drawer.querySelector("[data-host-drawer-edit]");
     const canEdit = Boolean(editButton && document.getElementById(drawer.dataset.rowId || "")?.dataset.updateUrl);
@@ -249,14 +322,19 @@
     });
     const saveButton = drawer.querySelector("[data-host-drawer-save]");
     const clearButton = drawer.querySelector("[data-host-drawer-clear]");
+    const locked = drawerLock?.drawer === drawer
+      && (drawerLock.busy || drawerLock.blocked || drawerLock.lost || drawerLock.unverified);
     if (editButton) {
       editButton.hidden = enabled || !canEdit;
+      editButton.disabled = Boolean(locked);
     }
     if (saveButton) {
       saveButton.hidden = !enabled;
+      saveButton.disabled = Boolean(locked);
     }
     if (clearButton) {
       clearButton.hidden = !canEdit;
+      clearButton.disabled = Boolean(locked);
     }
   }
 
@@ -266,9 +344,9 @@
       return;
     }
     if (!force && hasDirtyRow()) {
-      warnAboutDirtyRow();
-      return;
+      if (!window.confirm(formatMessage(i18n.i18nUnsavedLeave, { row: rowAddress(dirtyRow) }))) return;
     }
+    releaseDrawerLock();
     const returnFocus = drawer.contains(document.activeElement) && !force;
     drawer.classList.remove("open");
     drawer.setAttribute("aria-hidden", "true");
@@ -321,6 +399,8 @@
     if (!drawer || !row) {
       return;
     }
+    if (drawer.classList.contains("open") && drawer.dataset.rowId === row.id) return;
+    releaseDrawerLock();
 
     drawerOpener?.setAttribute("aria-expanded", "false");
     drawerOpener = opener;
@@ -383,20 +463,53 @@
     drawer.setAttribute("aria-hidden", "false");
     drawer.inert = false;
     drawer.querySelector("[data-host-drawer-close]")?.focus({ preventScroll: true });
+    const csrf = editForm?.querySelector("[name='_csrf_token']")?.value;
+    if (csrf && row.dataset.updateUrl) {
+      const state = { drawer, url: `${row.dataset.updateUrl}/edit-lock`, csrf, token: "", unverified: true };
+      drawerLock = state;
+      renderDrawerLock(state);
+      refreshDrawerLock(state);
+    } else {
+      const notice = drawer.querySelector("[data-drawer-lock-notice]");
+      if (notice) notice.hidden = true;
+    }
   }
 
-  function editRow(row) {
-    if (!row) {
-      return;
-    }
-    const drawer = document.querySelector("[data-host-drawer]");
-    if (!drawer || drawer.dataset.rowId !== row.id) {
-      openHostDrawer(row);
-    }
-    setDrawerEditMode(document.querySelector("[data-host-drawer]"), true);
-    const target = firstEditable(row);
-    if (target) {
-      window.setTimeout(() => target.focus(), 0);
+  async function editRow(row) {
+    const state = drawerLock;
+    if (!row || !state || state.busy || state.blocked || state.unverified || state.lost || state.token) return;
+    state.busy = true;
+    renderDrawerLock(state);
+    try {
+      const response = await lockRequest(state, "acquire");
+      const result = await response.json();
+      if (drawerLock !== state) {
+        if (result.token) lockRequest(state, "release", result.token).catch(() => {});
+        return;
+      }
+      state.busy = false;
+      if (response.status === 409) {
+        state.blocked = true;
+        renderDrawerLock(state, lockNotice(result.owner));
+        scheduleLockCheck(state, 4000);
+        return;
+      }
+      if (!response.ok || !result.token) throw new Error("Edit lock could not be acquired");
+      state.token = result.token;
+      for (const [name, value] of Object.entries(result.fields)) setDrawerField(state.drawer, name, value);
+      state.drawer.querySelectorAll("[data-drawer-custom] input").forEach((input) => {
+        input.value = result.custom_values?.[input.name.slice("custom__".length)] ?? "";
+        input.classList.toggle("empty-value", !input.value);
+      });
+      renderDrawerLock(state);
+      scheduleLockCheck(state, 20000);
+      firstEditable(row)?.focus();
+    } catch (error) {
+      if (drawerLock !== state) return;
+      state.busy = false;
+      state.unverified = true;
+      renderDrawerLock(state, i18n.i18nDrawerLockUnavailable);
+      scheduleLockCheck(state, 4000);
     }
   }
 
@@ -492,9 +605,14 @@
     }
 
     const formRow = rowFor(form);
+    if (form.matches("[data-host-drawer-form]") && (!drawerLock?.token || drawerLock.unverified)) {
+      event.preventDefault();
+      return;
+    }
 
     if (hasDirtyRow() && form.classList.contains("asset-row-form") && formRow === dirtyRow) {
       allowSubmit = true;
+      submittingDrawer = true;
       dirtyRow.classList.add("row-saving");
       return;
     }
@@ -508,6 +626,9 @@
     const confirmMessage = form.dataset.confirm;
     if (confirmMessage && !window.confirm(confirmMessage)) {
       event.preventDefault();
+    }
+    if (!event.defaultPrevented && form.matches("[data-host-drawer-form], [data-host-drawer-clear-form]")) {
+      submittingDrawer = true;
     }
   }, true);
 
@@ -608,6 +729,13 @@
     if (hasDirtyRow() && !allowSubmit) {
       event.preventDefault();
       event.returnValue = "";
+    }
+  });
+  window.addEventListener("pagehide", releaseDrawerLock);
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) {
+      submittingDrawer = false;
+      closeHostDrawer(true);
     }
   });
 

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.models import CustomField, Folder, IPAddress, Project, IntegrationCredential
+from app.services import address_locks
 from app.services.history import FieldChange, build_field_change, record_ip_address_history
 from app.services.ping import enqueue_project_ping
 
@@ -218,9 +219,12 @@ def update_project_address(
     payload: AddressUpdate,
     db: Annotated[Session, Depends(get_db)],
 ) -> AddressOut:
-    ip_record = db.scalar(select(IPAddress).where(IPAddress.project_id == project_id, IPAddress.id == ip_id))
+    reserved = address_locks.reserve_write(db, project_id, ip_id)
+    ip_record = address_locks.find_address(db, project_id, ip_id)
     if ip_record is None:
         raise HTTPException(status_code=404, detail="IP address not found")
+    if not reserved:
+        raise HTTPException(status_code=409, detail="IP address is being edited")
 
     changes: list[FieldChange] = []
     updates = {

@@ -321,3 +321,48 @@ class BrowserSessionTest(unittest.TestCase):
         with self.factory() as db:
             self.assertEqual(db.get(User, self.user_id).role_id, 2)
             self.assertEqual(list(db.scalars(select(Role.id).order_by(Role.id))), [1, 2, 3])
+
+    def test_address_edit_lock_coordinates_two_users_and_rejects_stale_saves(self) -> None:
+        with self.factory() as db:
+            db.get(User, self.user_id).role_id = 3
+            db.add(Folder(id=1, name="Office"))
+            db.add(Project(id=1, folder_id=1, name="Office LAN", cidr="192.0.2.0/24"))
+            db.add(IPAddress(id=1, project_id=1, ordinal=1, address="192.0.2.1", hostname="original"))
+            db.commit()
+        first, second = self.client(), self.client()
+        first_csrf = self.login(first, "admin", "admin-password")
+        second_csrf = self.login(second)
+        address = "/projects/1/addresses/1"
+        lock = f"{address}/edit-lock"
+        token = first.post(lock, data={"_csrf_token": first_csrf}).json()["token"]
+        self.assertEqual(second.get(lock).json(), {"owner": "admin"})
+        conflict = second.post(lock, data={"_csrf_token": second_csrf})
+        self.assertEqual((conflict.status_code, conflict.json()), (409, {"owner": "admin"}))
+        self.assertEqual(first.post(lock, data={"_csrf_token": first_csrf}).status_code, 409)
+        self.assertEqual(second.post(f"{lock}/renew", data={"_csrf_token": second_csrf, "token": token}).status_code, 409)
+        second.post(f"{lock}/release", data={"_csrf_token": second_csrf, "token": token})
+        self.assertEqual(second.get(lock).json(), {"owner": "admin"})
+        self.assertEqual(second.post(f"{address}/clear", data={"_csrf_token": second_csrf}).status_code, 409)
+        self.assertEqual(first.post(f"{lock}/renew", data={"_csrf_token": first_csrf, "token": token}).status_code, 204)
+
+        response = first.post(address, headers={"Accept": "text/html"}, data={
+            "_csrf_token": first_csrf, "edit_lock_token": token, "hostname": "saved-by-admin",
+        })
+        self.assertEqual(response.status_code, 303)
+        self.assertIsNone(second.get(lock).json()["owner"])
+        next_lease = second.post(lock, data={"_csrf_token": second_csrf}).json()
+        self.assertEqual(next_lease["fields"]["hostname"], "saved-by-admin")
+        self.assertEqual(first.post(address, data={
+            "_csrf_token": first_csrf, "edit_lock_token": token, "hostname": "stale",
+        }).status_code, 409)
+
+        with self.factory() as db:
+            row = db.get(IPAddress, 1)
+            self.assertEqual(row.hostname, "saved-by-admin")
+            row.edit_lock_expires_at = datetime.utcnow() - timedelta(seconds=1)
+            db.commit()
+        self.assertIsNone(first.get(lock).json()["owner"])
+        self.assertEqual(second.post(address, data={
+            "_csrf_token": second_csrf, "edit_lock_token": next_lease["token"], "hostname": "expired",
+        }).status_code, 409)
+        self.assertEqual(first.post(lock, data={"_csrf_token": first_csrf}).status_code, 200)

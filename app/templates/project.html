@@ -248,11 +248,15 @@
       </div>
       <button class="modal-close" type="button" data-host-drawer-close aria-label="{{ _('button.cancel') }}">×</button>
     </div>
+    {% if current_user.can_edit_inventory %}
+    <p class="notice" data-drawer-lock-notice role="status" hidden></p>
+    {% endif %}
     {% set drawer_content = 'form' if current_user.can_edit_inventory else 'div' %}
     <{{ drawer_content }} class="host-drawer-form{% if current_user.can_edit_inventory %} asset-row-form{% endif %}"
       {% if current_user.can_edit_inventory %}id="host-drawer-form-{{ project.id }}" method="post" data-host-drawer-form{% endif %}>
       {% if current_user.can_edit_inventory %}
       {{ csrf_input(request) }}
+      <input type="hidden" name="edit_lock_token" data-drawer-lock-token>
       <input type="hidden" name="hide_empty" data-drawer-hidden="hide_empty">
       <input type="hidden" name="page" data-drawer-hidden="page">
       <input type="hidden" name="per_page" data-drawer-hidden="per_page">
@@ -299,6 +303,7 @@
     <form id="host-drawer-clear-{{ project.id }}" method="post" data-host-drawer-clear-form hidden
       data-confirm-template="{{ _('confirm.clear_ip', address='{address}') }}">
       {{ csrf_input(request) }}
+      <input type="hidden" name="edit_lock_token" data-drawer-lock-token>
       <input type="hidden" name="hide_empty" data-drawer-hidden="hide_empty">
       <input type="hidden" name="page" data-drawer-hidden="page">
       <input type="hidden" name="per_page" data-drawer-hidden="per_page">
