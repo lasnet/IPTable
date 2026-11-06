@@ -1,7 +1,7 @@
 import time
 from collections.abc import AsyncIterator
 from ipaddress import ip_network
-from typing import Annotated, get_args
+from typing import Annotated, Literal, get_args
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -1137,23 +1137,83 @@ def admin_users(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
+    q: Annotated[str, Query(max_length=120)] = "",
+    status: Literal["all", "active", "inactive"] = "all",
     error: Annotated[str | None, Query(max_length=240)] = None,
     message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
-    users = db.scalars(select(User).order_by(User.username.asc())).all()
+    query = q.strip()
+    statement = select(User).order_by(User.username.asc())
+    if status != "all":
+        statement = statement.where(User.is_active.is_(status == "active"))
+    users = db.scalars(statement).all()
+    if query:
+        needle = query.casefold()
+        users = [user for user in users if any(needle in value.casefold() for value in (
+            user.username, f"{user.first_name} {user.last_name}", f"{user.last_name} {user.first_name}",
+        ))]
     return _templates(request).TemplateResponse(
         request,
         "admin_users.html",
         {
             "request": request,
-            "folders": [],
-            "active_project": None,
             "current_user": current_user,
             "users": users,
+            "user_query": query,
+            "status": status,
             "error": error,
             "message": message,
         },
     )
+
+
+@router.get("/admin/users/new", response_class=HTMLResponse)
+def admin_new_user(
+    request: Request,
+    current_user: Annotated[User, Depends(require_admin)],
+    error: Annotated[str | None, Query(max_length=240)] = None,
+) -> HTMLResponse:
+    return _templates(request).TemplateResponse(request, "admin_user_form.html", {
+        "current_user": current_user, "account": None, "error": error,
+    })
+
+
+@router.get("/admin/users/{user_id}", response_class=HTMLResponse)
+def admin_user_profile(
+    user_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+) -> HTMLResponse:
+    account = db.get(User, user_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail=_ui("admin.user_not_found"))
+    activity = db.scalars(
+        select(IPAddressHistory)
+        .where(IPAddressHistory.user_id == account.id)
+        .options(selectinload(IPAddressHistory.project))
+        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
+        .limit(50)
+    ).all()
+    return _templates(request).TemplateResponse(request, "admin_user_profile.html", {
+        "current_user": current_user, "account": account, "activity": activity,
+    })
+
+
+@router.get("/admin/users/{user_id}/edit", response_class=HTMLResponse)
+def admin_edit_user(
+    user_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    error: Annotated[str | None, Query(max_length=240)] = None,
+) -> HTMLResponse:
+    account = db.get(User, user_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail=_ui("admin.user_not_found"))
+    return _templates(request).TemplateResponse(request, "admin_user_form.html", {
+        "current_user": current_user, "account": account, "error": error,
+    })
 
 
 @router.post("/admin/users")
@@ -1173,11 +1233,11 @@ def admin_create_user(
 ) -> RedirectResponse:
     clean_username = _clean_text(username, 80)
     if not clean_username:
-        return _redirect_error("/admin/users", _ui("admin.username_empty"))
+        return _redirect_error("/admin/users/new", _ui("admin.username_empty"))
 
     existing = db.scalar(select(User).where(func.lower(User.username) == clean_username.lower()))
     if existing:
-        return _redirect_error("/admin/users", _ui("admin.duplicate"))
+        return _redirect_error("/admin/users/new", _ui("admin.duplicate"))
 
     try:
         create_user(
@@ -1195,9 +1255,9 @@ def admin_create_user(
         )
     except IntegrityError:
         db.rollback()
-        return _redirect_error("/admin/users", _ui("admin.create_failed_unique"))
+        return _redirect_error("/admin/users/new", _ui("admin.create_failed_unique"))
 
-    return _redirect("/admin/users")
+    return _redirect_message("/admin/users", _ui("admin.created"))
 
 
 @router.post("/admin/users/{user_id}/update")
@@ -1220,21 +1280,22 @@ def admin_update_user(
     if user is None:
         return _redirect_error("/admin/users", _ui("admin.user_not_found"))
 
+    edit_url = f"/admin/users/{user_id}/edit"
     clean_username = _clean_text(username, 80)
     if not clean_username:
-        return _redirect_error("/admin/users", _ui("admin.username_empty"))
-    if user.is_admin and clean_username.lower() != user.username.lower():
-        return _redirect_error("/admin/users", _ui("admin.username_env"))
+        return _redirect_error(edit_url, _ui("admin.username_empty"))
+    if user.is_admin and clean_username != user.username:
+        return _redirect_error(edit_url, _ui("admin.username_env"))
 
     existing = db.scalar(
         select(User).where(func.lower(User.username) == clean_username.lower(), User.id != user.id)
     )
     if existing:
-        return _redirect_error("/admin/users", _ui("admin.duplicate"))
+        return _redirect_error(edit_url, _ui("admin.duplicate"))
 
     clean_password = password.strip()
     if clean_password and len(clean_password) < 8:
-        return _redirect_error("/admin/users", _ui("admin.password_too_short"))
+        return _redirect_error(edit_url, _ui("admin.password_too_short"))
 
     user.username = clean_username
     user.first_name = _clean_text(first_name, 120)
@@ -1261,7 +1322,7 @@ def admin_update_user(
         db.commit()
     except IntegrityError:
         db.rollback()
-        return _redirect_error("/admin/users", _ui("admin.update_failed_unique"))
+        return _redirect_error(edit_url, _ui("admin.update_failed_unique"))
 
     return _redirect_message("/admin/users", _ui("admin.updated"))
 

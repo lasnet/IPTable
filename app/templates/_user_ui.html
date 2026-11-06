@@ -1,0 +1,24 @@
+{% from "_icons.html" import icon %}
+
+{% macro avatar(account) %}
+{% if account.first_name and account.last_name %}
+  {% set initials = account.first_name[:1] ~ account.last_name[:1] %}
+{% else %}
+  {% set initials = (account.first_name or account.last_name or account.username)[:2] %}
+{% endif %}
+<span class="users-avatar" aria-hidden="true">{{ initials | upper }}</span>
+{% endmacro %}
+
+{% macro status_badge(account) %}
+<span class="users-status {{ 'is-active' if account.is_active }}">
+  {{ _('admin.status_active' if account.is_active else 'admin.status_inactive') }}
+</span>
+{% endmacro %}
+
+{% macro role_badge(account) %}
+<span class="users-role {{ 'is-admin' if account.is_admin }}">{{ _('nav.administrator' if account.is_admin else 'nav.user') }}</span>
+{% endmacro %}
+
+{% macro back_link() %}
+<a class="users-back" href="/admin/users">{{ icon('back') }}{{ _('admin.users') }}</a>
+{% endmacro %}

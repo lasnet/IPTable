@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.main import create_app
-from app.models import Base, User, UserSession
+from app.models import Base, Folder, IPAddress, IPAddressHistory, Project, User, UserSession
 from app.services.auth import hash_password
 
 
@@ -124,3 +124,63 @@ class BrowserSessionTest(unittest.TestCase):
         self.login(browser)
         self.assertEqual(browser.get("/").headers["Cache-Control"], "no-store")
         self.assertEqual(browser.get("/login").headers["Cache-Control"], "no-store")
+
+    def test_users_directory_filters_by_name_and_status_and_opens_profile(self) -> None:
+        admin = self.client()
+        token = self.login(admin, "admin", "admin-password")
+        form = admin.get("/admin/users/new")
+        self.assertEqual(form.status_code, 200)
+        self.assertIn('autocomplete="new-password" required', form.text)
+        created = admin.post("/admin/users", data={
+            "_csrf_token": token, "username": "operator", "password": "operator-password",
+            "first_name": "Ирина", "last_name": "Волкова", "can_edit": "on", "is_active": "off",
+            "is_admin": "on",
+        })
+        self.assertEqual(created.status_code, 303)
+        with self.factory() as db:
+            account = db.scalar(select(User).where(User.username == "operator"))
+            self.assertFalse(account.is_admin)
+            self.assertFalse(account.is_active)
+            self.assertTrue(account.can_edit)
+            user_id = account.id
+            db.add(Folder(id=1, name="Office"))
+            db.add(Project(id=1, folder_id=1, name="Office LAN", cidr="192.0.2.0/24"))
+            db.add(IPAddress(id=1, project_id=1, ordinal=1, address="192.0.2.1"))
+            db.add_all(IPAddressHistory(
+                project_id=1, ip_address_id=1, user_id=actor_id, username=actor_name,
+                address="192.0.2.1", field_name="hostname", field_label="Hostname", new_value=value,
+            ) for actor_id, actor_name, value in (
+                (user_id, "old-operator-name", "profile-host"), (self.user_id, "operator", "other-host"),
+            ))
+            db.commit()
+
+        profile_path = f"/admin/users/{user_id}"
+        inactive = admin.get("/admin/users", params={"q": "вОЛКОВА иРИНА", "status": "inactive"})
+        self.assertIn(f'href="{profile_path}"', inactive.text)
+        self.assertIn(f'href="{profile_path}/edit"', inactive.text)
+        self.assertNotIn(f'href="{profile_path}"', admin.get("/admin/users?status=active").text)
+        self.assertIn(f'href="{profile_path}"', admin.get("/admin/users?q=OPER").text)
+
+        profile = admin.get(profile_path)
+        self.assertIn("Ирина Волкова", profile.text)
+        self.assertIn("profile-host", profile.text)
+        self.assertNotIn("other-host", profile.text)
+        self.assertNotIn("pbkdf2", profile.text)
+        edit = admin.get(f"{profile_path}/edit")
+        self.assertIn('name="username"', edit.text)
+        self.assertIn('name="password" type="password"', edit.text)
+        self.assertNotIn("pbkdf2", edit.text)
+        self.assertEqual(admin.get("/admin/users/999").status_code, 404)
+
+    def test_users_management_pages_require_admin_and_mutations_require_csrf(self) -> None:
+        reader = self.client()
+        token = self.login(reader)
+        profile_path = f"/admin/users/{self.user_id}"
+        for path in ("/admin/users", "/admin/users/new", profile_path, f"{profile_path}/edit"):
+            self.assertEqual(reader.get(path).status_code, 403)
+        self.assertEqual(reader.post(f"{profile_path}/update", data={
+            "_csrf_token": token, "username": "reader", "is_active": "on",
+        }).status_code, 403)
+        admin = self.client()
+        self.login(admin, "admin", "admin-password")
+        self.assertEqual(admin.post(f"{profile_path}/update", data={"username": "reader"}).status_code, 403)

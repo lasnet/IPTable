@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% from "_user_ui.html" import avatar, back_link, role_badge, status_badge %}
+
+{% set full_name = (account.first_name ~ ' ' ~ account.last_name) | trim %}
+{% block title %}{{ full_name or account.username }} - {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="users-page">
+  {{ back_link() }}
+  <header class="dashboard-heading users-heading">
+    <div>
+      <h1>{{ full_name or account.username }}</h1>
+      <p>{{ _('admin.profile') }}</p>
+    </div>
+    <a class="soft-button users-button" href="/admin/users/{{ account.id }}/edit">{{ icon('edit') }}{{ _('admin.edit') }}</a>
+  </header>
+
+  <div class="users-profile-layout">
+    <section class="users-panel users-profile-panel">
+      <header class="users-panel-heading">
+        <h2>{{ _('admin.activity') }}</h2>
+        <p>{{ _('admin.activity_hint') }}</p>
+      </header>
+      {% if activity %}
+      <ol class="users-activity-list">
+        {% for item in activity %}
+        <li>
+          <span class="users-activity-icon">{{ icon(item.field_name) }}</span>
+          <div class="users-activity-content">
+            <strong>{{ item.field_label }}</strong>
+            <span class="users-activity-values">
+              <span>{{ item.old_value or _('table.placeholder_empty') }}</span>
+              <span aria-hidden="true">→</span>
+              <span>{{ item.new_value or _('table.placeholder_empty') }}</span>
+            </span>
+            <small>{{ item.address }} · {{ item.project.name }}</small>
+          </div>
+          <time datetime="{{ item.created_at.isoformat() }}">{{ item.created_at.strftime('%Y-%m-%d %H:%M') }}</time>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="users-empty">{{ _('admin.no_activity') }}</p>
+      {% endif %}
+    </section>
+
+    <aside class="users-panel users-profile-panel">
+      <header class="users-panel-heading users-profile-identity">
+        {{ avatar(account) }}
+        <div><h2>{{ _('admin.account') }}</h2><p>{{ account.username }}</p></div>
+      </header>
+      <dl class="users-profile-facts">
+        <div><dt>{{ _('admin.first_name') }}</dt><dd>{{ account.first_name or '—' }}</dd></div>
+        <div><dt>{{ _('admin.last_name') }}</dt><dd>{{ account.last_name or '—' }}</dd></div>
+        <div><dt>{{ _('admin.status') }}</dt><dd>{{ status_badge(account) }}</dd></div>
+        <div><dt>{{ _('admin.role') }}</dt><dd>{{ role_badge(account) }}</dd></div>
+        <div>
+          <dt>{{ _('admin.last_login') }}</dt>
+          <dd>{% if account.last_login_at %}<time datetime="{{ account.last_login_at.isoformat() }}">{{ account.last_login_at.strftime('%Y-%m-%d %H:%M') }}</time>{% else %}—{% endif %}</dd>
+        </div>
+      </dl>
+      {% if account.description %}
+      <div class="users-profile-note"><h3>{{ _('common.description') }}</h3><p>{{ account.description }}</p></div>
+      {% endif %}
+      <div class="users-profile-note">
+        <h3>{{ _('admin.permissions') }}</h3>
+        <ul class="users-profile-permissions">
+          {% for granted, label in (
+            (account.can_create_inventory, 'admin.allow_create'),
+            (account.can_edit_inventory, 'admin.allow_edit'),
+            (account.can_delete_inventory, 'admin.allow_delete'),
+            (account.can_manage_project_columns, 'admin.edit_columns')
+          ) if granted %}
+          <li>{{ _(label) }}</li>
+          {% else %}
+          <li>{{ _('admin.no_permissions') }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </aside>
+  </div>
+</section>
+{% endblock %}
