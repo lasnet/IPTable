@@ -17,6 +17,7 @@ class StableMergeTest(unittest.TestCase):
         (self.repo / "app/main.py").write_text("version = 1\n")
         (self.repo / "README.md").write_text("User guide\n")
         (self.repo / "AGENT.md").write_text("Developer instructions\n")
+        (self.repo / "task.md").write_text("Development task\n")
         (self.repo / "requirements-dev.lock").write_text("pytest==9.2.0\n")
         (self.repo / "tests").mkdir()
         (self.repo / "tests/test_app.py").write_text("test fixture\n")
@@ -35,11 +36,13 @@ class StableMergeTest(unittest.TestCase):
         files = git(self.repo, "ls-tree", "-r", "--name-only", commit).decode().splitlines()
         self.assertIn("README.md", files)
         self.assertNotIn("AGENT.md", files)
+        self.assertNotIn("task.md", files)
         self.assertNotIn("requirements-dev.lock", files)
         self.assertNotIn("tests/test_app.py", files)
         parents = git(self.repo, "show", "-s", "--format=%P", commit).decode().split()
         self.assertEqual(parents, [target, source])
         self.assertEqual(git(self.repo, "show", "dev:AGENT.md"), b"Developer instructions\n")
+        self.assertEqual(git(self.repo, "show", "dev:task.md"), b"Development task\n")
         self.assertEqual(git(self.repo, "rev-parse", "stable").decode().strip(), target)
 
     def test_repeated_merge_without_runtime_changes_is_a_noop(self) -> None:
