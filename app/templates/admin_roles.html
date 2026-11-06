@@ -41,8 +41,12 @@
             </td>
             <td>
               {% if not role.code %}
-              <a class="icon-button users-edit" href="/admin/roles?edit_role={{ role.id }}" data-modal-target="role-edit-modal-{{ role.id }}"
-                aria-label="{{ _('admin.edit') }}: {{ role.name }}" title="{{ _('admin.edit') }}">{{ icon('edit') }}</a>
+              <div class="role-actions">
+                <a class="icon-button users-edit" href="/admin/roles?edit_role={{ role.id }}" data-modal-target="role-edit-modal-{{ role.id }}"
+                  aria-label="{{ _('admin.edit') }}: {{ role.name }}" title="{{ _('admin.edit') }}">{{ icon('edit') }}</a>
+                <button class="icon-button users-edit role-delete" type="button" data-modal-target="role-delete-modal-{{ role.id }}"
+                  aria-label="{{ _('roles.delete') }}: {{ role.name }}" title="{{ _('roles.delete') }}">{{ icon('delete') }}</button>
+              </div>
               {% else %}—{% endif %}
             </td>
           </tr>
@@ -59,5 +63,17 @@
 {% with role=none, open_on_load=new_role %}{% include "_role_form.html" %}{% endwith %}
 {% for role in roles if not role.code %}
   {% with open_on_load=edit_role == role.id %}{% include "_role_form.html" %}{% endwith %}
+  <dialog class="modal-dialog users-modal" id="role-delete-modal-{{ role.id }}" aria-labelledby="role-delete-title-{{ role.id }}">
+    <form class="modal-form users-form" action="/admin/roles/{{ role.id }}/delete" method="post">
+      {{ csrf_input(request) }}
+      <header class="modal-head">
+        <h2 id="role-delete-title-{{ role.id }}">{{ _('roles.confirm_delete', name=role.name) }}</h2>
+      </header>
+      <footer class="users-form-actions">
+        <button class="soft-button users-button" type="button" data-modal-close autofocus>{{ _('button.cancel') }}</button>
+        <button class="soft-button users-button danger-button" type="submit">{{ _('roles.delete') }}</button>
+      </footer>
+    </form>
+  </dialog>
 {% endfor %}
 {% endblock %}

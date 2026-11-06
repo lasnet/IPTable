@@ -2978,7 +2978,7 @@ body { background: var(--bg); color: var(--text); font-family: Inter, ui-sans-se
 .global-search input:focus, .global-search input:focus-visible { outline: 0; box-shadow: none; }
 .global-search:focus-within { border-color: #73a7ff; box-shadow: 0 0 0 4px rgba(59,130,246,.13), 0 5px 16px rgba(29,48,81,.055); }
 .host-drawer-fields, .host-drawer-custom, .host-drawer-status-field, .host-drawer-actions { flex-shrink: 0; }
-.host-drawer-head, .host-drawer-clear-form { flex-shrink: 0; }
+.host-drawer-head, .host-drawer-secondary-actions { flex-shrink: 0; }
 .host-drawer { top: 16px; }
 .host-drawer textarea { min-height: 100px; }
 .history-card .project-card-head { display: flex; align-items: center; flex: 0 0 auto; margin-bottom: 18px; padding: 0 0 16px; border-bottom: 1px solid #e5eaf2; }

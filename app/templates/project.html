@@ -248,7 +248,10 @@
       </div>
       <button class="modal-close" type="button" data-host-drawer-close aria-label="{{ _('button.cancel') }}">×</button>
     </div>
-    <form class="host-drawer-form asset-row-form" id="host-drawer-form-{{ project.id }}" method="post" data-host-drawer-form>
+    {% set drawer_content = 'form' if current_user.can_edit_inventory else 'div' %}
+    <{{ drawer_content }} class="host-drawer-form{% if current_user.can_edit_inventory %} asset-row-form{% endif %}"
+      {% if current_user.can_edit_inventory %}id="host-drawer-form-{{ project.id }}" method="post" data-host-drawer-form{% endif %}>
+      {% if current_user.can_edit_inventory %}
       {{ csrf_input(request) }}
       <input type="hidden" name="hide_empty" data-drawer-hidden="hide_empty">
       <input type="hidden" name="page" data-drawer-hidden="page">
@@ -256,6 +259,7 @@
       <input type="hidden" name="ping_status" data-drawer-hidden="ping_status">
       <input type="hidden" name="type_filter" data-drawer-hidden="type_filter">
       <input type="hidden" name="os_filter" data-drawer-hidden="os_filter">
+      {% endif %}
       <div class="host-drawer-fields">
         <label>
           {{ _('table.ip_address') }}
@@ -283,13 +287,16 @@
         <span>{{ _('table.status_ping') }}</span>
         <div class="host-drawer-status" data-drawer-status></div>
       </div>
-    </form>
+    </{{ drawer_content }}>
     <div class="host-drawer-actions">
+      {% if current_user.can_edit_inventory %}
       <button class="soft-button" type="button" data-host-drawer-edit>{{ _('button.edit') }}</button>
       <button class="soft-button drawer-save-button" type="submit" form="host-drawer-form-{{ project.id }}" data-host-drawer-save hidden>{{ _('button.save') }}</button>
+      {% endif %}
       <button class="soft-button" type="button" data-host-drawer-close>{{ _('button.cancel') }}</button>
     </div>
-    <form class="host-drawer-clear-form" method="post" data-host-drawer-clear-form
+    {% if current_user.can_edit_inventory %}
+    <form id="host-drawer-clear-{{ project.id }}" method="post" data-host-drawer-clear-form hidden
       data-confirm-template="{{ _('confirm.clear_ip', address='{address}') }}">
       {{ csrf_input(request) }}
       <input type="hidden" name="hide_empty" data-drawer-hidden="hide_empty">
@@ -298,11 +305,14 @@
       <input type="hidden" name="ping_status" data-drawer-hidden="ping_status">
       <input type="hidden" name="type_filter" data-drawer-hidden="type_filter">
       <input type="hidden" name="os_filter" data-drawer-hidden="os_filter">
-      <div class="host-drawer-secondary-actions">
-        <button class="soft-button danger-soft-button" type="submit" data-host-drawer-clear>{{ _('button.clear') }}</button>
-        <a class="soft-button" href="#" data-host-drawer-history>{{ _('history.view') }}</a>
-      </div>
     </form>
+    {% endif %}
+    <div class="host-drawer-secondary-actions">
+      {% if current_user.can_edit_inventory %}
+      <button class="soft-button danger-soft-button" type="submit" form="host-drawer-clear-{{ project.id }}" data-host-drawer-clear>{{ _('button.clear') }}</button>
+      {% endif %}
+      <a class="soft-button" href="#" data-host-drawer-history>{{ _('history.view') }}</a>
+    </div>
   </aside>
 </section>
 {% endblock %}

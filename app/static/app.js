@@ -240,17 +240,23 @@
   }
 
   function setDrawerEditMode(drawer, enabled) {
+    const editButton = drawer.querySelector("[data-host-drawer-edit]");
+    const canEdit = Boolean(editButton && document.getElementById(drawer.dataset.rowId || "")?.dataset.updateUrl);
+    enabled = enabled && canEdit;
     drawer.classList.toggle("editing", enabled);
     drawer.querySelectorAll("[data-drawer-editable]").forEach((field) => {
       field.disabled = !enabled;
     });
-    const editButton = drawer.querySelector("[data-host-drawer-edit]");
     const saveButton = drawer.querySelector("[data-host-drawer-save]");
+    const clearButton = drawer.querySelector("[data-host-drawer-clear]");
     if (editButton) {
-      editButton.hidden = enabled;
+      editButton.hidden = enabled || !canEdit;
     }
     if (saveButton) {
       saveButton.hidden = !enabled;
+    }
+    if (clearButton) {
+      clearButton.hidden = !canEdit;
     }
   }
 
@@ -324,10 +330,13 @@
     setDrawerEditMode(drawer, false);
     clearDirtyState();
     drawer.querySelector("[data-drawer-ip-title]").textContent = address;
-    drawer.querySelector("[data-host-drawer-form]").action = row.dataset.updateUrl || "";
+    const editForm = drawer.querySelector("[data-host-drawer-form]");
+    if (editForm && row.dataset.updateUrl) {
+      editForm.action = row.dataset.updateUrl;
+    }
     const clearForm = drawer.querySelector("[data-host-drawer-clear-form]");
-    clearForm.action = row.dataset.clearUrl || "";
-    if (clearForm.dataset.confirmTemplate) {
+    if (clearForm && row.dataset.clearUrl) {
+      clearForm.action = row.dataset.clearUrl;
       clearForm.dataset.confirm = formatMessage(clearForm.dataset.confirmTemplate, { address });
     }
     const historyLink = drawer.querySelector("[data-host-drawer-history]");

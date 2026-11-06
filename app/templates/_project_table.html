@@ -45,8 +45,10 @@
       <tr id="ip-{{ ip.id }}"
         data-ip-id="{{ ip.id }}"
         data-row-address="{{ ip.address }}"
+        {% if current_user.can_edit_inventory %}
         data-update-url="/projects/{{ project.id }}/addresses/{{ ip.id }}"
         data-clear-url="/projects/{{ project.id }}/addresses/{{ ip.id }}/clear"
+        {% endif %}
         data-history-url="/projects/{{ project.id }}/history?address={{ ip.address | urlencode }}"
         data-hide-empty="{{ 'true' if hide_empty else 'false' }}"
         data-page="{{ pagination.current_page }}"

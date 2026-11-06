@@ -6,9 +6,10 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy import String, cast, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from starlette.datastructures import FormData
 
 from app.core.config import InterfaceTheme, Settings, _request_settings, get_settings
 from app.core.database import get_db
@@ -269,6 +270,27 @@ def _project_table_url(
     if os_filter:
         params["os_filter"] = os_filter
     return f"/projects/{project_id}?{urlencode(params)}"
+
+
+def _address_form_table_url(project_id: int, form: FormData, settings: Settings, user: User) -> str:
+    ping_status = _clean_filter_value(str(form.get("ping_status", "")), 20).lower()
+    return _project_table_url(
+        project_id,
+        hide_empty=form.get("hide_empty") == "true",
+        page=_safe_positive_int(form.get("page"), 1),
+        per_page=_normalize_project_page_size(
+            _safe_positive_int(form.get("per_page"), 0), settings, user.project_table_page_size,
+        ),
+        ping_status=ping_status if ping_status in PING_STATUS_FILTERS else "",
+        type_filter=_clean_filter_value(str(form.get("type_filter", "")), 120),
+        os_filter=_clean_filter_value(str(form.get("os_filter", "")), 120),
+    )
+
+
+def _address_edit_denied(request: Request, table_url: str) -> RedirectResponse:
+    if "text/html" in request.headers.get("accept", ""):
+        return _redirect_error(table_url, _ui("drawer.edit_denied"))
+    raise HTTPException(status_code=403, detail="IP address edit permission required")
 
 
 def _filled_value(column):
@@ -1284,6 +1306,34 @@ def save_role(
     return _redirect_message("/admin/roles", _ui("roles.saved"))
 
 
+@router.post("/admin/roles/{role_id}/delete")
+def delete_role(
+    role_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+) -> RedirectResponse:
+    role = db.get(Role, role_id)
+    if role is None:
+        return _redirect_error("/admin/roles", _ui("roles.not_found"))
+    if role.code is not None:
+        return _redirect_error("/admin/roles", _ui("roles.cannot_delete_builtin"))
+
+    assigned = select(User.id).where(User.role_id == role_id).exists()
+    try:
+        result = db.execute(
+            delete(Role).where(Role.id == role_id, Role.code.is_(None), ~assigned)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            db.rollback()
+            return _redirect_error("/admin/roles", _ui("roles.cannot_delete_assigned"))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return _redirect_error("/admin/roles", _ui("roles.cannot_delete_assigned"))
+    return _redirect_message("/admin/roles", _ui("roles.deleted"))
+
+
 @router.post("/admin/users")
 def admin_create_user(
     db: Annotated[Session, Depends(get_db)],
@@ -1596,14 +1646,15 @@ async def update_ip_address(
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
+    form = await request.form()
+    table_url = _address_form_table_url(project_id, form, settings, current_user)
     if not current_user.can_edit_inventory:
-        raise HTTPException(status_code=403, detail="IP address edit permission required")
+        return _address_edit_denied(request, table_url)
 
     ip_record = db.scalar(select(IPAddress).where(IPAddress.id == ip_id, IPAddress.project_id == project_id))
     if ip_record is None:
         raise HTTPException(status_code=404, detail="IP address not found")
 
-    form = await request.form()
     new_hostname = _clean_text(str(form.get("hostname", "")), 255)
     new_os = _clean_text(str(form.get("os", "")), 120)
     new_asset_type = _clean_text(str(form.get("asset_type", "")), 120)
@@ -1638,27 +1689,7 @@ async def update_ip_address(
     record_ip_address_history(db, ip_record=ip_record, user=current_user, changes=changes)
 
     db.commit()
-    hide_empty = form.get("hide_empty") == "true"
-    page = _safe_positive_int(form.get("page"), 1)
-    per_page = _normalize_project_page_size(
-        _safe_positive_int(form.get("per_page"), 0), settings, current_user.project_table_page_size,
-    )
-    ping_status = _clean_filter_value(str(form.get("ping_status", "")), 20).lower()
-    if ping_status not in PING_STATUS_FILTERS:
-        ping_status = ""
-    type_filter = _clean_filter_value(str(form.get("type_filter", "")), 120)
-    os_filter = _clean_filter_value(str(form.get("os_filter", "")), 120)
-    return _redirect(
-        f"{_project_table_url(
-            project_id,
-            hide_empty=hide_empty,
-            page=page,
-            per_page=per_page,
-            ping_status=ping_status,
-            type_filter=type_filter,
-            os_filter=os_filter,
-        )}#ip-{ip_id}"
-    )
+    return _redirect(f"{table_url}#ip-{ip_id}")
 
 
 @router.post("/projects/{project_id}/addresses/{ip_id}/clear")
@@ -1670,8 +1701,10 @@ async def clear_ip_address(
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
+    form = await request.form()
+    table_url = _address_form_table_url(project_id, form, settings, current_user)
     if not current_user.can_edit_inventory:
-        raise HTTPException(status_code=403, detail="IP address edit permission required")
+        return _address_edit_denied(request, table_url)
 
     ip_record = db.scalar(select(IPAddress).where(IPAddress.id == ip_id, IPAddress.project_id == project_id))
     if ip_record is None:
@@ -1705,28 +1738,7 @@ async def clear_ip_address(
     record_ip_address_history(db, ip_record=ip_record, user=current_user, changes=changes)
     db.commit()
 
-    form = await request.form()
-    hide_empty = form.get("hide_empty") == "true"
-    page = _safe_positive_int(form.get("page"), 1)
-    per_page = _normalize_project_page_size(
-        _safe_positive_int(form.get("per_page"), 0), settings, current_user.project_table_page_size,
-    )
-    ping_status = _clean_filter_value(str(form.get("ping_status", "")), 20).lower()
-    if ping_status not in PING_STATUS_FILTERS:
-        ping_status = ""
-    type_filter = _clean_filter_value(str(form.get("type_filter", "")), 120)
-    os_filter = _clean_filter_value(str(form.get("os_filter", "")), 120)
-    return _redirect(
-        f"{_project_table_url(
-            project_id,
-            hide_empty=hide_empty,
-            page=page,
-            per_page=per_page,
-            ping_status=ping_status,
-            type_filter=type_filter,
-            os_filter=os_filter,
-        )}#ip-{ip_id}"
-    )
+    return _redirect(f"{table_url}#ip-{ip_id}")
 
 
 @router.get("/projects/{project_id}/history", response_class=HTMLResponse)

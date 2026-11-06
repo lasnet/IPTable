@@ -6,9 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ app_name }}{% endblock %}</title>
   <link rel="icon" href="{{ url_for('static', path='/favicon.ico').path }}">
-  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css').path }}?v=user-interface-1">
-  <link rel="stylesheet" href="{{ url_for('static', path='/atlas.css').path }}?v=roles-1">
-  <script src="{{ url_for('static', path='/app.js').path }}?v=roles-1" defer></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css').path }}?v=role-actions-1">
+  <link rel="stylesheet" href="{{ url_for('static', path='/atlas.css').path }}?v=role-actions-1">
+  <script src="{{ url_for('static', path='/app.js').path }}?v=role-actions-1" defer></script>
 </head>
 
 <body data-i18n-selected-row="{{ _('js.selected_row') }}"

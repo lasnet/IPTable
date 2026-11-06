@@ -264,3 +264,60 @@ class BrowserSessionTest(unittest.TestCase):
         with self.factory() as db:
             self.assertTrue(db.get(User, admin_id).is_active)
             self.assertTrue(db.get(User, admin_id).has_admin_access)
+
+    def test_read_only_role_can_view_ip_but_cannot_change_or_clear_it(self) -> None:
+        with self.factory() as db:
+            db.add(Role(id=4, name="Inventory viewer", name_key="inventory viewer", can_delete=True))
+            db.get(User, self.user_id).role_id = 4
+            db.add(Folder(id=1, name="Office"))
+            db.add(Project(id=1, folder_id=1, name="Office LAN", cidr="192.0.2.0/24"))
+            db.add(IPAddress(id=1, project_id=1, ordinal=1, address="192.0.2.1", hostname="original"))
+            db.commit()
+        reader = self.client()
+        token = self.login(reader)
+        table = reader.get("/projects/1")
+        self.assertIn("data-host-drawer-open", table.text)
+        self.assertIn("data-host-drawer-history", table.text)
+        for control in ("data-host-drawer-edit", "data-host-drawer-save", "data-host-drawer-clear", "data-update-url"):
+            self.assertNotIn(control, table.text)
+        for path in ("/projects/1/addresses/1", "/projects/1/addresses/1/clear"):
+            response = reader.post(path, headers={"Accept": "text/html"}, data={
+                "_csrf_token": token, "hostname": "blocked", "hide_empty": "true", "per_page": "50",
+            })
+            self.assertEqual(response.status_code, 303)
+            self.assertTrue(response.headers["location"].startswith("/projects/1?hide_empty=true&page=1&per_page=50"))
+            self.assertIn("У вас нет прав на редактирование IP-адресов.",
+                          reader.get(response.headers["location"]).text)
+        with self.factory() as db:
+            self.assertEqual(db.get(IPAddress, 1).hostname, "original")
+            self.assertIsNone(db.scalar(select(IPAddressHistory.id)))
+
+    def test_only_unassigned_custom_roles_can_be_deleted(self) -> None:
+        with self.factory() as db:
+            db.add(Role(id=4, name="Custom operator", name_key="custom operator"))
+            db.get(User, self.user_id).role_id = 4
+            db.commit()
+        reader = self.client()
+        reader_token = self.login(reader)
+        admin = self.client()
+        admin_token = self.login(admin, "admin", "admin-password")
+        page = admin.get("/admin/roles")
+        self.assertIn('action="/admin/roles/4/delete"', page.text)
+        self.assertNotIn('action="/admin/roles/1/delete"', page.text)
+        self.assertEqual(reader.post("/admin/roles/4/delete", data={"_csrf_token": reader_token}).status_code, 403)
+        self.assertEqual(admin.post("/admin/roles/4/delete").status_code, 403)
+
+        for role_id in (1, 2, 3, 4):
+            response = admin.post(f"/admin/roles/{role_id}/delete", data={"_csrf_token": admin_token})
+            self.assertIn("error=", response.headers["location"])
+        with self.factory() as db:
+            self.assertEqual(db.get(User, self.user_id).role_id, 4)
+            self.assertIsNotNone(db.get(Role, 4))
+        admin.post(f"/admin/users/{self.user_id}/update", data={
+            "_csrf_token": admin_token, "username": "reader", "is_active": "on", "role_id": "2",
+        })
+        response = admin.post("/admin/roles/4/delete", data={"_csrf_token": admin_token})
+        self.assertIn("message=", response.headers["location"])
+        with self.factory() as db:
+            self.assertEqual(db.get(User, self.user_id).role_id, 2)
+            self.assertEqual(list(db.scalars(select(Role.id).order_by(Role.id))), [1, 2, 3])

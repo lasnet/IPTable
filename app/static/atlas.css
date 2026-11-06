@@ -1522,6 +1522,9 @@ textarea {
 .users-tabs a:hover { color: var(--accent); }
 .role-built-in { display: block; margin-top: 3px; color: var(--muted); }
 .role-permission-list { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.role-actions { display: inline-flex; align-items: center; gap: 6px; }
+.role-actions .role-delete { color: var(--danger); }
+.role-actions .role-delete:hover { border-color: var(--danger-border); background: var(--danger-bg); }
 .users-panel {
   min-width: 0;
   border: 1px solid var(--line);
@@ -1664,6 +1667,7 @@ textarea {
   color: var(--text);
 }
 .users-form button.soft-button:not(.danger-button):hover { background: var(--accent-hover); }
+.users-form-actions .danger-button { width: auto; }
 .users-form-grid, .users-permissions-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 16px; }
 .users-field { display: grid; align-content: start; gap: 6px; min-width: 0; color: var(--text-soft); font-size: 13px; }
 .users-field > span { font-weight: 650; }
