@@ -1,5 +1,6 @@
 from functools import lru_cache
 from contextvars import ContextVar
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import Field
@@ -8,6 +9,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
 from app.services.i18n import normalize_language
+
+
+InterfaceTheme = Literal["blue", "green", "dark"]
 
 
 class Settings(BaseSettings):
@@ -23,6 +27,7 @@ class Settings(BaseSettings):
     login_rate_limit_lockout_seconds: int = Field(default=900, ge=60)
     integration_api_token: str = Field(default="", min_length=0)
     interface_language: str = Field(default="RU", min_length=0, max_length=8)
+    interface_theme: InterfaceTheme = "blue"
     initial_admin_username: str = Field(default="admin", min_length=3, max_length=80)
     initial_admin_password: str = Field(default="", min_length=0)
     database_url: str = ""

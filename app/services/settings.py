@@ -7,11 +7,11 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.core.config import Settings, get_settings
+from app.core.config import InterfaceTheme, Settings, get_settings
 from app.models import AppConfiguration, AppConfigurationAudit, IntegrationCredential, PingJob
 
 GROUPS = {
-    "interface": ("app_name", "interface_language", "project_table_default_page_size"),
+    "interface": ("app_name", "interface_language", "project_table_default_page_size", "interface_theme"),
     "security": ("session_idle_timeout_seconds", "login_rate_limit_attempts",
                  "login_rate_limit_window_seconds", "login_rate_limit_lockout_seconds"),
     "ping": ("ping_interval_seconds", "ping_timeout_seconds", "ping_concurrency", "ping_batch_size",
@@ -25,6 +25,7 @@ RUNTIME_FIELDS = tuple(name for names in GROUPS.values() for name in names)
 class RuntimeValues(BaseModel):
     app_name: str
     interface_language: str
+    interface_theme: InterfaceTheme
     project_table_default_page_size: int = Field(ge=10, le=250)
     session_idle_timeout_seconds: int = Field(ge=60)
     login_rate_limit_attempts: int = Field(ge=1, le=100)
@@ -93,7 +94,7 @@ def save_group(db: Session, group: str, values: dict, expected_revision: int,
     old = {key: getattr(row, key) for key in GROUPS[group]}
     proposed = old | values
     for key in proposed:
-        if key in {"app_name", "interface_language"}:
+        if key in {"app_name", "interface_language", "interface_theme"}:
             continue
         try:
             proposed[key] = float(proposed[key]) if key in {

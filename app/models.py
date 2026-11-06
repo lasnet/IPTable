@@ -225,6 +225,7 @@ class AppConfiguration(Base):
     updated_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     app_name: Mapped[str] = mapped_column(String(120), nullable=False)
     interface_language: Mapped[str] = mapped_column(String(8), nullable=False)
+    interface_theme: Mapped[str] = mapped_column(String(8), nullable=False, server_default="blue")
     project_table_default_page_size: Mapped[int] = mapped_column(Integer, nullable=False)
     session_idle_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     login_rate_limit_attempts: Mapped[int] = mapped_column(Integer, nullable=False)

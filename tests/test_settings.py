@@ -32,13 +32,20 @@ class RuntimeConfigurationTest(unittest.TestCase):
         with self.factory() as db:
             initialize(db, Settings(_env_file=None))
             values = {"app_name": "Network", "interface_language": "EN",
-                      "project_table_default_page_size": "50"}
+                      "interface_theme": "dark", "project_table_default_page_size": "50"}
+            self.assertEqual(current(db).interface_theme, "blue")
+            with self.assertRaisesRegex(ValueError, "Invalid setting value"):
+                save_group(db, "interface", values | {"interface_theme": "unknown"}, 1,
+                           actor_id=None, actor_name="test")
             self.assertEqual(save_group(db, "interface", values, 1, actor_id=None, actor_name="test"), 2)
             self.assertEqual(current(db).app_name, "Network")
             self.assertEqual(current(db).interface_language, "EN")
+            self.assertEqual(current(db).interface_theme, "dark")
             with self.assertRaises(RevisionConflict):
                 save_group(db, "interface", values, 1, actor_id=None, actor_name="stale")
-            self.assertEqual(len(db.scalars(select(AppConfigurationAudit)).all()), 2)
+            audit = db.scalars(select(AppConfigurationAudit).order_by(AppConfigurationAudit.id)).all()
+            self.assertEqual(len(audit), 2)
+            self.assertEqual(audit[-1].changes["interface_theme"], ["blue", "dark"])
 
     def test_token_replacement_invalidates_old_version(self) -> None:
         with self.factory() as db:

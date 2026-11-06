@@ -167,7 +167,7 @@ summary:focus-visible {
   width: min(620px, 46vw);
   height: var(--control-height-lg);
   padding: 0 15px;
-  background: #ffffff;
+  background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   color: var(--text-soft);
@@ -206,7 +206,7 @@ button {
   gap: 10px;
   min-height: var(--control-height-lg);
   padding: 0 18px;
-  background: #ffffff;
+  background: var(--surface);
   border: 1px solid var(--line-strong);
   color: var(--text);
   font-weight: 700;
@@ -329,7 +329,7 @@ button {
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   color: var(--text);
-  background: #ffffff;
+  background: var(--surface);
   outline: 0;
 }
 
@@ -362,8 +362,8 @@ button {
 .login-form button,
 .admin-form button {
   min-height: var(--control-height);
-  border: 1px solid var(--accent);
-  background: var(--accent);
+  border: 1px solid var(--theme-action, var(--accent));
+  background: var(--theme-action, var(--accent));
   color: #ffffff;
   font-weight: 750;
   cursor: pointer;
@@ -385,7 +385,7 @@ button {
   padding: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface);
   color: var(--text);
   box-shadow: 0 24px 70px rgba(16, 24, 40, 0.22);
   overflow: hidden;
@@ -432,7 +432,7 @@ button {
   padding: 0;
   border: 1px solid var(--line-strong) !important;
   border-radius: var(--radius);
-  background: #ffffff !important;
+  background: var(--surface) !important;
   color: var(--icon-muted) !important;
   font-size: 22px;
   line-height: 1;
@@ -460,7 +460,7 @@ button {
 .modal-actions .soft-button {
   min-height: var(--control-height);
   padding: 0 14px;
-  background: #ffffff !important;
+  background: var(--surface) !important;
   border-color: var(--line-strong) !important;
   color: var(--text) !important;
 }
@@ -744,14 +744,14 @@ body.is-loading button {
 }
 .node-menu[open] .node-menu-button {
   border-color: var(--line-strong);
-  background: #ffffff;
+  background: var(--surface);
   color: var(--accent);
 }
 
 @media (hover: hover) {
   .node-menu-button:hover {
     border-color: var(--line-strong);
-    background: #ffffff;
+    background: var(--surface);
     color: var(--accent);
   }
 }
@@ -766,7 +766,7 @@ body.is-loading button {
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: calc(var(--radius-sm) + 7px);
-  background: #ffffff;
+  background: var(--surface);
   box-shadow: var(--shadow);
 }
 
@@ -1058,7 +1058,7 @@ body.is-loading button {
   gap: 10px;
   min-height: var(--control-height-lg);
   border: 1px solid var(--line-strong);
-  background: #ffffff;
+  background: var(--surface);
   color: var(--text);
   font-weight: 750;
   text-decoration: none;
@@ -1103,7 +1103,7 @@ body.is-loading button {
   padding: 8px 10px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface);
   color: var(--text);
 }
 @media (hover: hover) {
@@ -1132,7 +1132,7 @@ body.is-loading button {
 }
 
 .project-menu-primary {
-  background: #ffffff;
+  background: var(--surface);
   color: var(--text);
 }
 
@@ -1167,7 +1167,7 @@ body.is-loading button {
   gap: 10px;
   width: 260px;
   padding: 12px;
-  background: #ffffff;
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -1251,7 +1251,7 @@ body.is-loading button {
   padding: 10px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .hidden-rows-note {
@@ -1291,7 +1291,7 @@ body.is-loading button {
   padding: 7px 9px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface);
   color: var(--text);
 }
 
@@ -1352,7 +1352,7 @@ body.is-loading button {
   padding: 0 28px 0 10px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface);
   color: var(--text);
   font-weight: 700;
 }
@@ -1392,7 +1392,7 @@ body.is-loading button {
   padding: 10px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .import-details[open] > summary {
@@ -1422,7 +1422,7 @@ body.is-loading button {
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .asset-table {
@@ -1439,7 +1439,7 @@ body.is-loading button {
   padding: 0;
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  background: #ffffff;
+  background: var(--surface);
   vertical-align: middle;
 }
 
@@ -1497,7 +1497,7 @@ body.is-loading button {
   position: sticky;
   left: 0;
   z-index: 7;
-  background: #ffffff;
+  background: var(--surface);
   color: var(--text);
   text-align: center;
   font-weight: 650;
@@ -1657,7 +1657,7 @@ th.locked-col {
   padding: 20px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface);
   box-shadow: 0 24px 70px rgba(16, 24, 40, 0.18);
   opacity: 0;
   visibility: hidden;
@@ -1770,7 +1770,7 @@ th.locked-col {
   padding: 7px 9px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .host-drawer.drawer-dirty {
@@ -1808,7 +1808,7 @@ th.locked-col {
 
 .drawer-save-button {
   border-color: var(--accent) !important;
-  background: var(--accent) !important;
+  background: var(--theme-action, var(--accent)) !important;
   color: #ffffff !important;
 }
 
@@ -1839,7 +1839,7 @@ th.locked-col {
 .asset-table .empty-table {
   position: static;
   height: 72px;
-  background: #ffffff;
+  background: var(--surface);
   box-shadow: none;
 }
 
@@ -1890,7 +1890,7 @@ th.locked-col {
   min-height: 420px;
   padding: 0;
   border: 1px solid var(--line);
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .skeleton-table-head,
@@ -1921,7 +1921,7 @@ th.locked-col {
   padding: 14px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .history-meta,
@@ -2010,7 +2010,7 @@ th.locked-col {
   padding: 12px 14px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface);
 }
 @media (hover: hover) {
   .result-row:hover {
@@ -2100,7 +2100,7 @@ th.locked-col {
   padding: 18px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .admin-section h3 {
@@ -2147,7 +2147,7 @@ th.locked-col {
 @media (hover: hover) {
   .permission-grid label:hover {
     border-color: var(--line-strong);
-    background: #ffffff;
+    background: var(--surface);
   }
 }
 
@@ -2173,7 +2173,7 @@ th.locked-col {
   padding: 14px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--surface);
 }
 @media (hover: hover) {
   .user-row:hover {
@@ -2298,7 +2298,7 @@ th.locked-col {
 }
 
 .structured-permissions label {
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .admin-modal-actions {

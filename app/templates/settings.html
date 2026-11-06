@@ -17,6 +17,7 @@
   {% set labels = {
     'app_name': ('Название установки', 'Installation name'),
     'interface_language': ('Язык интерфейса', 'Interface language'),
+    'interface_theme': ('Оформление', 'Theme'),
     'project_table_default_page_size': ('Строк на странице', 'Rows per page'),
     'session_idle_timeout_seconds': ('Сессия, с', 'Session, s'),
     'login_rate_limit_attempts': ('Попытки входа', 'Login attempts'),
@@ -52,6 +53,12 @@
             <select name="{{ name }}">
               <option value="RU" {{ 'selected' if configuration.interface_language == 'RU' }}>RU</option>
               <option value="EN" {{ 'selected' if configuration.interface_language == 'EN' }}>EN</option>
+            </select>
+            {% elif name == 'interface_theme' %}
+            <select name="{{ name }}">
+              {% for value, ru, en in (('blue', 'Синяя', 'Blue'), ('green', 'Зелёная', 'Green'), ('dark', 'Тёмная', 'Dark')) %}
+              <option value="{{ value }}" {% if configuration.interface_theme == value %}selected{% endif %}>{{ ru if interface_language == 'RU' else en }}</option>
+              {% endfor %}
             </select>
             {% elif name == 'project_table_default_page_size' %}
             <select name="{{ name }}">
