@@ -331,6 +331,34 @@
   <input type="hidden" name="type_filter" value="{{ table_filters.type_filter }}">
   <input type="hidden" name="os_filter" value="{{ table_filters.os_filter }}">
 {% endmacro %}
+{% macro visibility_toggle(key, label, shared) %}
+  {% if not shared and key in global_hidden_columns %}
+    <div class="column-visibility-option">
+      <span>{{ label }}</span>
+      <span class="column-visibility-shared">{{ _('field.hidden_for_everyone') }}</span>
+      {% if key in personal_hidden_columns %}<input type="hidden" name="hidden_column" value="{{ key }}">{% endif %}
+    </div>
+  {% else %}
+    <label class="column-visibility-option">
+      <span>{{ label }}</span>
+      <span class="column-visibility-control">
+        <input type="checkbox" name="hidden_column" value="{{ key }}" aria-label="{{ _('field.hide_named', name=label) }}"
+          {% if key in (global_hidden_columns if shared else personal_hidden_columns) %}checked{% endif %}>
+        {{ _('field.hide') }}
+      </span>
+    </label>
+  {% endif %}
+{% endmacro %}
+{% macro visibility_list(shared=false) %}
+  <div class="column-visibility-list">
+    {% for key, label, css_name in base_address_columns %}
+      {{ visibility_toggle(key, label, shared) }}
+    {% endfor %}
+    {% for field in custom_fields %}
+      {{ visibility_toggle(field.visibility_key, field.name, shared) }}
+    {% endfor %}
+  </div>
+{% endmacro %}
 <dialog class="modal-dialog columns-modal" id="project-columns-modal-{{ project.id }}"
   aria-labelledby="project-columns-title-{{ project.id }}"
   {% if request.query_params.get('columns') == 'true' %}data-open-on-load{% endif %}>
@@ -342,31 +370,30 @@
       </div>
       <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
     </div>
-    <form class="columns-visibility-form" action="/projects/{{ project.id }}/fields/visibility" method="post" data-column-visibility>
+    <form class="columns-visibility-form" action="/projects/{{ project.id }}/fields/visibility" method="post"
+      aria-labelledby="personal-columns-title-{{ project.id }}" data-column-visibility>
       {{ column_table_context() }}
-      {% macro visibility_toggle(key, label) %}
-      <label class="column-visibility-option">
-        <span>{{ label }}</span>
-        <span class="column-visibility-control">
-          <input type="checkbox" name="hidden_column" value="{{ key }}" aria-label="{{ _('field.hide_named', name=label) }}"
-            {% if key in hidden_columns %}checked{% endif %}>
-          {{ _('field.hide') }}
-        </span>
-      </label>
-      {% endmacro %}
-      <div class="column-visibility-list">
-        {% for key, label, css_name in base_address_columns %}
-        {{ visibility_toggle(key, label) }}
-        {% endfor %}
-        {% for field in custom_fields %}
-        {{ visibility_toggle(field.visibility_key, field.name) }}
-        {% endfor %}
-      </div>
+      <h3 class="column-visibility-title" id="personal-columns-title-{{ project.id }}">{{ _('field.personal_visibility') }}</h3>
+      {{ visibility_list() }}
       <div class="modal-actions">
         <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
         <button type="submit">{{ _('field.visibility_save') }}</button>
       </div>
     </form>
+    {% if current_user.has_admin_access %}
+    <details class="columns-structure">
+      <summary id="global-columns-title-{{ project.id }}">{{ _('field.global_visibility') }}</summary>
+      <form class="columns-visibility-form" action="/projects/{{ project.id }}/fields/global-visibility" method="post"
+        aria-labelledby="global-columns-title-{{ project.id }}" data-column-visibility>
+        {{ column_table_context() }}
+        <p class="settings-hint">{{ _('field.global_visibility_hint') }}</p>
+        {{ visibility_list(shared=true) }}
+        <div class="modal-actions">
+          <button type="submit">{{ _('field.global_visibility_save') }}</button>
+        </div>
+      </form>
+    </details>
+    {% endif %}
     {% if current_user.can_manage_project_columns %}
     <details class="columns-structure" {% if request.query_params.get('columns') == 'true' %}open{% endif %}>
       <summary>{{ _('field.structure') }}</summary>

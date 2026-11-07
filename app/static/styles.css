@@ -506,6 +506,21 @@ button {
 
 .column-visibility-control input { accent-color: var(--accent); }
 
+.column-visibility-title { margin: 0; font-size: 15px; }
+
+.columns-dialog-content div.column-visibility-option {
+  cursor: default;
+  font-weight: 650;
+}
+
+.column-visibility-shared {
+  padding: 3px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+}
+
 .columns-structure { border-top: 1px solid var(--line); padding-top: 12px; }
 .columns-structure > summary { cursor: pointer; font-weight: 650; color: var(--accent); }
 .columns-structure > form { margin-top: 12px; }

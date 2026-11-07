@@ -111,6 +111,7 @@ class Project(TimestampMixin, Base):
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     last_ping_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_ping_finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    hidden_columns: Mapped[list[str]] = mapped_column(JSON, server_default="[]", nullable=False)
 
     folder: Mapped[Folder] = relationship(back_populates="projects")
     ip_addresses: Mapped[list["IPAddress"]] = relationship(back_populates="project", cascade="all, delete-orphan")

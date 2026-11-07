@@ -1,5 +1,5 @@
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from ipaddress import ip_network
 from typing import Annotated, Literal, get_args
 from urllib.parse import urlencode
@@ -294,6 +294,10 @@ def _address_form_table_url(project_id: int, form: FormData, settings: Settings,
         type_filter=_clean_filter_value(str(form.get("type_filter", "")), 120),
         os_filter=_clean_filter_value(str(form.get("os_filter", "")), 120),
     )
+
+
+def _hideable_columns(custom_fields: Iterable[CustomField]) -> set[str]:
+    return {key for key, _, _ in BASE_ADDRESS_COLUMNS} | {field.visibility_key for field in custom_fields}
 
 
 def _address_edit_denied(request: Request, table_url: str) -> RedirectResponse:
@@ -1039,12 +1043,15 @@ def project_detail(
         select(CustomField).where(CustomField.project_id == project.id).order_by(CustomField.position.asc())
     ).all()
     column_preferences = db.get(ProjectColumnVisibility, (current_user.id, project.id))
-    hidden_columns = set(column_preferences.hidden_columns) if column_preferences else set()
-    if hidden_columns:
-        hidden_columns.intersection_update(
-            {key for key, _, _ in BASE_ADDRESS_COLUMNS} | {field.visibility_key for field in custom_fields},
-        )
-    column_context = {"base_address_columns": BASE_ADDRESS_COLUMNS, "hidden_columns": hidden_columns}
+    allowed_columns = _hideable_columns(custom_fields)
+    personal_hidden = allowed_columns.intersection(column_preferences.hidden_columns) if column_preferences else set()
+    global_hidden = allowed_columns.intersection(project.hidden_columns)
+    column_context = {
+        "base_address_columns": BASE_ADDRESS_COLUMNS,
+        "hidden_columns": personal_hidden | global_hidden,
+        "personal_hidden_columns": personal_hidden,
+        "global_hidden_columns": global_hidden,
+    }
     filled_condition = _ip_record_filled_condition(list(custom_fields))
     clean_ping_status = _clean_filter_value(ping_status, 20).lower()
     if clean_ping_status not in PING_STATUS_FILTERS:
@@ -1598,9 +1605,7 @@ async def save_column_visibility(
         raise HTTPException(status_code=404, detail="Project not found")
     form = await request.form()
     custom_fields = db.scalars(select(CustomField).where(CustomField.project_id == project_id))
-    allowed = {key for key, _, _ in BASE_ADDRESS_COLUMNS}
-    allowed.update(field.visibility_key for field in custom_fields)
-    hidden = sorted(allowed.intersection(form.getlist("hidden_column")))
+    hidden = sorted(_hideable_columns(custom_fields).intersection(form.getlist("hidden_column")))
     insert = sqlite_insert if db.get_bind().dialect.name == "sqlite" else postgres_insert
     statement = insert(ProjectColumnVisibility).values(
         user_id=current_user.id, project_id=project_id, hidden_columns=hidden,
@@ -1611,6 +1616,26 @@ async def save_column_visibility(
     ))
     db.commit()
     return _redirect_message(_address_form_table_url(project_id, form, settings, current_user), _ui("field.visibility_saved"))
+
+
+@router.post("/projects/{project_id}/fields/global-visibility")
+async def save_global_column_visibility(
+    project_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_admin)],
+) -> RedirectResponse:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    form = await request.form()
+    custom_fields = db.scalars(select(CustomField).where(CustomField.project_id == project_id))
+    project.hidden_columns = sorted(_hideable_columns(custom_fields).intersection(form.getlist("hidden_column")))
+    db.commit()
+    return _redirect_message(
+        _address_form_table_url(project_id, form, settings, current_user), _ui("field.global_visibility_saved"),
+    )
 
 
 @router.post("/projects/{project_id}/fields/configure")

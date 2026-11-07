@@ -414,3 +414,50 @@ class BrowserSessionTest(unittest.TestCase):
         reader.post(visibility_path, data={"_csrf_token": csrf_token})
         self.assertIn("<th>Comment</th>", reader.get(path).text)
         self.assertIn("<th>Rack</th>", reader.get(path).text)
+
+    def test_admin_hides_columns_for_the_subnet_without_changing_personal_preferences(self) -> None:
+        with self.factory() as db:
+            db.add(Folder(id=1, name="Office"))
+            db.add_all([
+                Project(id=1, folder_id=1, name="LAN", cidr="192.0.2.0/24"),
+                Project(id=2, folder_id=1, name="Lab", cidr="198.51.100.0/24"),
+            ])
+            field = CustomField(project_id=1, name="Rack", key="rack")
+            db.add(field)
+            db.add_all([
+                IPAddress(project_id=1, ordinal=1, address="192.0.2.1", comment="Keep this",
+                          custom_values={"rack": "A1"}),
+                IPAddress(project_id=2, ordinal=1, address="198.51.100.1", comment="Other project"),
+            ])
+            db.commit()
+            custom_key = field.visibility_key
+        reader, admin = self.client(), self.client()
+        reader_csrf = self.login(reader)
+        admin_csrf = self.login(admin, "admin", "admin-password")
+        path = "/projects/1"
+        personal_path = f"{path}/fields/visibility"
+        global_path = f"{path}/fields/global-visibility"
+        self.assertNotIn(f'action="{global_path}"', reader.get(path).text)
+        self.assertIn(f'action="{global_path}"', admin.get(path).text)
+        self.assertEqual(reader.post(global_path, data={"_csrf_token": reader_csrf}).status_code, 403)
+        self.assertEqual(admin.post(global_path, data={"hidden_column": "comment"}).status_code, 403)
+        self.assertEqual(reader.post(personal_path, data={
+            "_csrf_token": reader_csrf, "hidden_column": "comment",
+        }).status_code, 303)
+        self.assertEqual(admin.post(global_path, data={
+            "_csrf_token": admin_csrf, "hidden_column": ["comment", custom_key, "address", "status"],
+        }).status_code, 303)
+        for browser in (reader, admin):
+            self.assertIn("Скрыт для всех", browser.get(path).text)
+            table = browser.get(path, headers={"X-Requested-With": "XMLHttpRequest"}).text
+            self.assertNotIn("<th>Comment</th>", table)
+            self.assertNotIn("<th>Rack</th>", table)
+            self.assertIn('data-detail-value="Keep this" hidden', table)
+            self.assertIn('data-custom-value="A1" hidden', table)
+            self.assertIn('class="col-ip"', table)
+            self.assertIn('class="col-status"', table)
+            self.assertIn("<th>Comment</th>", browser.get("/projects/2").text)
+        self.assertEqual(admin.post(global_path, data={"_csrf_token": admin_csrf}).status_code, 303)
+        self.assertIn("<th>Comment</th>", admin.get(path).text)
+        self.assertNotIn("<th>Comment</th>", reader.get(path).text)
+        self.assertIn("<th>Rack</th>", reader.get(path).text)
