@@ -331,20 +331,32 @@
   <input type="hidden" name="type_filter" value="{{ table_filters.type_filter }}">
   <input type="hidden" name="os_filter" value="{{ table_filters.os_filter }}">
 {% endmacro %}
+{% macro column_eye(crossed=false) %}
+  <svg class="icon {{ 'column-eye-hidden' if crossed else 'column-eye-visible' }}" viewBox="0 0 24 24" aria-hidden="true">
+    {% if crossed %}
+    <path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.2A9.8 9.8 0 0 1 12 5c5.2 0 9 4.4 10 7a12 12 0 0 1-3 4.1M6.1 6.1A14 14 0 0 0 2 12c1 2.6 4.8 7 10 7 1.7 0 3.2-.4 4.5-1.1" />
+    {% else %}
+    <path d="M2 12c1-2.6 4.8-7 10-7s9 4.4 10 7c-1 2.6-4.8 7-10 7s-9-4.4-10-7Z" /><circle cx="12" cy="12" r="3" />
+    {% endif %}
+  </svg>
+{% endmacro %}
 {% macro visibility_toggle(key, label, shared) %}
   {% if not shared and key in global_hidden_columns %}
     <div class="column-visibility-option">
       <span>{{ label }}</span>
-      <span class="column-visibility-shared">{{ _('field.hidden_for_everyone') }}</span>
+      <span class="column-visibility-control">
+        <span class="column-visibility-shared">{{ _('field.hidden_for_everyone') }}</span>
+        <span class="column-eye column-eye-locked">{{ column_eye(crossed=true) }}</span>
+      </span>
       {% if key in personal_hidden_columns %}<input type="hidden" name="hidden_column" value="{{ key }}">{% endif %}
     </div>
   {% else %}
     <label class="column-visibility-option">
       <span>{{ label }}</span>
       <span class="column-visibility-control">
-        <input type="checkbox" name="hidden_column" value="{{ key }}" aria-label="{{ _('field.hide_named', name=label) }}"
+        <input class="column-visibility-input" type="checkbox" name="hidden_column" value="{{ key }}" aria-label="{{ _('field.hide_named', name=label) }}"
           {% if key in (global_hidden_columns if shared else personal_hidden_columns) %}checked{% endif %}>
-        {{ _('field.hide') }}
+        <span class="column-eye">{{ column_eye() }}{{ column_eye(crossed=true) }}</span>
       </span>
     </label>
   {% endif %}
@@ -359,6 +371,13 @@
     {% endfor %}
   </div>
 {% endmacro %}
+{% set open_column_editor = request.query_params.get('columns') == 'true' and current_user.can_manage_project_columns %}
+{% set active_columns_tab = 'editor' if open_column_editor else 'personal' %}
+{% macro column_tab(name, label) %}
+  <button class="icon-button columns-tab" type="button" role="tab" id="columns-tab-{{ name }}-{{ project.id }}"
+    aria-controls="columns-panel-{{ name }}-{{ project.id }}" aria-selected="{{ 'true' if name == active_columns_tab else 'false' }}"
+    {% if name == active_columns_tab %}autofocus{% else %}tabindex="-1"{% endif %}>{{ _(label) }}</button>
+{% endmacro %}
 <dialog class="modal-dialog columns-modal" id="project-columns-modal-{{ project.id }}"
   aria-labelledby="project-columns-title-{{ project.id }}"
   {% if request.query_params.get('columns') == 'true' %}data-open-on-load{% endif %}>
@@ -370,33 +389,26 @@
       </div>
       <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
     </div>
-    <form class="columns-visibility-form" action="/projects/{{ project.id }}/fields/visibility" method="post"
-      aria-labelledby="personal-columns-title-{{ project.id }}" data-column-visibility>
-      {{ column_table_context() }}
-      <h3 class="column-visibility-title" id="personal-columns-title-{{ project.id }}">{{ _('field.personal_visibility') }}</h3>
-      {{ visibility_list() }}
-      <div class="modal-actions">
-        <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
-        <button type="submit">{{ _('field.visibility_save') }}</button>
-      </div>
-    </form>
-    {% if current_user.has_admin_access %}
-    <details class="columns-structure">
-      <summary id="global-columns-title-{{ project.id }}">{{ _('field.global_visibility') }}</summary>
-      <form class="columns-visibility-form" action="/projects/{{ project.id }}/fields/global-visibility" method="post"
-        aria-labelledby="global-columns-title-{{ project.id }}" data-column-visibility>
+    <div class="columns-tabs" role="tablist" aria-label="{{ _('field.columns') }}">
+      {{ column_tab('personal', 'field.personal_visibility') }}
+      {% if current_user.can_manage_project_columns %}{{ column_tab('editor', 'field.structure') }}{% endif %}
+      {% if current_user.has_admin_access %}{{ column_tab('global', 'field.global_visibility') }}{% endif %}
+    </div>
+    <div role="tabpanel" id="columns-panel-personal-{{ project.id }}" aria-labelledby="columns-tab-personal-{{ project.id }}"
+      {% if active_columns_tab != 'personal' %}hidden{% endif %}>
+      <form class="columns-visibility-form" action="/projects/{{ project.id }}/fields/visibility" method="post"
+        aria-labelledby="columns-tab-personal-{{ project.id }}" data-column-visibility>
         {{ column_table_context() }}
-        <p class="settings-hint">{{ _('field.global_visibility_hint') }}</p>
-        {{ visibility_list(shared=true) }}
+        {{ visibility_list() }}
         <div class="modal-actions">
-          <button type="submit">{{ _('field.global_visibility_save') }}</button>
+          <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+          <button type="submit">{{ _('field.visibility_save') }}</button>
         </div>
       </form>
-    </details>
-    {% endif %}
+    </div>
     {% if current_user.can_manage_project_columns %}
-    <details class="columns-structure" {% if request.query_params.get('columns') == 'true' %}open{% endif %}>
-      <summary>{{ _('field.structure') }}</summary>
+    <div role="tabpanel" id="columns-panel-editor-{{ project.id }}" aria-labelledby="columns-tab-editor-{{ project.id }}"
+      {% if active_columns_tab != 'editor' %}hidden{% endif %}>
       <form class="columns-manager-form" action="/projects/{{ project.id }}/fields/configure" method="post"
         data-columns-manager data-max-columns="{{ max_custom_fields }}">
         {{ column_table_context() }}
@@ -480,7 +492,21 @@
           </div>
         </template>
       </form>
-    </details>
+    </div>
+    {% endif %}
+    {% if current_user.has_admin_access %}
+    <div role="tabpanel" id="columns-panel-global-{{ project.id }}" aria-labelledby="columns-tab-global-{{ project.id }}" hidden>
+      <form class="columns-visibility-form" action="/projects/{{ project.id }}/fields/global-visibility" method="post"
+        aria-labelledby="columns-tab-global-{{ project.id }}" data-column-visibility>
+        {{ column_table_context() }}
+        <p class="settings-hint">{{ _('field.global_visibility_hint') }}</p>
+        {{ visibility_list(shared=true) }}
+        <div class="modal-actions">
+          <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+          <button type="submit">{{ _('field.global_visibility_save') }}</button>
+        </div>
+      </form>
+    </div>
     {% endif %}
   </div>
 </dialog>

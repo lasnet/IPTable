@@ -1018,6 +1018,36 @@
 })();
 
 (function () {
+  document.querySelectorAll(".columns-tabs").forEach((tabList) => {
+    const tabs = Array.from(tabList.querySelectorAll("[role='tab']"));
+    const initialTab = tabs.find((tab) => tab.getAttribute("aria-selected") === "true");
+
+    function selectTab(selectedTab) {
+      tabs.forEach((tab) => {
+        const selected = tab === selectedTab;
+        tab.setAttribute("aria-selected", String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+        document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
+      });
+    }
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => selectTab(tab));
+      tab.addEventListener("keydown", (event) => {
+        let nextIndex;
+        if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+        else if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+        else if (event.key === "Home") nextIndex = 0;
+        else if (event.key === "End") nextIndex = tabs.length - 1;
+        else return;
+        event.preventDefault();
+        selectTab(tabs[nextIndex]);
+        tabs[nextIndex].focus();
+      });
+    });
+    tabList.closest("dialog")?.addEventListener("close", () => selectTab(initialTab));
+  });
+
   document.querySelectorAll("[data-column-visibility]").forEach((form) => {
     form.closest("dialog")?.addEventListener("close", () => {
       form.querySelectorAll("input[type='checkbox']").forEach((input) => {
