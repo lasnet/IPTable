@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 
 DEV_ONLY = (
     "AGENT.md", "DEVELOPMENT.md", "requirements-dev.txt", "requirements-dev.lock", "tests/", ".github/",
-    "scripts/update_stable.py", "scripts/smoke_test.py", "task.md",
+    "scripts/update_stable.py", "scripts/smoke_test.py", "pytest.ini", "task.md",
 )
 
 
