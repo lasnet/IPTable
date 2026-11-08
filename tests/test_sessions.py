@@ -367,6 +367,84 @@ class BrowserSessionTest(unittest.TestCase):
         }).status_code, 409)
         self.assertEqual(first.post(lock, data={"_csrf_token": first_csrf}).status_code, 200)
 
+    def test_edit_lock_polling_does_not_extend_idle_session(self) -> None:
+        with self.factory() as db:
+            db.add(Folder(id=1, name="Office"))
+            db.add(Project(id=1, folder_id=1, name="LAN", cidr="192.0.2.0/24"))
+            db.add(IPAddress(id=1, project_id=1, ordinal=1, address="192.0.2.1"))
+            db.commit()
+
+        self.settings.session_idle_timeout_seconds = 60
+        client = self.client()
+        lock = "/projects/1/addresses/1/edit-lock"
+        with patch("app.web.routes.time") as clock:
+            clock.time.return_value = 1000
+            csrf = self.login(client, "admin", "admin-password")
+            token = client.post(lock, data={"_csrf_token": csrf}).json()["token"]
+            renewal = {"_csrf_token": csrf, "token": token}
+            with self.factory() as db:
+                expires_at = db.scalar(select(UserSession.expires_at))
+
+            for elapsed in (20, 40, 59):
+                clock.time.return_value = 1000 + elapsed
+                status = client.get(lock)
+                self.assertEqual(status.json(), {"owner": "admin"})
+                self.assertNotIn("set-cookie", status.headers)
+                renewed = client.post(f"{lock}/renew", data=renewal)
+                self.assertEqual(renewed.status_code, 204)
+                self.assertNotIn("set-cookie", renewed.headers)
+            with self.factory() as db:
+                self.assertEqual(db.scalar(select(UserSession.expires_at)), expires_at)
+
+            clock.time.return_value = 1061
+            self.assertEqual(client.get(lock).status_code, 401)
+            self.assertEqual(client.post(f"{lock}/renew", data=renewal).status_code, 401)
+            self.assertEqual(client.get("/").status_code, 303)
+
+    def test_edit_lock_save_rejects_recreated_custom_field(self) -> None:
+        with self.factory() as db:
+            db.add(Folder(id=1, name="Office"))
+            db.add(Project(id=1, folder_id=1, name="LAN", cidr="192.0.2.0/24"))
+            db.add(IPAddress(id=1, project_id=1, ordinal=1, address="192.0.2.1", hostname="original"))
+            field = CustomField(project_id=1, name="Owner", key="owner", created_at=datetime(2026, 1, 1))
+            db.add(field)
+            db.commit()
+            stale_input = field.drawer_input_name
+
+        editor, admin = self.client(), self.client()
+        editor_csrf = self.login(editor, "admin", "admin-password")
+        admin_csrf = self.login(admin, "admin", "admin-password")
+        address = "/projects/1/addresses/1"
+        lock = f"{address}/edit-lock"
+        token = editor.post(lock, data={"_csrf_token": editor_csrf}).json()["token"]
+        fields = "/projects/1/fields"
+        self.assertEqual(admin.post(f"{fields}/configure", data={"_csrf_token": admin_csrf}).status_code, 303)
+        self.assertEqual(admin.post(fields, data={"_csrf_token": admin_csrf, "name": "Owner"}).status_code, 303)
+        with self.factory() as db:
+            field = db.scalar(select(CustomField))
+            self.assertEqual(field.key, "owner")
+            fresh_input = field.drawer_input_name
+            self.assertNotEqual(fresh_input, stale_input)
+
+        response = editor.post(address, data={
+            "_csrf_token": editor_csrf, "edit_lock_token": token, "hostname": "stale", stale_input: "stale",
+        })
+        self.assertEqual(response.status_code, 409)
+        with self.factory() as db:
+            row = db.get(IPAddress, 1)
+            self.assertEqual(row.hostname, "original")
+            self.assertEqual(row.custom_values, {})
+            self.assertIsNone(db.scalar(select(IPAddressHistory)))
+
+        self.assertIn(f'data-custom-name="{fresh_input}"', editor.get("/projects/1").text)
+        token = editor.post(lock, data={"_csrf_token": editor_csrf}).json()["token"]
+        response = editor.post(address, data={
+            "_csrf_token": editor_csrf, "edit_lock_token": token, "hostname": "original", fresh_input: "current",
+        })
+        self.assertEqual(response.status_code, 303)
+        with self.factory() as db:
+            self.assertEqual(db.get(IPAddress, 1).custom_values, {"owner": "current"})
+
     def test_column_visibility_is_personal_and_preserves_address_values(self) -> None:
         with self.factory() as db:
             db.add(Folder(id=1, name="Office"))

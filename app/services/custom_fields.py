@@ -3,14 +3,25 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.models import CustomField, IPAddress
+from app.models import CustomField, IPAddress, Project
 
 
 CUSTOM_FIELD_TYPES = {"text", "number", "date"}
 MAX_CUSTOM_FIELDS = 64
+CUSTOM_FIELD_LOCK_NAMESPACE = 0x435346
+
+
+def lock_custom_field_schema(db: Session, project_id: int, *, exclusive: bool = False) -> None:
+    # Address writes share the lock. Schema changes require exclusive access.
+    # SQLite already serializes writes across the database.
+    if db.get_bind().dialect.name == "postgresql":
+        lock = func.pg_advisory_xact_lock if exclusive else func.pg_advisory_xact_lock_shared
+        db.execute(select(lock(CUSTOM_FIELD_LOCK_NAMESPACE, Project.id)).where(Project.id == project_id))
+    else:
+        db.execute(update(Project).where(Project.id == project_id).values(updated_at=Project.updated_at))
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +80,7 @@ def replace_custom_fields(db: Session, *, project_id: int, specs: list[CustomFie
     if len(specs) > MAX_CUSTOM_FIELDS:
         raise CustomFieldConfigurationError("too_many_fields")
 
+    lock_custom_field_schema(db, project_id, exclusive=True)
     existing = db.scalars(
         select(CustomField).where(CustomField.project_id == project_id).order_by(CustomField.position.asc())
     ).all()

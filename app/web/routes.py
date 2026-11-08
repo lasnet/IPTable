@@ -35,6 +35,7 @@ from app.services.custom_fields import (
     CustomFieldConfigurationError,
     CustomFieldSpec,
     IncompatibleCustomFieldValueError,
+    lock_custom_field_schema,
     replace_custom_fields,
 )
 from app.services.inventory import create_custom_field, create_project_with_addresses
@@ -161,37 +162,59 @@ def _session_idle_expired(request: Request, settings: Settings, *, now: int | No
     return current_time - last_activity_at > settings.session_idle_timeout_seconds
 
 
-def _authenticate_session(
-    request: Request,
-    db: Annotated[Session, Depends(get_db)],
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> User:
+def _authenticate_session(request: Request, db: Session, settings: Settings, *, touch: bool) -> User:
+    def reject(message: str | None = None) -> HTTPException:
+        if not touch:
+            return HTTPException(status_code=401, detail="Session expired")
+        request.session.clear()
+        return _login_redirect(message)
+
     user_id = request.session.get("user_id")
     if not user_id:
-        raise _login_redirect()
+        if touch:
+            raise _login_redirect()
+        raise reject()
 
     now = int(time.time())
     if _session_idle_expired(request, settings, now=now):
-        request.session.clear()
-        raise _login_redirect(_ui("session.expired"))
+        raise reject(_ui("session.expired"))
 
     try:
         user_pk = int(user_id)
     except (TypeError, ValueError):
-        request.session.clear()
-        raise _login_redirect()
+        raise reject()
 
-    user = session_user(db, request.session.get(SESSION_TOKEN_KEY), user_pk, settings.session_idle_timeout_seconds)
+    user = session_user(
+        db, request.session.get(SESSION_TOKEN_KEY), user_pk, settings.session_idle_timeout_seconds, touch=touch,
+    )
     if user is None:
-        request.session.clear()
-        raise _login_redirect()
+        raise reject()
 
-    db.refresh(user)  # The session renewal commits and expires ORM attributes.
-    request.session[SESSION_LAST_ACTIVITY_KEY] = now
+    if touch:
+        db.refresh(user)  # The session renewal commits and expires ORM attributes.
+        request.session[SESSION_LAST_ACTIVITY_KEY] = now
     return user
 
 
-async def require_user(current_user: Annotated[User, Depends(_authenticate_session)]) -> AsyncIterator[User]:
+def _authenticate_interactive_session(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> User:
+    return _authenticate_session(request, db, settings, touch=True)
+
+
+def _authenticate_passive_session(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> User:
+    return _authenticate_session(request, db, settings, touch=False)
+
+
+async def require_user(
+    current_user: Annotated[User, Depends(_authenticate_interactive_session)],
+) -> AsyncIterator[User]:
     # Set the locale and theme in the request task so both templates and
     # synchronous handlers inherit them. Never mutate the shared defaults.
     defaults = get_settings()
@@ -308,9 +331,17 @@ def _address_edit_denied(request: Request, table_url: str) -> RedirectResponse:
 
 def _address_write_conflict(request: Request, table_url: str, owner: str | None) -> RedirectResponse:
     message = _ui("drawer.locked", username=owner) if owner else _ui("drawer.lock_lost")
+    return _address_conflict(request, table_url, message)
+
+
+def _address_conflict(request: Request, table_url: str, message: str) -> RedirectResponse:
     if "text/html" in request.headers.get("accept", ""):
         return _redirect_error(table_url, message)
     raise HTTPException(status_code=409, detail=message)
+
+
+async def _read_form(request: Request) -> FormData:
+    return await request.form()
 
 
 def _filled_value(column):
@@ -1639,9 +1670,9 @@ async def save_global_column_visibility(
 
 
 @router.post("/projects/{project_id}/fields/configure")
-async def configure_custom_fields(
+def configure_custom_fields(
     project_id: int,
-    request: Request,
+    form: Annotated[FormData, Depends(_read_form)],
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
@@ -1651,7 +1682,6 @@ async def configure_custom_fields(
     if db.get(Project, project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    form = await request.form()
     hide_empty = form.get("hide_empty") == "true"
     page = _safe_positive_int(form.get("page"), 1)
     per_page = _normalize_project_page_size(
@@ -1726,7 +1756,7 @@ def _get_address(db: Session, project_id: int, ip_id: int) -> IPAddress:
 def address_edit_lock_status(
     project_id: int, ip_id: int,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_user)],
+    current_user: Annotated[User, Depends(_authenticate_passive_session)],
 ) -> dict:
     if not current_user.can_edit_inventory:
         raise HTTPException(status_code=403, detail=_ui("drawer.edit_denied"))
@@ -1761,7 +1791,7 @@ def acquire_address_edit_lock(
 def renew_address_edit_lock(
     project_id: int, ip_id: int,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_user)],
+    current_user: Annotated[User, Depends(_authenticate_passive_session)],
     token: Annotated[str, Form(min_length=43, max_length=43)],
 ) -> Response:
     if not current_user.can_edit_inventory:
@@ -1777,7 +1807,7 @@ def renew_address_edit_lock(
 def release_address_edit_lock(
     project_id: int, ip_id: int,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_user)],
+    current_user: Annotated[User, Depends(_authenticate_passive_session)],
     token: Annotated[str, Form(min_length=43, max_length=43)],
 ) -> Response:
     address_locks.release(db, project_id, ip_id, current_user.id, token)
@@ -1786,27 +1816,36 @@ def release_address_edit_lock(
 
 
 @router.post("/projects/{project_id}/addresses/{ip_id}")
-async def update_ip_address(
+def update_ip_address(
     project_id: int,
     ip_id: int,
     request: Request,
+    form: Annotated[FormData, Depends(_read_form)],
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
-    form = await request.form()
     table_url = _address_form_table_url(project_id, form, settings, current_user)
     if not current_user.can_edit_inventory:
         return _address_edit_denied(request, table_url)
 
     token = str(form.get("edit_lock_token", ""))
     browser_form = "text/html" in request.headers.get("accept", "")
+    lock_custom_field_schema(db, project_id)
     if (browser_form and not token) or not address_locks.reserve_write(
         db, project_id, ip_id, user_id=current_user.id, token=token,
     ):
         owner = address_locks.lock_owner(db, _get_address(db, project_id, ip_id))
         return _address_write_conflict(request, table_url, owner)
     ip_record = _get_address(db, project_id, ip_id)
+    custom_fields = db.scalars(
+        select(CustomField).where(CustomField.project_id == project_id).order_by(CustomField.position.asc())
+    ).all()
+    if token:
+        submitted_fields = {name for name in form if name.startswith("custom__")}
+        if submitted_fields != {field.drawer_input_name for field in custom_fields}:
+            db.commit()
+            return _address_conflict(request, table_url, _ui("drawer.columns_changed"))
 
     new_hostname = _clean_text(str(form.get("hostname", "")), 255)
     new_os = _clean_text(str(form.get("os", "")), 120)
@@ -1827,15 +1866,11 @@ async def update_ip_address(
     ip_record.os = new_os
     ip_record.asset_type = new_asset_type
     ip_record.comment = new_comment
-    custom_fields = db.scalars(
-        select(CustomField).where(CustomField.project_id == project_id).order_by(CustomField.position.asc())
-    ).all()
     custom_values = dict(ip_record.custom_values or {})
     for field in custom_fields:
-        if token and f"custom__{field.key}" not in form:
-            continue
+        input_name = field.drawer_input_name if token else f"custom__{field.key}"
         old_value = custom_values.get(field.key, "")
-        new_value = _clean_text(str(form.get(f"custom__{field.key}", "")), 1000)
+        new_value = _clean_text(str(form.get(input_name, "")), 1000)
         change = build_field_change(f"custom.{field.key}", field.name, old_value, new_value)
         if change is not None:
             changes.append(change)
@@ -1848,19 +1883,20 @@ async def update_ip_address(
 
 
 @router.post("/projects/{project_id}/addresses/{ip_id}/clear")
-async def clear_ip_address(
+def clear_ip_address(
     project_id: int,
     ip_id: int,
     request: Request,
+    form: Annotated[FormData, Depends(_read_form)],
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
-    form = await request.form()
     table_url = _address_form_table_url(project_id, form, settings, current_user)
     if not current_user.can_edit_inventory:
         return _address_edit_denied(request, table_url)
 
+    lock_custom_field_schema(db, project_id)
     if not address_locks.reserve_write(
         db, project_id, ip_id, user_id=current_user.id, token=str(form.get("edit_lock_token", "")),
     ):

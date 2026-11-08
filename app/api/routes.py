@@ -12,6 +12,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.models import CustomField, Folder, IPAddress, Project, IntegrationCredential
 from app.services import address_locks
+from app.services.custom_fields import lock_custom_field_schema
 from app.services.history import FieldChange, build_field_change, record_ip_address_history
 from app.services.ping import enqueue_project_ping
 
@@ -219,6 +220,8 @@ def update_project_address(
     payload: AddressUpdate,
     db: Annotated[Session, Depends(get_db)],
 ) -> AddressOut:
+    if payload.custom_values is not None:
+        lock_custom_field_schema(db, project_id)
     reserved = address_locks.reserve_write(db, project_id, ip_id)
     ip_record = address_locks.find_address(db, project_id, ip_id)
     if ip_record is None:

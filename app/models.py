@@ -206,6 +206,10 @@ class CustomField(TimestampMixin, Base):
         # SQLite may reuse an ID after deletion. A new field starts visible.
         return f"custom:{self.id}:{self.created_at.isoformat()}"
 
+    @property
+    def drawer_input_name(self) -> str:
+        return f"custom__{self.visibility_key}:{self.field_type}"
+
 
 class PingSchedule(TimestampMixin, Base):
     __tablename__ = "ping_schedules"

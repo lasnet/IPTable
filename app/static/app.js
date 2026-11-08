@@ -299,7 +299,7 @@
     try {
       const response = await lockRequest(state, token ? "renew" : "status", token);
       if (drawerLock !== state || state.token !== token || submittingDrawer) return;
-      if (token && [403, 404, 409].includes(response.status)) {
+      if ([401, 403, 404, 409].includes(response.status)) {
         const result = response.status === 409 ? await response.json() : {};
         if (drawerLock !== state || submittingDrawer) return;
         state.token = "";
@@ -456,6 +456,7 @@
       const cleanValue = cell.dataset.customValue || "";
       labelText.textContent = cell.dataset.customLabel || "";
       input.name = cell.dataset.customName || "";
+      input.dataset.customKey = cell.dataset.customKey || "";
       input.type = ["number", "date"].includes(fieldType) ? fieldType : "text";
       input.maxLength = 1000;
       input.value = cleanValue;
@@ -508,7 +509,7 @@
       state.token = result.token;
       for (const [name, value] of Object.entries(result.fields)) setDrawerField(state.drawer, name, value);
       state.drawer.querySelectorAll("[data-drawer-custom] input").forEach((input) => {
-        input.value = result.custom_values?.[input.name.slice("custom__".length)] ?? "";
+        input.value = result.custom_values?.[input.dataset.customKey] ?? "";
         input.classList.toggle("empty-value", !input.value);
       });
       renderDrawerLock(state);

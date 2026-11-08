@@ -69,7 +69,8 @@
         {% endfor %}
         {% for field in custom_fields %}
         {% set custom_value = (ip.custom_values or {}).get(field.key, '') %}
-        <td data-custom-label="{{ field.name }}" data-custom-name="custom__{{ field.key }}" data-custom-type="{{ field.field_type }}"
+        <td data-custom-label="{{ field.name }}" data-custom-name="{{ field.drawer_input_name }}"
+          data-custom-key="{{ field.key }}" data-custom-type="{{ field.field_type }}"
           data-custom-value="{{ custom_value }}"{% if field.visibility_key in hidden_columns %} hidden{% endif %}>
           <span class="{{ 'table-empty-value' if not custom_value else '' }}">{{ custom_value if custom_value else _('table.placeholder_empty') }}</span>
         </td>
