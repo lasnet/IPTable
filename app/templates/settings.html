@@ -8,16 +8,13 @@
   <div class="dashboard-heading">
     <div>
       <h1>{{ _('nav.settings') }}</h1>
-      <p>{{ 'Параметры приложения для всех пользователей' if interface_language == 'RU' else 'Application settings for all users' }}</p>
+      <p>{{ _('settings.admin_subtitle' if current_user.has_admin_access else 'settings.personal_subtitle') }}</p>
     </div>
   </div>
 
 
-  {% set titles = {'interface': ('Интерфейс', 'Interface'), 'security': ('Безопасность', 'Security'), 'ping': ('Проверка адресов', 'Ping'), 'limits': ('Лимиты', 'Limits')} %}
+  {% set titles = {'security': ('Безопасность', 'Security'), 'ping': ('Проверка адресов', 'Ping'), 'limits': ('Лимиты', 'Limits')} %}
   {% set labels = {
-    'app_name': ('Название установки', 'Installation name'),
-    'interface_language': ('Язык интерфейса', 'Interface language'),
-    'project_table_default_page_size': ('Строк на странице', 'Rows per page'),
     'session_idle_timeout_seconds': ('Сессия, с', 'Session, s'),
     'login_rate_limit_attempts': ('Попытки входа', 'Login attempts'),
     'login_rate_limit_window_seconds': ('Окно входа, с', 'Login window, s'),
@@ -34,7 +31,49 @@
     'csv_import_max_bytes': ('Размер импорта, байт', 'Import size, bytes')
   } %}
 
-  <div class="settings-layout">
+  <div class="settings-layout {{ 'settings-layout-personal' if not current_user.has_admin_access }}">
+    <section class="settings-card settings-card-interface" id="settings-interface">
+      <div class="settings-card-head">
+        <span class="settings-card-mark" aria-hidden="true">{{ icon('interface') }}</span>
+        <h2>{{ _('settings.interface') }}</h2>
+      </div>
+      <form class="settings-form" action="/settings/interface" method="post">
+        {{ csrf_input(request) }}
+        <div class="settings-fields">
+          <label class="settings-field">
+            <span>{{ _('settings.theme') }}</span>
+            <select name="interface_theme">
+              <option value="" {% if not current_user.interface_theme %}selected{% endif %}>{{ _('settings.default') }}</option>
+              {% for theme in themes %}
+              <option value="{{ theme }}" {% if current_user.interface_theme == theme %}selected{% endif %}>{{ _('settings.theme_' ~ theme) }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="settings-field">
+            <span>{{ _('settings.language') }}</span>
+            <select name="interface_language">
+              <option value="" {% if not current_user.interface_language %}selected{% endif %}>{{ _('settings.default') }}</option>
+              {% for language in languages %}
+              <option value="{{ language }}" {% if current_user.interface_language == language %}selected{% endif %}>{{ language }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="settings-field">
+            <span>{{ _('settings.rows_per_page') }}</span>
+            <select name="project_table_page_size">
+              <option value="" {% if not current_user.project_table_page_size %}selected{% endif %}>{{ _('settings.default') }}</option>
+              {% for size in page_sizes %}
+              <option value="{{ size }}" {% if current_user.project_table_page_size == size %}selected{% endif %}>{{ size }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <p class="settings-hint">{{ _('settings.personal_hint') }}</p>
+        <div class="settings-actions"><button type="submit">{{ _('button.save') }}</button></div>
+      </form>
+    </section>
+
+    {% if current_user.has_admin_access %}
     {% for group, fields in groups.items() %}
     <section class="settings-card settings-card-{{ group }}" id="settings-{{ group }}">
       <div class="settings-card-head">
@@ -48,18 +87,7 @@
           {% for name in fields %}
           <label class="settings-field">
             <span>{{ labels[name][1 if interface_language == 'EN' else 0] }}</span>
-            {% if name == 'interface_language' %}
-            <select name="{{ name }}">
-              <option value="RU" {{ 'selected' if configuration.interface_language == 'RU' }}>RU</option>
-              <option value="EN" {{ 'selected' if configuration.interface_language == 'EN' }}>EN</option>
-            </select>
-            {% elif name == 'project_table_default_page_size' %}
-            <select name="{{ name }}">
-              {% for size in (25, 50, 100, 250) %}<option value="{{ size }}" {{ 'selected' if configuration.project_table_default_page_size == size }}>{{ size }}</option>{% endfor %}
-            </select>
-            {% else %}
-            <input name="{{ name }}" value="{{ configuration | attr(name) }}" required {% if name != 'app_name' %}type="number" step="{{ 'any' if 'pause' in name or name == 'ping_queue_poll_seconds' else '1' }}"{% endif %}>
-            {% endif %}
+            <input name="{{ name }}" value="{{ configuration | attr(name) }}" required type="number" step="{{ 'any' if 'pause' in name or name == 'ping_queue_poll_seconds' else '1' }}">
           </label>
           {% endfor %}
         </div>
@@ -95,6 +123,7 @@
       <h3 class="settings-history-title">{{ 'Последние изменения' if interface_language == 'RU' else 'Recent changes' }}</h3>
       <ul class="settings-history">{% for item in history %}<li><time>{{ item.created_at.strftime('%d.%m.%Y %H:%M') }}</time><span>{{ item.actor_name }}</span><strong>{{ item.section }}</strong></li>{% endfor %}</ul>
     </section>
+    {% endif %}
   </div>
 </section>
 {% endblock %}

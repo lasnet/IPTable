@@ -31,6 +31,19 @@ class Folder(TimestampMixin, Base):
     projects: Mapped[list["Project"]] = relationship(back_populates="folder", cascade="all, delete-orphan")
 
 
+class Role(Base):
+    __tablename__ = "roles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str | None] = mapped_column(String(24), unique=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    name_key: Mapped[str] = mapped_column(String(300), unique=True, nullable=False)
+    can_create: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_edit: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_delete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    can_manage_columns: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
 class User(TimestampMixin, Base):
     __tablename__ = "users"
 
@@ -47,22 +60,34 @@ class User(TimestampMixin, Base):
     can_delete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     can_manage_columns: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    interface_language: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    interface_theme: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    project_table_page_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    role_id: Mapped[int | None] = mapped_column(
+        ForeignKey("roles.id", name="fk_users_role_id_roles", ondelete="RESTRICT"), index=True,
+    )
+    role: Mapped[Role | None] = relationship(lazy="joined")
+    column_preferences: Mapped[list["ProjectColumnVisibility"]] = relationship(cascade="all, delete-orphan")
+
+    @property
+    def has_admin_access(self) -> bool:
+        return self.is_admin or (self.role is not None and self.role.code == "admin")
 
     @property
     def can_create_inventory(self) -> bool:
-        return bool(self.is_admin or self.can_create)
+        return self.has_admin_access or bool(self.role.can_create if self.role else self.can_create)
 
     @property
     def can_edit_inventory(self) -> bool:
-        return bool(self.is_admin or self.can_edit)
+        return self.has_admin_access or bool(self.role.can_edit if self.role else self.can_edit)
 
     @property
     def can_delete_inventory(self) -> bool:
-        return bool(self.is_admin or self.can_delete)
+        return self.has_admin_access or bool(self.role.can_delete if self.role else self.can_delete)
 
     @property
     def can_manage_project_columns(self) -> bool:
-        return bool(self.is_admin or self.can_manage_columns)
+        return self.has_admin_access or bool(self.role.can_manage_columns if self.role else self.can_manage_columns)
 
 
 class UserSession(Base):
@@ -86,13 +111,25 @@ class Project(TimestampMixin, Base):
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     last_ping_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_ping_finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    hidden_columns: Mapped[list[str]] = mapped_column(JSON, server_default="[]", nullable=False)
 
     folder: Mapped[Folder] = relationship(back_populates="projects")
     ip_addresses: Mapped[list["IPAddress"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     custom_fields: Mapped[list["CustomField"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+    column_preferences: Mapped[list["ProjectColumnVisibility"]] = relationship(cascade="all, delete-orphan")
     ping_jobs: Mapped[list["PingJob"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     ping_schedules: Mapped[list["PingSchedule"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     ip_history: Mapped[list["IPAddressHistory"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+
+
+class ProjectColumnVisibility(Base):
+    __tablename__ = "project_column_visibility"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True, index=True,
+    )
+    hidden_columns: Mapped[list[str]] = mapped_column(JSON, nullable=False)
 
 
 class IPAddress(TimestampMixin, Base):
@@ -116,6 +153,9 @@ class IPAddress(TimestampMixin, Base):
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ping_latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    edit_lock_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    edit_lock_token: Mapped[str | None] = mapped_column(String(43), nullable=True)
+    edit_lock_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="ip_addresses")
     history: Mapped[list["IPAddressHistory"]] = relationship(back_populates="ip_address", cascade="all, delete-orphan")
@@ -160,6 +200,15 @@ class CustomField(TimestampMixin, Base):
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     project: Mapped[Project] = relationship(back_populates="custom_fields")
+
+    @property
+    def visibility_key(self) -> str:
+        # SQLite may reuse an ID after deletion. A new field starts visible.
+        return f"custom:{self.id}:{self.created_at.isoformat()}"
+
+    @property
+    def drawer_input_name(self) -> str:
+        return f"custom__{self.visibility_key}:{self.field_type}"
 
 
 class PingSchedule(TimestampMixin, Base):
@@ -225,6 +274,7 @@ class AppConfiguration(Base):
     updated_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     app_name: Mapped[str] = mapped_column(String(120), nullable=False)
     interface_language: Mapped[str] = mapped_column(String(8), nullable=False)
+    interface_theme: Mapped[str] = mapped_column(String(8), nullable=False, server_default="blue")
     project_table_default_page_size: Mapped[int] = mapped_column(Integer, nullable=False)
     session_idle_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     login_rate_limit_attempts: Mapped[int] = mapped_column(Integer, nullable=False)

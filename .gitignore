@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+/task.md
 
 .venv/
 venv/

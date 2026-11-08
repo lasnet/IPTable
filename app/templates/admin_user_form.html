@@ -1,0 +1,86 @@
+{% from "_user_ui.html" import role_name %}
+
+{% set title = _('admin.edit_user' if account else 'admin.new_user') %}
+{% set protected = account and (account.is_admin or account.id == current_user.id) %}
+{% set dialog_id = 'user-edit-modal-' ~ account.id if account else 'user-new-modal' %}
+<dialog class="modal-dialog users-modal" id="{{ dialog_id }}" aria-labelledby="{{ dialog_id }}-title"
+  {% if open_on_load %}data-open-on-load{% endif %}>
+  <form class="modal-form users-form" action="{{ '/admin/users/' ~ account.id ~ '/update' if account else '/admin/users' }}" method="post">
+    {{ csrf_input(request) }}
+    {% if from_profile %}<input type="hidden" name="from_profile" value="true">{% endif %}
+    <header class="modal-head">
+      <div>
+        <h2 id="{{ dialog_id }}-title">{{ title }}</h2>
+        {% if account %}<p>{{ account.username }}</p>{% endif %}
+      </div>
+      <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
+    </header>
+    {% if open_on_load and dialog_error %}<p class="notice error" role="alert">{{ dialog_error }}</p>{% endif %}
+    <div class="users-form-grid">
+      <label class="users-field">
+        <span>{{ _('admin.first_name') }}</span>
+        <input name="first_name" maxlength="120" autocomplete="off" autofocus value="{{ account.first_name if account else '' }}">
+      </label>
+      <label class="users-field">
+        <span>{{ _('admin.last_name') }}</span>
+        <input name="last_name" maxlength="120" autocomplete="off" value="{{ account.last_name if account else '' }}">
+      </label>
+    </div>
+    <label class="users-field">
+      <span>{{ _('common.username') }}</span>
+      <input name="username" minlength="3" maxlength="80" autocomplete="off" required
+        value="{{ account.username if account else '' }}" {% if account and account.is_admin %}readonly{% endif %}>
+    </label>
+    {% if account and (not account.is_admin or account.id == current_user.id) %}
+    <details class="users-form-disclosure" {% if open_on_load and dialog_error %}open{% endif %}>
+      <summary>{{ _('admin.reset_password') }}</summary>
+      <label class="users-field">
+        <span>{{ _('admin.new_password') }}</span>
+        <input name="password" type="password" minlength="8" maxlength="200" autocomplete="new-password"
+          placeholder="{{ _('password.keep_empty') }}">
+      </label>
+      <p class="settings-hint">{{ _('admin.reset_password_hint') }}</p>
+    </details>
+    {% elif not account %}
+    <label class="users-field">
+      <span>{{ _('common.password') }}</span>
+      <input name="password" type="password" minlength="8" maxlength="200" autocomplete="new-password" required>
+    </label>
+    {% endif %}
+    <label class="users-field">
+      <span>{{ _('admin.status') }}</span>
+      <select name="is_active" {% if protected %}disabled{% endif %}>
+        <option value="on" {% if not account or account.is_active %}selected{% endif %}>{{ _('admin.account_enabled') }}</option>
+        <option value="off" {% if account and not account.is_active %}selected{% endif %}>{{ _('admin.account_disabled') }}</option>
+      </select>
+    </label>
+    <label class="users-field">
+      <span>{{ _('admin.role') }}</span>
+      <select name="role_id" required {% if protected %}disabled{% endif %}>
+        {% for role in roles %}
+        <option value="{{ role.id }}" {% if (account and account.role_id == role.id)
+          or (not account and role.code == 'user')
+          or (account and not account.role_id and role.code == ('admin' if account.has_admin_access else 'user')) %}selected{% endif %}>{{ role_name(role) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if protected %}<p class="settings-hint">{{ _('roles.protected_account') }}</p>{% endif %}
+    <details class="users-form-disclosure users-description" {% if account and account.description %}open{% endif %}>
+      <summary>{{ _('common.description') }}</summary>
+      <textarea aria-label="{{ _('common.description') }}" name="description" maxlength="2000" rows="2">{{ account.description if account else '' }}</textarea>
+    </details>
+    <footer class="users-form-actions">
+      {% if account and not protected %}
+      <button class="soft-button users-button danger-button users-delete" type="submit" form="{{ dialog_id }}-delete">{{ _('admin.delete_user') }}</button>
+      {% endif %}
+      <button class="soft-button users-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+      <button class="settings-primary-button users-button" type="submit">{{ _('button.save' if account else 'admin.create_user') }}</button>
+    </footer>
+  </form>
+  {% if account and not protected %}
+  <form id="{{ dialog_id }}-delete" action="/admin/users/{{ account.id }}/delete" method="post" hidden
+    data-confirm="{{ _('confirm.delete_user', username=account.username) }}">
+    {{ csrf_input(request) }}
+  </form>
+  {% endif %}
+</dialog>

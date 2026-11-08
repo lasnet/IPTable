@@ -3,7 +3,7 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.models import User, UserSession
@@ -28,20 +28,29 @@ def issue_session(db: Session, user: User, timeout_seconds: int) -> str:
     return token
 
 
-def session_user(db: Session, token: object, user_id: int, timeout_seconds: int) -> User | None:
+def session_user(
+    db: Session, token: object, user_id: int, timeout_seconds: int, *, touch: bool = True,
+) -> User | None:
     if not isinstance(token, str) or len(token) != 43:
         return None
     user = db.get(User, user_id)
     if user is None or not user.is_active:
         return None
     now = datetime.utcnow()
-    # UPDATE cannot recreate a row concurrently removed by logout/password reset.
-    touched = db.execute(update(UserSession).where(
+    valid_session = (
         UserSession.token_hash == _digest(token),
         UserSession.user_id == user.id,
         UserSession.credential_hash == _digest(user.password_hash),
         UserSession.expires_at > now,
-    ).values(expires_at=now + timedelta(seconds=timeout_seconds)))
+    )
+    if not touch:
+        valid_token = db.scalar(select(UserSession.token_hash).where(*valid_session))
+        return user if valid_token is not None else None
+
+    # UPDATE cannot recreate a row concurrently removed by logout/password reset.
+    touched = db.execute(update(UserSession).where(*valid_session).values(
+        expires_at=now + timedelta(seconds=timeout_seconds),
+    ))
     db.commit()
     return user if touched.rowcount == 1 else None
 

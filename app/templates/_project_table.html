@@ -5,20 +5,21 @@
   2. Set .col-number width and move .locked-col by the same width in app/static/styles.css.
 #}
 {% set show_number_column = false %}
-{% set table_colspan = (7 if show_number_column else 6) + custom_fields|length %}
+{% set visible_base = base_address_columns | rejectattr('0', 'in', hidden_columns) | list %}
+{% set visible_custom = custom_fields | rejectattr('visibility_key', 'in', hidden_columns) | list %}
+{% set table_colspan = (3 if show_number_column else 2) + visible_base|length + visible_custom|length %}
 <div class="asset-table-wrap">
-  <table class="asset-table"{% if not ip_records %} data-empty{% endif %}>
+  <table class="asset-table"{% if not ip_records %} data-empty{% endif %}{% if hidden_columns %} data-personal-columns{% endif %}>
     {% if ip_records %}
     <colgroup>
       {% if show_number_column %}
       <col class="col-number">
       {% endif %}
       <col class="col-ip">
-      <col class="col-hostname">
-      <col class="col-os">
-      <col class="col-type">
-      <col class="col-comment">
-      {% for field in custom_fields %}
+      {% for key, label, css_name in visible_base %}
+      <col class="col-{{ css_name }}">
+      {% endfor %}
+      {% for field in visible_custom %}
       <col class="col-custom">
       {% endfor %}
       <col class="col-status">
@@ -29,11 +30,10 @@
         <th class="number-head">№</th>
         {% endif %}
         <th class="locked-col">{{ _('table.ip_address') }}</th>
-        <th>Hostname</th>
-        <th>OS</th>
-        <th>Type</th>
-        <th>Comment</th>
-        {% for field in custom_fields %}
+        {% for key, label, css_name in visible_base %}
+        <th>{{ label }}</th>
+        {% endfor %}
+        {% for field in visible_custom %}
         <th>{{ field.name }}</th>
         {% endfor %}
         <th>{{ _('table.status_ping') }}</th>
@@ -45,8 +45,10 @@
       <tr id="ip-{{ ip.id }}"
         data-ip-id="{{ ip.id }}"
         data-row-address="{{ ip.address }}"
+        {% if current_user.can_edit_inventory %}
         data-update-url="/projects/{{ project.id }}/addresses/{{ ip.id }}"
         data-clear-url="/projects/{{ project.id }}/addresses/{{ ip.id }}/clear"
+        {% endif %}
         data-history-url="/projects/{{ project.id }}/history?address={{ ip.address | urlencode }}"
         data-hide-empty="{{ 'true' if hide_empty else 'false' }}"
         data-page="{{ pagination.current_page }}"
@@ -58,22 +60,18 @@
         <td class="number-cell">{{ ip.ordinal }}</td>
         {% endif %}
         <td class="ip-cell locked-col" data-detail-field="address"><button class="ip-open-button" type="button" data-host-drawer-open aria-label="{{ _('drawer.open', address=ip.address) }}" aria-controls="host-drawer-{{ project.id }}" aria-expanded="false">{{ ip.address }}</button></td>
-        <td data-detail-field="hostname" data-detail-value="{{ ip.hostname }}">
-          <span class="{{ 'table-empty-value' if not ip.hostname else '' }}">{{ ip.hostname if ip.hostname else _('table.placeholder_empty') }}</span>
+        {# The drawer also reads hidden cells to show and preserve their values. #}
+        {% for key, label, css_name in base_address_columns %}
+        {% set value = ip | attr(key) %}
+        <td data-detail-field="{{ key }}" data-detail-value="{{ value }}"{% if key in hidden_columns %} hidden{% endif %}>
+          <span class="{{ 'table-empty-value' if not value else '' }}">{{ value if value else _('table.placeholder_empty') }}</span>
         </td>
-        <td data-detail-field="os" data-detail-value="{{ ip.os }}">
-          <span class="{{ 'table-empty-value' if not ip.os else '' }}">{{ ip.os if ip.os else _('table.placeholder_empty') }}</span>
-        </td>
-        <td data-detail-field="asset_type" data-detail-value="{{ ip.asset_type }}">
-          <span class="{{ 'table-empty-value' if not ip.asset_type else '' }}">{{ ip.asset_type if ip.asset_type else _('table.placeholder_empty') }}</span>
-        </td>
-        <td data-detail-field="comment" data-detail-value="{{ ip.comment }}">
-          <span class="{{ 'table-empty-value' if not ip.comment else '' }}">{{ ip.comment if ip.comment else _('table.placeholder_empty') }}</span>
-        </td>
+        {% endfor %}
         {% for field in custom_fields %}
         {% set custom_value = (ip.custom_values or {}).get(field.key, '') %}
-        <td data-custom-label="{{ field.name }}" data-custom-name="custom__{{ field.key }}" data-custom-type="{{ field.field_type }}"
-          data-custom-value="{{ custom_value }}">
+        <td data-custom-label="{{ field.name }}" data-custom-name="{{ field.drawer_input_name }}"
+          data-custom-key="{{ field.key }}" data-custom-type="{{ field.field_type }}"
+          data-custom-value="{{ custom_value }}"{% if field.visibility_key in hidden_columns %} hidden{% endif %}>
           <span class="{{ 'table-empty-value' if not custom_value else '' }}">{{ custom_value if custom_value else _('table.placeholder_empty') }}</span>
         </td>
         {% endfor %}

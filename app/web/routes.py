@@ -1,18 +1,23 @@
 import time
-from typing import Annotated
+from collections.abc import AsyncIterator, Iterable
 from ipaddress import ip_network
+from typing import Annotated, Literal, get_args
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from sqlalchemy import String, cast, func, or_, select
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from sqlalchemy import String, cast, delete, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from starlette.datastructures import FormData
 
-from app.core.config import Settings, get_settings
+from app.core.config import InterfaceTheme, Settings, _request_settings, get_settings
 from app.core.database import get_db
-from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, User
+from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, ProjectColumnVisibility, Role, User
 from app.models import AppConfiguration, AppConfigurationAudit, IntegrationCredential
+from app.services import address_locks
 from app.services.settings import GROUPS, RevisionConflict, replace_token, save_group
 from app.services.auth import authenticate_user, create_user, hash_password
 from app.services.csv_io import (
@@ -30,6 +35,7 @@ from app.services.custom_fields import (
     CustomFieldConfigurationError,
     CustomFieldSpec,
     IncompatibleCustomFieldValueError,
+    lock_custom_field_schema,
     replace_custom_fields,
 )
 from app.services.inventory import create_custom_field, create_project_with_addresses
@@ -52,6 +58,15 @@ SESSION_LAST_ACTIVITY_KEY = "last_activity_at"
 PROJECT_TABLE_PAGE_SIZE_OPTIONS = (25, 50, 100, 250)
 PROJECT_TABLE_FALLBACK_PAGE_SIZE = 25
 PING_STATUS_FILTERS = {"ok", "no", "notest"}
+BASE_ADDRESS_COLUMNS = (
+    ("hostname", "Hostname", "hostname"),
+    ("os", "OS", "os"),
+    ("asset_type", "Type", "type"),
+    ("comment", "Comment", "comment"),
+)
+INTERFACE_LANGUAGES = ("RU", "EN")
+INTERFACE_THEMES = get_args(InterfaceTheme)
+ADMIN_SETTINGS_GROUPS = {name: fields for name, fields in GROUPS.items() if name != "interface"}
 
 
 def _templates(request: Request):
@@ -147,37 +162,75 @@ def _session_idle_expired(request: Request, settings: Settings, *, now: int | No
     return current_time - last_activity_at > settings.session_idle_timeout_seconds
 
 
-def require_user(
-    request: Request,
-    db: Annotated[Session, Depends(get_db)],
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> User:
+def _authenticate_session(request: Request, db: Session, settings: Settings, *, touch: bool) -> User:
+    def reject(message: str | None = None) -> HTTPException:
+        if not touch:
+            return HTTPException(status_code=401, detail="Session expired")
+        request.session.clear()
+        return _login_redirect(message)
+
     user_id = request.session.get("user_id")
     if not user_id:
-        raise _login_redirect()
+        if touch:
+            raise _login_redirect()
+        raise reject()
 
     now = int(time.time())
     if _session_idle_expired(request, settings, now=now):
-        request.session.clear()
-        raise _login_redirect(_ui("session.expired"))
+        raise reject(_ui("session.expired"))
 
     try:
         user_pk = int(user_id)
     except (TypeError, ValueError):
-        request.session.clear()
-        raise _login_redirect()
+        raise reject()
 
-    user = session_user(db, request.session.get(SESSION_TOKEN_KEY), user_pk, settings.session_idle_timeout_seconds)
+    user = session_user(
+        db, request.session.get(SESSION_TOKEN_KEY), user_pk, settings.session_idle_timeout_seconds, touch=touch,
+    )
     if user is None:
-        request.session.clear()
-        raise _login_redirect()
+        raise reject()
 
-    request.session[SESSION_LAST_ACTIVITY_KEY] = now
+    if touch:
+        db.refresh(user)  # The session renewal commits and expires ORM attributes.
+        request.session[SESSION_LAST_ACTIVITY_KEY] = now
     return user
 
 
+def _authenticate_interactive_session(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> User:
+    return _authenticate_session(request, db, settings, touch=True)
+
+
+def _authenticate_passive_session(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> User:
+    return _authenticate_session(request, db, settings, touch=False)
+
+
+async def require_user(
+    current_user: Annotated[User, Depends(_authenticate_interactive_session)],
+) -> AsyncIterator[User]:
+    # Set the locale and theme in the request task so both templates and
+    # synchronous handlers inherit them. Never mutate the shared defaults.
+    defaults = get_settings()
+    settings = defaults.model_copy(update={
+        "interface_language": current_user.interface_language or defaults.interface_language,
+        "interface_theme": current_user.interface_theme or defaults.interface_theme,
+    })
+    marker = _request_settings.set(settings)
+    try:
+        yield current_user
+    finally:
+        _request_settings.reset(marker)
+
+
 def require_admin(current_user: Annotated[User, Depends(require_user)]) -> User:
-    if not current_user.is_admin:
+    if not current_user.has_admin_access:
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
 
@@ -198,18 +251,18 @@ def _login_rate_limit_message(retry_after_seconds: int) -> str:
 
 
 def _can_import_csv(user: User) -> bool:
-    return user.is_admin or (user.can_create and user.can_edit)
+    return user.can_create_inventory and user.can_edit_inventory
 
 
 def _nearest_page_size(value: int) -> int:
     return min(PROJECT_TABLE_PAGE_SIZE_OPTIONS, key=lambda option: abs(option - value))
 
 
-def _normalize_project_page_size(value: int | None, settings: Settings) -> int:
+def _normalize_project_page_size(value: int | None, settings: Settings, preferred: int | None = None) -> int:
     if value in PROJECT_TABLE_PAGE_SIZE_OPTIONS:
         return int(value)
 
-    default_size = settings.project_table_default_page_size
+    default_size = preferred or settings.project_table_default_page_size
     if default_size in PROJECT_TABLE_PAGE_SIZE_OPTIONS:
         return default_size
     return _nearest_page_size(default_size or PROJECT_TABLE_FALLBACK_PAGE_SIZE)
@@ -249,6 +302,46 @@ def _project_table_url(
     if os_filter:
         params["os_filter"] = os_filter
     return f"/projects/{project_id}?{urlencode(params)}"
+
+
+def _address_form_table_url(project_id: int, form: FormData, settings: Settings, user: User) -> str:
+    ping_status = _clean_filter_value(str(form.get("ping_status", "")), 20).lower()
+    return _project_table_url(
+        project_id,
+        hide_empty=form.get("hide_empty") == "true",
+        page=_safe_positive_int(form.get("page"), 1),
+        per_page=_normalize_project_page_size(
+            _safe_positive_int(form.get("per_page"), 0), settings, user.project_table_page_size,
+        ),
+        ping_status=ping_status if ping_status in PING_STATUS_FILTERS else "",
+        type_filter=_clean_filter_value(str(form.get("type_filter", "")), 120),
+        os_filter=_clean_filter_value(str(form.get("os_filter", "")), 120),
+    )
+
+
+def _hideable_columns(custom_fields: Iterable[CustomField]) -> set[str]:
+    return {key for key, _, _ in BASE_ADDRESS_COLUMNS} | {field.visibility_key for field in custom_fields}
+
+
+def _address_edit_denied(request: Request, table_url: str) -> RedirectResponse:
+    if "text/html" in request.headers.get("accept", ""):
+        return _redirect_error(table_url, _ui("drawer.edit_denied"))
+    raise HTTPException(status_code=403, detail="IP address edit permission required")
+
+
+def _address_write_conflict(request: Request, table_url: str, owner: str | None) -> RedirectResponse:
+    message = _ui("drawer.locked", username=owner) if owner else _ui("drawer.lock_lost")
+    return _address_conflict(request, table_url, message)
+
+
+def _address_conflict(request: Request, table_url: str, message: str) -> RedirectResponse:
+    if "text/html" in request.headers.get("accept", ""):
+        return _redirect_error(table_url, message)
+    raise HTTPException(status_code=409, detail=message)
+
+
+async def _read_form(request: Request) -> FormData:
+    return await request.form()
 
 
 def _filled_value(column):
@@ -506,13 +599,18 @@ def inventory(
 def settings_page(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_admin)],
+    current_user: Annotated[User, Depends(require_user)],
     error: Annotated[str | None, Query(max_length=240)] = None,
     message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
-    row = db.get(AppConfiguration, 1)
-    credential = db.get(IntegrationCredential, 1)
-    history = db.scalars(select(AppConfigurationAudit).order_by(AppConfigurationAudit.id.desc()).limit(30)).all()
+    admin_context = {}
+    if current_user.has_admin_access:
+        admin_context = {
+            "configuration": db.get(AppConfiguration, 1),
+            "credential": db.get(IntegrationCredential, 1),
+            "groups": ADMIN_SETTINGS_GROUPS,
+            "history": db.scalars(select(AppConfigurationAudit).order_by(AppConfigurationAudit.id.desc()).limit(30)).all(),
+        }
     return _templates(request).TemplateResponse(
         request,
         "settings.html",
@@ -521,25 +619,48 @@ def settings_page(
             "folders": [],
             "active_project": None,
             "current_user": current_user,
-            "configuration": row,
-            "credential": credential,
-            "groups": GROUPS,
-            "history": history,
+            "languages": INTERFACE_LANGUAGES,
+            "themes": INTERFACE_THEMES,
+            "page_sizes": PROJECT_TABLE_PAGE_SIZE_OPTIONS,
             "error": error,
             "message": message,
+            **admin_context,
         },
     )
+
+
+@router.post("/settings/interface")
+async def save_interface_preferences(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    defaults: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    form = await request.form()
+    language = form.get("interface_language")
+    theme = form.get("interface_theme")
+    page_size = form.get("project_table_page_size")
+    valid_page_sizes = {str(size) for size in PROJECT_TABLE_PAGE_SIZE_OPTIONS}
+    if (language not in ("", *INTERFACE_LANGUAGES) or theme not in ("", *INTERFACE_THEMES)
+            or not isinstance(page_size, str) or (page_size and page_size not in valid_page_sizes)):
+        return _redirect_error("/settings", _ui("settings.interface_invalid"))
+
+    current_user.interface_language = language or None
+    current_user.interface_theme = theme or None
+    current_user.project_table_page_size = int(page_size) if page_size else None
+    db.commit()
+    return _redirect_message("/settings", translate(language or defaults.interface_language, "settings.saved"))
 
 
 @router.post("/settings/{group}")
 async def settings_save(group: str, request: Request, db: Annotated[Session, Depends(get_db)],
                         current_user: Annotated[User, Depends(require_admin)]) -> RedirectResponse:
-    if group not in GROUPS:
+    if group not in ADMIN_SETTINGS_GROUPS:
         raise HTTPException(status_code=404)
     form = await request.form()
     try:
         revision = int(str(form.get("revision", "")))
-        values = {name: str(form[name]) for name in GROUPS[group]}
+        values = {name: str(form[name]) for name in ADMIN_SETTINGS_GROUPS[group]}
         save_group(db, group, values, revision, actor_id=current_user.id, actor_name=current_user.username)
     except RevisionConflict:
         db.rollback()
@@ -952,6 +1073,16 @@ def project_detail(
     custom_fields = db.scalars(
         select(CustomField).where(CustomField.project_id == project.id).order_by(CustomField.position.asc())
     ).all()
+    column_preferences = db.get(ProjectColumnVisibility, (current_user.id, project.id))
+    allowed_columns = _hideable_columns(custom_fields)
+    personal_hidden = allowed_columns.intersection(column_preferences.hidden_columns) if column_preferences else set()
+    global_hidden = allowed_columns.intersection(project.hidden_columns)
+    column_context = {
+        "base_address_columns": BASE_ADDRESS_COLUMNS,
+        "hidden_columns": personal_hidden | global_hidden,
+        "personal_hidden_columns": personal_hidden,
+        "global_hidden_columns": global_hidden,
+    }
     filled_condition = _ip_record_filled_condition(list(custom_fields))
     clean_ping_status = _clean_filter_value(ping_status, 20).lower()
     if clean_ping_status not in PING_STATUS_FILTERS:
@@ -971,7 +1102,7 @@ def project_detail(
     if hide_empty:
         visible_conditions.append(filled_condition)
     visible_count = db.scalar(select(func.count(IPAddress.id)).where(*visible_conditions)) or 0
-    page_size = _normalize_project_page_size(per_page, settings)
+    page_size = _normalize_project_page_size(per_page, settings, current_user.project_table_page_size)
     pagination = _pagination_context(
         project.id,
         hide_empty=hide_empty,
@@ -1007,7 +1138,9 @@ def project_detail(
             {
                 "request": request,
                 "project": project,
+                "current_user": current_user,
                 "custom_fields": custom_fields,
+                **column_context,
                 "ip_records": ip_records,
                 "hide_empty": hide_empty,
                 "hide_toggle_url": hide_toggle_url,
@@ -1053,6 +1186,7 @@ def project_detail(
         "active_project": project,
         "current_user": current_user,
         "custom_fields": custom_fields,
+        **column_context,
         "max_custom_fields": MAX_CUSTOM_FIELDS,
         "project_schedule": project_schedule,
         "project_schedule_minutes": _schedule_interval_minutes(project_schedule, settings),
@@ -1089,23 +1223,179 @@ def admin_users(
     request: Request,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
+    q: Annotated[str, Query(max_length=120)] = "",
+    status: Literal["all", "active", "inactive"] = "all",
+    new_user: bool = False,
+    edit_user: Annotated[int | None, Query(ge=1)] = None,
     error: Annotated[str | None, Query(max_length=240)] = None,
     message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> HTMLResponse:
-    users = db.scalars(select(User).order_by(User.username.asc())).all()
+    query = q.strip()
+    statement = select(User).order_by(User.username.asc())
+    if status != "all":
+        statement = statement.where(User.is_active.is_(status == "active"))
+    users = db.scalars(statement).all()
+    if query:
+        needle = query.casefold()
+        users = [user for user in users if any(needle in value.casefold() for value in (
+            user.username, f"{user.first_name} {user.last_name}", f"{user.last_name} {user.first_name}",
+        ))]
+    edit_account = db.get(User, edit_user) if edit_user is not None else None
+    if edit_user is not None and edit_account is None:
+        raise HTTPException(status_code=404, detail=_ui("admin.user_not_found"))
     return _templates(request).TemplateResponse(
         request,
         "admin_users.html",
         {
             "request": request,
-            "folders": [],
-            "active_project": None,
             "current_user": current_user,
             "users": users,
-            "error": error,
+            "roles": _available_roles(db),
+            "new_user": new_user and edit_account is None,
+            "edit_account": edit_account,
+            "user_query": query,
+            "status": status,
+            "error": error if not (new_user or edit_account) else None,
+            "dialog_error": error,
             "message": message,
         },
     )
+
+
+@router.get("/admin/users/new", response_class=HTMLResponse)
+def admin_new_user(
+    current_user: Annotated[User, Depends(require_admin)],
+) -> RedirectResponse:
+    return _redirect("/admin/users?new_user=true")
+
+
+@router.get("/admin/users/{user_id}", response_class=HTMLResponse)
+def admin_user_profile(
+    user_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    edit: bool = False,
+    error: Annotated[str | None, Query(max_length=240)] = None,
+    message: Annotated[str | None, Query(max_length=240)] = None,
+) -> HTMLResponse:
+    account = db.get(User, user_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail=_ui("admin.user_not_found"))
+    activity = db.scalars(
+        select(IPAddressHistory)
+        .where(IPAddressHistory.user_id == account.id)
+        .options(selectinload(IPAddressHistory.project))
+        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
+        .limit(50)
+    ).all()
+    return _templates(request).TemplateResponse(request, "admin_user_profile.html", {
+        "current_user": current_user, "account": account, "activity": activity, "roles": _available_roles(db),
+        "open_on_load": edit, "dialog_error": error, "error": error if not edit else None, "message": message,
+    })
+
+
+@router.get("/admin/users/{user_id}/edit", response_class=HTMLResponse)
+def admin_edit_user(
+    user_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+) -> RedirectResponse:
+    if db.get(User, user_id) is None:
+        raise HTTPException(status_code=404, detail=_ui("admin.user_not_found"))
+    return _redirect(f"/admin/users?edit_user={user_id}")
+
+
+def _available_roles(db: Session) -> list[Role]:
+    return list(db.scalars(select(Role).order_by(Role.code.is_(None), Role.id)))
+
+
+@router.get("/admin/roles", response_class=HTMLResponse)
+def admin_roles(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    new_role: bool = False,
+    edit_role: Annotated[int | None, Query(ge=1)] = None,
+    error: Annotated[str | None, Query(max_length=240)] = None,
+    message: Annotated[str | None, Query(max_length=240)] = None,
+) -> HTMLResponse:
+    roles = _available_roles(db)
+    if edit_role is not None and not any(role.id == edit_role and role.code is None for role in roles):
+        raise HTTPException(status_code=404, detail=_ui("roles.not_found"))
+    return _templates(request).TemplateResponse(request, "admin_roles.html", {
+        "current_user": current_user, "roles": roles,
+        "new_role": new_role and edit_role is None, "edit_role": edit_role, "dialog_error": error,
+        "error": error if not (new_role or edit_role) else None, "message": message,
+    })
+
+
+@router.post("/admin/roles")
+def save_role(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    name: Annotated[str, Form(min_length=1, max_length=100)],
+    role_id: Annotated[int | None, Form(ge=1)] = None,
+    can_create: Annotated[str | None, Form()] = None,
+    can_edit: Annotated[str | None, Form()] = None,
+    can_delete: Annotated[str | None, Form()] = None,
+    can_manage_columns: Annotated[str | None, Form()] = None,
+) -> RedirectResponse:
+    role = db.get(Role, role_id) if role_id is not None else Role()
+    if role is None or role.code is not None:
+        raise HTTPException(status_code=404, detail=_ui("roles.not_found"))
+    target = f"/admin/roles?edit_role={role_id}" if role_id is not None else "/admin/roles?new_role=true"
+    clean_name = name.strip()
+    name_key = clean_name.casefold()
+    reserved = {
+        translate(language, f"roles.{code}").casefold()
+        for language in INTERFACE_LANGUAGES for code in ("admin", "user", "editor")
+    }
+    if not name_key:
+        return _redirect_error(target, _ui("roles.name_empty"))
+    if name_key in reserved:
+        return _redirect_error(target, _ui("roles.duplicate"))
+    role.name = clean_name
+    role.name_key = name_key
+    role.can_create = _checked(can_create)
+    role.can_edit = _checked(can_edit)
+    role.can_delete = _checked(can_delete)
+    role.can_manage_columns = _checked(can_manage_columns)
+    db.add(role)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return _redirect_error(target, _ui("roles.duplicate"))
+    return _redirect_message("/admin/roles", _ui("roles.saved"))
+
+
+@router.post("/admin/roles/{role_id}/delete")
+def delete_role(
+    role_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+) -> RedirectResponse:
+    role = db.get(Role, role_id)
+    if role is None:
+        return _redirect_error("/admin/roles", _ui("roles.not_found"))
+    if role.code is not None:
+        return _redirect_error("/admin/roles", _ui("roles.cannot_delete_builtin"))
+
+    assigned = select(User.id).where(User.role_id == role_id).exists()
+    try:
+        result = db.execute(
+            delete(Role).where(Role.id == role_id, Role.code.is_(None), ~assigned)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            db.rollback()
+            return _redirect_error("/admin/roles", _ui("roles.cannot_delete_assigned"))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return _redirect_error("/admin/roles", _ui("roles.cannot_delete_assigned"))
+    return _redirect_message("/admin/roles", _ui("roles.deleted"))
 
 
 @router.post("/admin/users")
@@ -1117,19 +1407,21 @@ def admin_create_user(
     first_name: Annotated[str, Form(max_length=120)] = "",
     last_name: Annotated[str, Form(max_length=120)] = "",
     description: Annotated[str, Form(max_length=2000)] = "",
-    can_create: Annotated[str | None, Form()] = None,
-    can_edit: Annotated[str | None, Form()] = None,
-    can_delete: Annotated[str | None, Form()] = None,
-    can_manage_columns: Annotated[str | None, Form()] = None,
+    role_id: Annotated[int | None, Form(ge=1)] = None,
     is_active: Annotated[str | None, Form()] = None,
 ) -> RedirectResponse:
+    target = "/admin/users?new_user=true"
     clean_username = _clean_text(username, 80)
     if not clean_username:
-        return _redirect_error("/admin/users", _ui("admin.username_empty"))
+        return _redirect_error(target, _ui("admin.username_empty"))
 
     existing = db.scalar(select(User).where(func.lower(User.username) == clean_username.lower()))
     if existing:
-        return _redirect_error("/admin/users", _ui("admin.duplicate"))
+        return _redirect_error(target, _ui("admin.duplicate"))
+
+    role = db.get(Role, role_id) if role_id is not None else db.scalar(select(Role).where(Role.code == "user"))
+    if role is None:
+        return _redirect_error(target, _ui("roles.not_found"))
 
     try:
         create_user(
@@ -1139,17 +1431,14 @@ def admin_create_user(
             first_name=_clean_text(first_name, 120),
             last_name=_clean_text(last_name, 120),
             description=_clean_text(description, 2000),
-            can_create=_checked(can_create),
-            can_edit=_checked(can_edit),
-            can_delete=_checked(can_delete),
-            can_manage_columns=_checked(can_manage_columns),
+            role=role,
             is_active=_checked(is_active),
         )
     except IntegrityError:
         db.rollback()
-        return _redirect_error("/admin/users", _ui("admin.create_failed_unique"))
+        return _redirect_error(target, _ui("admin.create_failed_unique"))
 
-    return _redirect("/admin/users")
+    return _redirect_message("/admin/users", _ui("admin.created"))
 
 
 @router.post("/admin/users/{user_id}/update")
@@ -1162,60 +1451,59 @@ def admin_update_user(
     last_name: Annotated[str, Form(max_length=120)] = "",
     description: Annotated[str, Form(max_length=2000)] = "",
     password: Annotated[str, Form(max_length=200)] = "",
-    can_create: Annotated[str | None, Form()] = None,
-    can_edit: Annotated[str | None, Form()] = None,
-    can_delete: Annotated[str | None, Form()] = None,
-    can_manage_columns: Annotated[str | None, Form()] = None,
+    role_id: Annotated[int | None, Form(ge=1)] = None,
     is_active: Annotated[str | None, Form()] = None,
+    from_profile: Annotated[bool, Form()] = False,
 ) -> RedirectResponse:
     user = db.get(User, user_id)
     if user is None:
         return _redirect_error("/admin/users", _ui("admin.user_not_found"))
 
+    profile_url = f"/admin/users/{user_id}"
+    edit_url = f"{profile_url}?edit=true" if from_profile else f"/admin/users?edit_user={user_id}"
     clean_username = _clean_text(username, 80)
     if not clean_username:
-        return _redirect_error("/admin/users", _ui("admin.username_empty"))
-    if user.is_admin and clean_username.lower() != user.username.lower():
-        return _redirect_error("/admin/users", _ui("admin.username_env"))
+        return _redirect_error(edit_url, _ui("admin.username_empty"))
+    if user.is_admin and clean_username != user.username:
+        return _redirect_error(edit_url, _ui("admin.username_env"))
+    protected = user.is_admin or user.id == current_user.id
+    if role_id is not None and role_id != user.role_id and protected:
+        return _redirect_error(edit_url, _ui("roles.protected_account"))
+    role = db.get(Role, role_id) if role_id is not None else user.role
+    if role_id is not None and role is None:
+        return _redirect_error(edit_url, _ui("roles.not_found"))
 
     existing = db.scalar(
         select(User).where(func.lower(User.username) == clean_username.lower(), User.id != user.id)
     )
     if existing:
-        return _redirect_error("/admin/users", _ui("admin.duplicate"))
+        return _redirect_error(edit_url, _ui("admin.duplicate"))
 
     clean_password = password.strip()
+    if clean_password and user.is_admin and user.id != current_user.id:
+        return _redirect_error(edit_url, _ui("roles.protected_password"))
     if clean_password and len(clean_password) < 8:
-        return _redirect_error("/admin/users", _ui("admin.password_too_short"))
+        return _redirect_error(edit_url, _ui("admin.password_too_short"))
 
     user.username = clean_username
     user.first_name = _clean_text(first_name, 120)
     user.last_name = _clean_text(last_name, 120)
     user.description = _clean_text(description, 2000)
-    if user.is_admin:
-        user.is_active = True
-        user.can_create = True
-        user.can_edit = True
-        user.can_delete = True
-        user.can_manage_columns = True
-    else:
-        user.is_active = _checked(is_active)
-        user.can_create = _checked(can_create)
-        user.can_edit = _checked(can_edit)
-        user.can_delete = _checked(can_delete)
-        user.can_manage_columns = _checked(can_manage_columns)
+    role_changed = role is not None and role.id != user.role_id
+    user.role = role
+    user.is_active = protected or _checked(is_active)
     if clean_password:
         user.password_hash = hash_password(clean_password)
-    if clean_password or not user.is_active:
+    if clean_password or not user.is_active or role_changed:
         revoke_user_sessions(db, user.id)
 
     try:
         db.commit()
     except IntegrityError:
         db.rollback()
-        return _redirect_error("/admin/users", _ui("admin.update_failed_unique"))
+        return _redirect_error(edit_url, _ui("admin.update_failed_unique"))
 
-    return _redirect_message("/admin/users", _ui("admin.updated"))
+    return _redirect_message(profile_url if from_profile else "/admin/users", _ui("admin.updated"))
 
 
 @router.post("/admin/users/{user_id}/delete")
@@ -1336,10 +1624,55 @@ def add_custom_field(
     return _redirect(f"/projects/{project_id}?hide_empty=false")
 
 
-@router.post("/projects/{project_id}/fields/configure")
-async def configure_custom_fields(
+@router.post("/projects/{project_id}/fields/visibility")
+async def save_column_visibility(
     project_id: int,
     request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> RedirectResponse:
+    if db.get(Project, project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    form = await request.form()
+    custom_fields = db.scalars(select(CustomField).where(CustomField.project_id == project_id))
+    hidden = sorted(_hideable_columns(custom_fields).intersection(form.getlist("hidden_column")))
+    insert = sqlite_insert if db.get_bind().dialect.name == "sqlite" else postgres_insert
+    statement = insert(ProjectColumnVisibility).values(
+        user_id=current_user.id, project_id=project_id, hidden_columns=hidden,
+    )
+    db.execute(statement.on_conflict_do_update(
+        index_elements=[ProjectColumnVisibility.user_id, ProjectColumnVisibility.project_id],
+        set_={"hidden_columns": statement.excluded.hidden_columns},
+    ))
+    db.commit()
+    return _redirect_message(_address_form_table_url(project_id, form, settings, current_user), _ui("field.visibility_saved"))
+
+
+@router.post("/projects/{project_id}/fields/global-visibility")
+async def save_global_column_visibility(
+    project_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    current_user: Annotated[User, Depends(require_admin)],
+) -> RedirectResponse:
+    project = db.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    form = await request.form()
+    custom_fields = db.scalars(select(CustomField).where(CustomField.project_id == project_id))
+    project.hidden_columns = sorted(_hideable_columns(custom_fields).intersection(form.getlist("hidden_column")))
+    db.commit()
+    return _redirect_message(
+        _address_form_table_url(project_id, form, settings, current_user), _ui("field.global_visibility_saved"),
+    )
+
+
+@router.post("/projects/{project_id}/fields/configure")
+def configure_custom_fields(
+    project_id: int,
+    form: Annotated[FormData, Depends(_read_form)],
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
@@ -1349,10 +1682,11 @@ async def configure_custom_fields(
     if db.get(Project, project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    form = await request.form()
     hide_empty = form.get("hide_empty") == "true"
     page = _safe_positive_int(form.get("page"), 1)
-    per_page = _normalize_project_page_size(_safe_positive_int(form.get("per_page"), 0), settings)
+    per_page = _normalize_project_page_size(
+        _safe_positive_int(form.get("per_page"), 0), settings, current_user.project_table_page_size,
+    )
     ping_status = _clean_filter_value(str(form.get("ping_status", "")), 20).lower()
     if ping_status not in PING_STATUS_FILTERS:
         ping_status = ""
@@ -1411,23 +1745,108 @@ async def configure_custom_fields(
     return _redirect_message(return_url, _ui("field.saved"))
 
 
+def _get_address(db: Session, project_id: int, ip_id: int) -> IPAddress:
+    address = address_locks.find_address(db, project_id, ip_id)
+    if address is None:
+        raise HTTPException(status_code=404, detail="IP address not found")
+    return address
+
+
+@router.get("/projects/{project_id}/addresses/{ip_id}/edit-lock")
+def address_edit_lock_status(
+    project_id: int, ip_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(_authenticate_passive_session)],
+) -> dict:
+    if not current_user.can_edit_inventory:
+        raise HTTPException(status_code=403, detail=_ui("drawer.edit_denied"))
+    return {"owner": address_locks.lock_owner(db, _get_address(db, project_id, ip_id))}
+
+
+@router.post("/projects/{project_id}/addresses/{ip_id}/edit-lock")
+def acquire_address_edit_lock(
+    project_id: int, ip_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_user)],
+) -> JSONResponse:
+    if not current_user.can_edit_inventory:
+        raise HTTPException(status_code=403, detail=_ui("drawer.edit_denied"))
+    token = address_locks.acquire(db, project_id, ip_id, current_user.id)
+    address = _get_address(db, project_id, ip_id)
+    if token is None:
+        return JSONResponse({"owner": address_locks.lock_owner(db, address)}, status_code=409)
+    content = {
+        "token": token,
+        "fields": {
+            "hostname": address.hostname, "os": address.os,
+            "asset_type": address.asset_type, "comment": address.comment,
+        },
+        "custom_values": address.custom_values,
+    }
+    db.commit()
+    return JSONResponse(content)
+
+
+@router.post("/projects/{project_id}/addresses/{ip_id}/edit-lock/renew")
+def renew_address_edit_lock(
+    project_id: int, ip_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(_authenticate_passive_session)],
+    token: Annotated[str, Form(min_length=43, max_length=43)],
+) -> Response:
+    if not current_user.can_edit_inventory:
+        raise HTTPException(status_code=403, detail=_ui("drawer.edit_denied"))
+    if not address_locks.renew(db, project_id, ip_id, current_user.id, token):
+        return JSONResponse({"owner": address_locks.lock_owner(db, _get_address(db, project_id, ip_id))},
+                            status_code=409)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/projects/{project_id}/addresses/{ip_id}/edit-lock/release")
+def release_address_edit_lock(
+    project_id: int, ip_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(_authenticate_passive_session)],
+    token: Annotated[str, Form(min_length=43, max_length=43)],
+) -> Response:
+    address_locks.release(db, project_id, ip_id, current_user.id, token)
+    db.commit()
+    return Response(status_code=204)
+
+
 @router.post("/projects/{project_id}/addresses/{ip_id}")
-async def update_ip_address(
+def update_ip_address(
     project_id: int,
     ip_id: int,
     request: Request,
+    form: Annotated[FormData, Depends(_read_form)],
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
+    table_url = _address_form_table_url(project_id, form, settings, current_user)
     if not current_user.can_edit_inventory:
-        raise HTTPException(status_code=403, detail="IP address edit permission required")
+        return _address_edit_denied(request, table_url)
 
-    ip_record = db.scalar(select(IPAddress).where(IPAddress.id == ip_id, IPAddress.project_id == project_id))
-    if ip_record is None:
-        raise HTTPException(status_code=404, detail="IP address not found")
+    token = str(form.get("edit_lock_token", ""))
+    browser_form = "text/html" in request.headers.get("accept", "")
+    lock_custom_field_schema(db, project_id)
+    if (browser_form and not token) or not address_locks.reserve_write(
+        db, project_id, ip_id, user_id=current_user.id, token=token,
+    ):
+        owner = address_locks.lock_owner(db, _get_address(db, project_id, ip_id))
+        return _address_write_conflict(request, table_url, owner)
+    ip_record = _get_address(db, project_id, ip_id)
+    custom_fields = db.scalars(
+        select(CustomField).where(CustomField.project_id == project_id).order_by(CustomField.position.asc())
+    ).all()
+    if token:
+        submitted_fields = {name for name in form if name.startswith("custom__")}
+        if submitted_fields != {field.drawer_input_name for field in custom_fields}:
+            db.commit()
+            return _address_conflict(request, table_url, _ui("drawer.columns_changed"))
 
-    form = await request.form()
     new_hostname = _clean_text(str(form.get("hostname", "")), 255)
     new_os = _clean_text(str(form.get("os", "")), 120)
     new_asset_type = _clean_text(str(form.get("asset_type", "")), 120)
@@ -1447,13 +1866,11 @@ async def update_ip_address(
     ip_record.os = new_os
     ip_record.asset_type = new_asset_type
     ip_record.comment = new_comment
-    custom_fields = db.scalars(
-        select(CustomField).where(CustomField.project_id == project_id).order_by(CustomField.position.asc())
-    ).all()
     custom_values = dict(ip_record.custom_values or {})
     for field in custom_fields:
+        input_name = field.drawer_input_name if token else f"custom__{field.key}"
         old_value = custom_values.get(field.key, "")
-        new_value = _clean_text(str(form.get(f"custom__{field.key}", "")), 1000)
+        new_value = _clean_text(str(form.get(input_name, "")), 1000)
         change = build_field_change(f"custom.{field.key}", field.name, old_value, new_value)
         if change is not None:
             changes.append(change)
@@ -1462,42 +1879,30 @@ async def update_ip_address(
     record_ip_address_history(db, ip_record=ip_record, user=current_user, changes=changes)
 
     db.commit()
-    hide_empty = form.get("hide_empty") == "true"
-    page = _safe_positive_int(form.get("page"), 1)
-    per_page = _normalize_project_page_size(_safe_positive_int(form.get("per_page"), 0), settings)
-    ping_status = _clean_filter_value(str(form.get("ping_status", "")), 20).lower()
-    if ping_status not in PING_STATUS_FILTERS:
-        ping_status = ""
-    type_filter = _clean_filter_value(str(form.get("type_filter", "")), 120)
-    os_filter = _clean_filter_value(str(form.get("os_filter", "")), 120)
-    return _redirect(
-        f"{_project_table_url(
-            project_id,
-            hide_empty=hide_empty,
-            page=page,
-            per_page=per_page,
-            ping_status=ping_status,
-            type_filter=type_filter,
-            os_filter=os_filter,
-        )}#ip-{ip_id}"
-    )
+    return _redirect(f"{table_url}#ip-{ip_id}")
 
 
 @router.post("/projects/{project_id}/addresses/{ip_id}/clear")
-async def clear_ip_address(
+def clear_ip_address(
     project_id: int,
     ip_id: int,
     request: Request,
+    form: Annotated[FormData, Depends(_read_form)],
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
+    table_url = _address_form_table_url(project_id, form, settings, current_user)
     if not current_user.can_edit_inventory:
-        raise HTTPException(status_code=403, detail="IP address edit permission required")
+        return _address_edit_denied(request, table_url)
 
-    ip_record = db.scalar(select(IPAddress).where(IPAddress.id == ip_id, IPAddress.project_id == project_id))
-    if ip_record is None:
-        raise HTTPException(status_code=404, detail="IP address not found")
+    lock_custom_field_schema(db, project_id)
+    if not address_locks.reserve_write(
+        db, project_id, ip_id, user_id=current_user.id, token=str(form.get("edit_lock_token", "")),
+    ):
+        owner = address_locks.lock_owner(db, _get_address(db, project_id, ip_id))
+        return _address_write_conflict(request, table_url, owner)
+    ip_record = _get_address(db, project_id, ip_id)
 
     custom_fields = db.scalars(
         select(CustomField).where(CustomField.project_id == project_id).order_by(CustomField.position.asc())
@@ -1527,26 +1932,7 @@ async def clear_ip_address(
     record_ip_address_history(db, ip_record=ip_record, user=current_user, changes=changes)
     db.commit()
 
-    form = await request.form()
-    hide_empty = form.get("hide_empty") == "true"
-    page = _safe_positive_int(form.get("page"), 1)
-    per_page = _normalize_project_page_size(_safe_positive_int(form.get("per_page"), 0), settings)
-    ping_status = _clean_filter_value(str(form.get("ping_status", "")), 20).lower()
-    if ping_status not in PING_STATUS_FILTERS:
-        ping_status = ""
-    type_filter = _clean_filter_value(str(form.get("type_filter", "")), 120)
-    os_filter = _clean_filter_value(str(form.get("os_filter", "")), 120)
-    return _redirect(
-        f"{_project_table_url(
-            project_id,
-            hide_empty=hide_empty,
-            page=page,
-            per_page=per_page,
-            ping_status=ping_status,
-            type_filter=type_filter,
-            os_filter=os_filter,
-        )}#ip-{ip_id}"
-    )
+    return _redirect(f"{table_url}#ip-{ip_id}")
 
 
 @router.get("/projects/{project_id}/history", response_class=HTMLResponse)
@@ -1685,7 +2071,7 @@ def search(
             .limit(50)
         ).all()
 
-    project_page_size = _normalize_project_page_size(None, settings)
+    project_page_size = _normalize_project_page_size(None, settings, current_user.project_table_page_size)
     return _templates(request).TemplateResponse(
         request,
         "search.html",

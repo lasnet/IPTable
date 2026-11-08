@@ -1,0 +1,30 @@
+{% set dialog_id = 'role-edit-modal-' ~ role.id if role else 'role-new-modal' %}
+<dialog class="modal-dialog users-modal" id="{{ dialog_id }}" aria-labelledby="{{ dialog_id }}-title"
+  {% if open_on_load %}data-open-on-load{% endif %}>
+  <form class="modal-form users-form" action="/admin/roles" method="post">
+    {{ csrf_input(request) }}
+    {% if role %}<input type="hidden" name="role_id" value="{{ role.id }}">{% endif %}
+    <header class="modal-head">
+      <h2 id="{{ dialog_id }}-title">{{ _('roles.edit' if role else 'roles.add') }}</h2>
+      <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
+    </header>
+    {% if open_on_load and dialog_error %}<p class="notice error" role="alert">{{ dialog_error }}</p>{% endif %}
+    <label class="users-field">
+      <span>{{ _('roles.name') }}</span>
+      <input name="name" maxlength="100" required autofocus value="{{ role.name if role else '' }}">
+    </label>
+    <fieldset class="users-permissions">
+      <legend>{{ _('admin.permissions') }}</legend>
+      <p class="settings-hint">{{ _('admin.permissions_hint') }}</p>
+      <div class="users-permissions-grid">
+        {% for key, label in permissions %}
+        <label><input type="checkbox" name="{{ key }}" {% if role and role | attr(key) %}checked{% endif %}>{{ _(label) }}</label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <footer class="users-form-actions">
+      <button class="soft-button users-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+      <button class="settings-primary-button users-button" type="submit">{{ _('button.save' if role else 'button.create') }}</button>
+    </footer>
+  </form>
+</dialog>

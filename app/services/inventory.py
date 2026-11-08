@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import CustomField, IPAddress, Project
-from app.services.custom_fields import make_custom_field_key, next_available_key
+from app.services.custom_fields import lock_custom_field_schema, make_custom_field_key, next_available_key
 from app.services.network import address_sort_key, iter_project_addresses, normalize_cidr, reserved_project_addresses
 
 
@@ -77,6 +77,7 @@ def normalize_project_address_rows(db: Session) -> None:
 
 
 def create_custom_field(db: Session, *, project_id: int, name: str, field_type: str) -> CustomField:
+    lock_custom_field_schema(db, project_id, exclusive=True)
     clean_name = name.strip()
     existing_keys = set(
         db.scalars(select(CustomField.key).where(CustomField.project_id == project_id)).all()

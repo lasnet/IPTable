@@ -133,6 +133,7 @@ def create_app() -> FastAPI:
     templates.context_processors.append(lambda request: {
         "html_language": html_language(get_settings().interface_language),
         "interface_language": normalize_language(get_settings().interface_language),
+        "interface_theme": get_settings().interface_theme,
         "app_name": get_settings().app_name,
     })
     templates.env.globals["csrf_input"] = csrf_input

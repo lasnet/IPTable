@@ -1,197 +1,87 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% from "_user_ui.html" import avatar, role_badge, status_badge, tabs %}
 
-{% block title %}{{ _('admin.title') }} - {{ app_name }}{% endblock %}
+{% block title %}{{ _('admin.users') }} - {{ app_name }}{% endblock %}
 
 {% block content %}
-<section class="project-card admin-card">
-  <div class="project-card-head">
-    <div class="project-title">
-      <div class="title-icon">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-          <path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
-          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-        </svg>
-      </div>
-      <div>
-        <h2>{{ _('admin.title') }}</h2>
-        <p class="subtle">{{ _('admin.description') }}</p>
-      </div>
+<section class="users-page">
+  <header class="dashboard-heading users-heading">
+    <div>
+      <h1>{{ _('admin.users') }}</h1>
+      <p>{{ _('admin.description') }}</p>
     </div>
-  </div>
+    <a class="settings-primary-button users-button" href="/admin/users/new" data-modal-target="user-new-modal">{{ icon('plus') }}{{ _('button.add') }}</a>
+  </header>
 
-  <div class="admin-layout">
-    <section class="admin-section" id="admin-users-create">
-      <h3>{{ _('admin.new_user') }}</h3>
-      <form class="admin-form" action="/admin/users" method="post">
-        {{ csrf_input(request) }}
-        <div class="form-grid">
-          <label>
-            {{ _('common.username') }}
-            <input name="username" minlength="3" maxlength="80" required>
-          </label>
-          <label>
-            {{ _('common.password') }}
-            <input name="password" type="password" minlength="8" maxlength="200" required>
-          </label>
-          <label>
-            {{ _('admin.first_name') }}
-            <input name="first_name" maxlength="120">
-          </label>
-          <label>
-            {{ _('admin.last_name') }}
-            <input name="last_name" maxlength="120">
-          </label>
-        </div>
-        <label>
-          {{ _('common.description') }}
-          <textarea name="description" maxlength="2000" rows="3"></textarea>
-        </label>
-        <div class="permission-grid">
-          <label><input type="checkbox" name="is_active" checked> {{ _('admin.user_active') }}</label>
-          <label><input type="checkbox" name="can_create"> {{ _('admin.allow_create') }}</label>
-          <label><input type="checkbox" name="can_edit"> {{ _('admin.allow_edit') }}</label>
-          <label><input type="checkbox" name="can_delete"> {{ _('admin.allow_delete') }}</label>
-          <label><input type="checkbox" name="can_manage_columns"> {{ _('admin.edit_columns') }}</label>
-        </div>
-        <button type="submit">{{ _('admin.create_user') }}</button>
-      </form>
-    </section>
-
-    <section class="admin-section" id="admin-users-list">
-      <h3>{{ _('admin.users') }}</h3>
-      <div class="users-list">
-        {% for user in users %}
-        <article class="user-row">
-          <div class="user-main">
-            <div class="user-title-line">
-              <strong>{{ user.username }}</strong>
-              {% if user.is_admin %}<span class="role-badge">admin</span>{% endif %}
-              {% if user.is_active %}
-              <span class="status-badge active">{{ _('admin.active') }}</span>
-              {% else %}
-              <span class="status-badge inactive">{{ _('admin.inactive') }}</span>
-              {% endif %}
-            </div>
-            {% if user.first_name or user.last_name %}
-            <p>{{ user.first_name }} {{ user.last_name }}</p>
-            {% else %}
-            <p class="muted-text">-</p>
-            {% endif %}
-            {% if user.description %}<small>{{ user.description }}</small>{% endif %}
-          </div>
-          <div class="user-permissions">
-            <span class="{{ 'enabled' if user.can_create_inventory else '' }}">{{ _('admin.permission_create') }}</span>
-            <span class="{{ 'enabled' if user.can_edit_inventory else '' }}">{{ _('admin.permission_edit') }}</span>
-            <span class="{{ 'enabled' if user.can_delete_inventory else '' }}">{{ _('admin.permission_delete') }}</span>
-            <span class="{{ 'enabled' if user.can_manage_project_columns else '' }}">{{ _('admin.permission_columns') }}</span>
-          </div>
-          <div class="user-actions">
-            <button class="soft-button compact-action" type="button" data-modal-target="user-edit-modal-{{ user.id }}">
-              {{ _('admin.edit') }}
-            </button>
-          </div>
-        </article>
-        {% else %}
-        <div class="empty-table">{{ _('admin.no_users') }}</div>
-        {% endfor %}
-      </div>
-    </section>
-  </div>
+  {{ tabs('users') }}
+  <section class="users-panel" aria-label="{{ _('admin.users') }}">
+    <form class="users-filters" action="/admin/users" method="get" role="search">
+      <label class="users-search">
+        {{ icon('search') }}
+        <input type="search" name="q" value="{{ user_query }}" maxlength="120" placeholder="{{ _('admin.search') }}" aria-label="{{ _('admin.search') }}">
+      </label>
+      <select name="status" aria-label="{{ _('admin.status') }}">
+        <option value="all" {% if status == 'all' %}selected{% endif %}>{{ _('filter.all_statuses') }}</option>
+        <option value="active" {% if status == 'active' %}selected{% endif %}>{{ _('admin.filter_active') }}</option>
+        <option value="inactive" {% if status == 'inactive' %}selected{% endif %}>{{ _('admin.filter_inactive') }}</option>
+      </select>
+      <button class="soft-button users-button" type="submit">{{ _('history.search_submit') }}</button>
+      {% if user_query or status != 'all' %}<a class="users-back" href="/admin/users">{{ _('button.reset') }}</a>{% endif %}
+    </form>
+    <div class="users-table-wrap">
+      <table class="users-table">
+        <thead>
+          <tr>
+            <th scope="col">{{ _('admin.first_name') }}</th>
+            <th scope="col">{{ _('admin.last_name') }}</th>
+            <th scope="col">{{ _('admin.status') }}</th>
+            <th scope="col">{{ _('admin.role') }}</th>
+            <th scope="col">{{ _('admin.action') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for account in users %}
+          <tr class="users-table-row">
+            <td>
+              <a class="users-person" href="/admin/users/{{ account.id }}">
+                {{ avatar(account) }}
+                <span>
+                  <strong>{{ account.first_name or account.username }}</strong>
+                  {% if account.first_name %}<small>{{ account.username }}</small>{% endif %}
+                </span>
+              </a>
+            </td>
+            <td>{{ account.last_name or '—' }}</td>
+            <td>{{ status_badge(account) }}</td>
+            <td>{{ role_badge(account) }}</td>
+            <td><a class="icon-button users-edit" href="/admin/users/{{ account.id }}/edit"
+              data-modal-target="user-edit-modal-{{ account.id }}"
+              title="{{ _('admin.edit') }}" aria-label="{{ _('admin.edit') }}: {{ account.username }}">{{ icon('edit') }}</a></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="users-empty">{{ _('admin.no_results' if user_query or status != 'all' else 'admin.no_users') }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </section>
 {% endblock %}
 
 {% block modals %}
 {{ super() }}
-{% for user in users %}
-<dialog class="modal-dialog admin-user-modal" id="user-edit-modal-{{ user.id }}">
-  <form class="modal-form admin-form admin-edit-form" action="/admin/users/{{ user.id }}/update" method="post">
-    {{ csrf_input(request) }}
-    <div class="modal-head">
-      <div>
-        <h2>{{ _('admin.edit_user') }}</h2>
-        <p>{{ user.username }}</p>
-      </div>
-      <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
-    </div>
-    {% if user.is_admin %}
-    <div class="form-hint">
-      {{ _('admin.hint') }}
-    </div>
-    {% endif %}
-
-    <section class="admin-form-block">
-      <h4>{{ _('admin.account') }}</h4>
-      <div class="form-grid">
-        <label>
-          {{ _('common.username') }}
-          <input name="username" minlength="3" maxlength="80" required
-            {% if user.is_admin %}readonly{% endif %} value="{{ user.username }}">
-        </label>
-        <label>
-          {{ _('admin.new_password') }}
-          <input name="password" type="password" minlength="8" maxlength="200" placeholder="{{ _('password.keep_empty') }}">
-        </label>
-      </div>
-    </section>
-
-    <section class="admin-form-block">
-      <h4>{{ _('admin.profile') }}</h4>
-      <div class="form-grid">
-        <label>
-          {{ _('admin.first_name') }}
-          <input name="first_name" maxlength="120" value="{{ user.first_name }}">
-        </label>
-        <label>
-          {{ _('admin.last_name') }}
-          <input name="last_name" maxlength="120" value="{{ user.last_name }}">
-        </label>
-      </div>
-      <label>
-        {{ _('common.description') }}
-        <textarea name="description" maxlength="2000" rows="3">{{ user.description }}</textarea>
-      </label>
-    </section>
-
-    <section class="admin-form-block">
-      <h4>{{ _('admin.permissions') }}</h4>
-      {% if user.is_admin %}
-      <div class="permission-grid structured-permissions">
-        <label><input type="checkbox" checked disabled> {{ _('admin.active_admin') }}</label>
-        <label><input type="checkbox" checked disabled> {{ _('admin.allow_create') }}</label>
-        <label><input type="checkbox" checked disabled> {{ _('admin.allow_edit') }}</label>
-        <label><input type="checkbox" checked disabled> {{ _('admin.allow_delete') }}</label>
-        <label><input type="checkbox" checked disabled> {{ _('admin.edit_columns') }}</label>
-      </div>
-      {% else %}
-      <div class="permission-grid structured-permissions">
-        <label><input type="checkbox" name="is_active" {% if user.is_active %}checked{% endif %}> {{ _('admin.user_active') }}</label>
-        <label><input type="checkbox" name="can_create" {% if user.can_create %}checked{% endif %}> {{ _('admin.allow_create') }}</label>
-        <label><input type="checkbox" name="can_edit" {% if user.can_edit %}checked{% endif %}> {{ _('admin.allow_edit') }}</label>
-        <label><input type="checkbox" name="can_delete" {% if user.can_delete %}checked{% endif %}> {{ _('admin.allow_delete') }}</label>
-        <label><input type="checkbox" name="can_manage_columns" {% if user.can_manage_columns %}checked{% endif %}> {{ _('admin.edit_columns') }}</label>
-      </div>
-      {% endif %}
-    </section>
-
-    <div class="modal-actions admin-modal-actions">
-      {% if not user.is_admin %}
-      <button class="danger-button" type="submit" form="delete-user-form-{{ user.id }}"
-        data-confirm="{{ _('confirm.delete_user', username=user.username) }}">
-        {{ _('admin.delete_user') }}
-      </button>
-      {% endif %}
-      <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
-      <button type="submit">{{ _('admin.save_user') if not user.is_admin else _('admin.save_admin') }}</button>
-    </div>
-  </form>
-  {% if not user.is_admin %}
-  <form id="delete-user-form-{{ user.id }}" action="/admin/users/{{ user.id }}/delete" method="post" hidden
-    data-confirm="{{ _('confirm.delete_user', username=user.username) }}">
-    {{ csrf_input(request) }}
-  </form>
-  {% endif %}
-</dialog>
+{% with account=none, open_on_load=new_user %}
+  {% include "admin_user_form.html" %}
+{% endwith %}
+{% for account in users %}
+  {% with open_on_load=edit_account and edit_account.id == account.id %}
+    {% include "admin_user_form.html" %}
+  {% endwith %}
 {% endfor %}
+{% if edit_account and edit_account not in users %}
+  {% with account=edit_account, open_on_load=true %}
+    {% include "admin_user_form.html" %}
+  {% endwith %}
+{% endif %}
 {% endblock %}

@@ -7,14 +7,15 @@ x-database-environment: &database-environment
 
 x-app-environment: &app-environment
   <<: *database-environment
-  APP_NAME: ${APP_NAME:-IPtable}
+  APP_NAME: ${APP_NAME:-IPtable} # Imported once; change later via app.manage.
   APP_ENV: ${APP_ENV:-production}
   POSTGRES_HOST: postgres
   DATABASE_URL: ${DATABASE_URL:-} # Optional override for an existing database.
   SECRET_KEY: ${SECRET_KEY:-} # Required: a random string of at least 32 characters.
   INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
   INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-} # Required: at least 12 characters.
-  INTERFACE_LANGUAGE: ${INTERFACE_LANGUAGE:-RU} # RU or EN.
+  INTERFACE_LANGUAGE: ${INTERFACE_LANGUAGE:-RU} # Installation default: RU or EN.
+  INTERFACE_THEME: ${INTERFACE_THEME:-blue} # Installation default: blue, green or dark.
   # Public URL controls Secure cookies and HSTS, including behind an external proxy.
   APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:${APP_PORT:-8000}}
   HTTPS_ENABLED: ${HTTPS_ENABLED:-false}
@@ -31,7 +32,7 @@ x-app-environment: &app-environment
   PING_PROJECT_PAUSE_SECONDS: ${PING_PROJECT_PAUSE_SECONDS:-5}
   PING_QUEUE_POLL_SECONDS: ${PING_QUEUE_POLL_SECONDS:-5}
   PING_RUNNING_JOB_TIMEOUT_SECONDS: ${PING_RUNNING_JOB_TIMEOUT_SECONDS:-7200}
-  PROJECT_TABLE_DEFAULT_PAGE_SIZE: ${PROJECT_TABLE_DEFAULT_PAGE_SIZE:-25}
+  PROJECT_TABLE_DEFAULT_PAGE_SIZE: ${PROJECT_TABLE_DEFAULT_PAGE_SIZE:-25} # Overridable per account.
   MAX_PROJECT_ADDRESSES: ${MAX_PROJECT_ADDRESSES:-4096}
   CSV_IMPORT_MAX_BYTES: ${CSV_IMPORT_MAX_BYTES:-2097152}
 
