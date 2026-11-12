@@ -5,18 +5,30 @@ import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv4Network, ip_address
-from xml.etree.ElementTree import ParseError
+from xml.etree import ElementTree as ET
 
+from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import fromstring as safe_xml_fromstring
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 import pyzipper
 
 from app.models import IPAddress, Project
-from app.services.network import reserved_project_addresses
+from app.services.network import NetworkValidationError, normalize_cidr, reserved_project_addresses
 
 BASE_COLUMNS = ["ip", "hostname", "os", "type", "comment"]
 EXPORT_COLUMNS = BASE_COLUMNS
 XLSX_MAX_UNCOMPRESSED_BYTES = 20_000_000
+STRICT_OOXML = "http://purl.oclc.org/ooxml/"
+STRICT_REL_NS = STRICT_OOXML + "officeDocument/relationships"
+REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+SPREADSHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+STRICT_NAMESPACES = {
+    STRICT_REL_NS: REL_NS,
+    STRICT_OOXML + "spreadsheetml/main": SPREADSHEET_NS,
+    STRICT_OOXML + "drawingml/main": "http://schemas.openxmlformats.org/drawingml/2006/main",
+}
 FIELD_LIMITS = {
     "hostname": 255,
     "os": 120,
@@ -43,6 +55,7 @@ class ImportedAsset:
 class CSVImportResult:
     cidr: str
     rows: list[ImportedAsset]
+    skipped_reserved: int = 0
 
 
 def _decode_csv(content: bytes) -> str:
@@ -88,6 +101,7 @@ def _parse_import_rows(
     rows_with_numbers: Iterable[tuple[int, dict[str, str]]],
     *,
     max_addresses: int,
+    cidr: str,
 ) -> CSVImportResult:
     rows: list[ImportedAsset] = []
     parsed_addresses: list[IPv4Address] = []
@@ -134,26 +148,28 @@ def _parse_import_rows(
         parsed_addresses.append(parsed_ip)
 
         if len(rows) > max_addresses:
-            raise CSVImportError(f"CSV содержит больше строк, чем разрешенный лимит проекта: {max_addresses}")
+            raise CSVImportError(f"Файл содержит больше строк, чем разрешенный лимит проекта: {max_addresses}")
 
     if not rows:
-        raise CSVImportError("CSV не содержит строк с IP-адресами")
+        raise CSVImportError("Файл не содержит строк с IP-адресами")
 
-    network = _smallest_network(parsed_addresses)
+    network = IPv4Network(normalize_cidr(cidr, max_addresses)) if cidr.strip() else _smallest_network(parsed_addresses)
     if network.num_addresses > max_addresses:
         raise CSVImportError(
             f"По импортированным IP получилась подсеть {network} на {network.num_addresses} адресов, "
             f"лимит: {max_addresses}"
         )
 
-    reserved = reserved_project_addresses(str(network))
-    reserved_hits = [row.address for row in rows if row.address in reserved]
-    if reserved_hits:
-        sample = ", ".join(reserved_hits[:5])
-        raise CSVImportError(f"CSV содержит network/broadcast адреса для подсети {network}: {sample}")
+    for row, address in zip(rows, parsed_addresses, strict=True):
+        if address not in network:
+            raise CSVImportError(f"Строка {row.row_number}, колонка ip: IP {address} не входит в подсеть {network}")
 
-    rows.sort(key=lambda item: int(ip_address(item.address)))
-    return CSVImportResult(cidr=str(network), rows=rows)
+    reserved = reserved_project_addresses(str(network))
+    host_rows = [row for row in rows if row.address not in reserved]
+    if not host_rows:
+        raise CSVImportError(f"В файле только служебные адреса подсети {network}")
+    host_rows.sort(key=lambda item: int(ip_address(item.address)))
+    return CSVImportResult(cidr=str(network), rows=host_rows, skipped_reserved=len(rows) - len(host_rows))
 
 
 def _mapped_rows(rows: Iterable[Iterable[object]]) -> Iterable[tuple[int, dict[str, str]]]:
@@ -169,45 +185,88 @@ def _mapped_rows(rows: Iterable[Iterable[object]]) -> Iterable[tuple[int, dict[s
         yield row_number, _import_row_mapping(values, row_number=row_number)
 
 
-def parse_assets_csv(content: bytes, *, max_addresses: int) -> CSVImportResult:
+def parse_assets_csv(content: bytes, *, max_addresses: int, cidr: str = "") -> CSVImportResult:
     reader = csv.reader(io.StringIO(_decode_csv(content), newline=""), delimiter=";", strict=True)
     try:
-        return _parse_import_rows(_mapped_rows(reader), max_addresses=max_addresses)
+        return _parse_import_rows(_mapped_rows(reader), max_addresses=max_addresses, cidr=cidr)
     except csv.Error as exc:
         raise CSVImportError("Не удалось прочитать CSV-файл: проверьте кавычки и размер ячеек") from exc
 
 
-def parse_assets_xlsx(content: bytes, *, max_addresses: int) -> CSVImportResult:
-    try:
-        with zipfile.ZipFile(io.BytesIO(content)) as archive:
-            uncompressed_size = sum(item.file_size for item in archive.infolist())
-    except zipfile.BadZipFile as exc:
-        raise CSVImportError("Не удалось прочитать XLSX-файл") from exc
-    if uncompressed_size > XLSX_MAX_UNCOMPRESSED_BYTES:
-        raise CSVImportError("XLSX-файл слишком большой после распаковки")
+def _transitional_xml_name(name: str) -> str:
+    namespace, closing_brace, local_name = name.removeprefix("{").partition("}")
+    if closing_brace and namespace in STRICT_NAMESPACES:
+        return f"{{{STRICT_NAMESPACES[namespace]}}}{local_name}"
+    return name
+
+
+def _transitional_xlsx(archive: zipfile.ZipFile) -> io.BytesIO:
+    # openpyxl expects Transitional SpreadsheetML names. Map Strict XML names
+    # and relationship types in memory, leaving cell values untouched.
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as converted:
+        for item in archive.infolist():
+            data = archive.read(item)
+            if item.filename.endswith((".xml", ".rels")):
+                root = safe_xml_fromstring(data, forbid_dtd=True)
+                for element in root.iter():
+                    element.tag = _transitional_xml_name(element.tag)
+                    for key, value in list(element.attrib.items()):
+                        mapped = _transitional_xml_name(key)
+                        if mapped != key:
+                            del element.attrib[key]
+                            element.set(mapped, value)
+                    if element.tag == f"{{{PACKAGE_REL_NS}}}Relationship":
+                        relationship_type = element.get("Type", "")
+                        if relationship_type.startswith(STRICT_REL_NS + "/"):
+                            element.set("Type", REL_NS + relationship_type.removeprefix(STRICT_REL_NS))
+                if root.tag == f"{{{SPREADSHEET_NS}}}workbook":
+                    root.attrib.pop("conformance", None)
+                data = ET.tostring(root, encoding="utf-8")
+            converted.writestr(item.filename, data)
+    output.seek(0)
+    return output
+
+
+def _xlsx_workbook_source(content: bytes) -> io.BytesIO:
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        if sum(item.file_size for item in archive.infolist()) > XLSX_MAX_UNCOMPRESSED_BYTES:
+            raise CSVImportError("XLSX-файл слишком большой после распаковки")
+        if "_rels/.rels" in archive.namelist():
+            relationships = safe_xml_fromstring(archive.read("_rels/.rels"), forbid_dtd=True)
+            if any(rel.get("Type") == STRICT_REL_NS + "/officeDocument" for rel in relationships):
+                return _transitional_xlsx(archive)
+    return io.BytesIO(content)
+
+
+def parse_assets_xlsx(content: bytes, *, max_addresses: int, cidr: str = "") -> CSVImportResult:
 
     workbook = None
     try:
-        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        workbook = load_workbook(_xlsx_workbook_source(content), read_only=True, data_only=True, keep_links=False)
         if not workbook.worksheets:
             raise CSVImportError("Не удалось прочитать XLSX-файл")
         worksheet = workbook.worksheets[0]
-        return _parse_import_rows(_mapped_rows(worksheet.iter_rows(values_only=True)), max_addresses=max_addresses)
-    except CSVImportError:
+        worksheet.reset_dimensions()
+        return _parse_import_rows(
+            _mapped_rows(worksheet.iter_rows(values_only=True)), max_addresses=max_addresses, cidr=cidr,
+        )
+    except (CSVImportError, NetworkValidationError):
         raise
-    except (InvalidFileException, OSError, ValueError, KeyError, zipfile.BadZipFile, ParseError) as exc:
+    except (InvalidFileException, OSError, ValueError, KeyError, IndexError, TypeError,
+            RuntimeError, zipfile.BadZipFile, ET.ParseError, DefusedXmlException) as exc:
         raise CSVImportError("Не удалось прочитать XLSX-файл") from exc
     finally:
         if workbook is not None:
             workbook.close()
 
 
-def parse_assets_file(content: bytes, *, filename: str, max_addresses: int) -> CSVImportResult:
+def parse_assets_file(content: bytes, *, filename: str, max_addresses: int, cidr: str = "") -> CSVImportResult:
     clean_filename = filename.lower().strip()
     if clean_filename.endswith(".xlsx"):
-        return parse_assets_xlsx(content, max_addresses=max_addresses)
+        return parse_assets_xlsx(content, max_addresses=max_addresses, cidr=cidr)
     if clean_filename.endswith(".csv"):
-        return parse_assets_csv(content, max_addresses=max_addresses)
+        return parse_assets_csv(content, max_addresses=max_addresses, cidr=cidr)
     raise CSVImportError("Поддерживаются только файлы .csv и .xlsx")
 
 

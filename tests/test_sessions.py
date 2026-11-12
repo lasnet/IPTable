@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.main import create_app
-from app.models import Base, CustomField, Folder, IPAddress, IPAddressHistory, Project, Role, User, UserSession
+from app.models import Base, CustomField, Folder, IPAddress, IPAddressHistory, PingJob, Project, Role, User, UserSession
 from app.services.auth import hash_password
 
 
@@ -68,6 +68,44 @@ class BrowserSessionTest(unittest.TestCase):
         for cookie in client.cookies.jar:
             other.cookies.jar.set_cookie(copy.copy(cookie))
         return other
+
+    def test_import_opens_full_subnet_and_rejects_duplicate_cidr(self) -> None:
+        with self.factory() as db:
+            db.add(Folder(id=1, name="Office"))
+            db.commit()
+
+        client = self.client()
+        csrf = self.login(client, "admin", "admin-password")
+        form = {"_csrf_token": csrf, "name": "LAN", "cidr": "10.0.0.6/28"}
+        files = {"csv_file": ("assets.csv", b"10.0.0.0;Network\n10.0.0.1;gw\n10.0.0.4;server\n")}
+        headers = {"X-Requested-With": "XMLHttpRequest"}
+        path = "/folders/1/projects/import"
+
+        self.assertEqual(client.post(path, data={"name": "LAN"}, files=files, headers=headers).status_code, 403)
+        response = client.post(path, data=form, files=files, headers=headers)
+        self.assertEqual(response.status_code, 201)
+        project_page = client.get(response.json()["location"])
+        self.assertEqual(project_page.status_code, 200)
+        self.assertIn("10.0.0.2", project_page.text)
+        self.assertIn("10.0.0.14", project_page.text)
+        self.assertIn("Пропущено служебных адресов (network/broadcast): 1", project_page.text)
+
+        duplicate = client.post(path, data={**form, "name": "Other"}, files=files, headers=headers)
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertIn("Подсеть 10.0.0.0/28 уже существует", duplicate.json()["error"])
+        manual_duplicate = client.post("/projects", data={**form, "folder_id": 1, "name": "Manual"})
+        page = client.get(manual_duplicate.headers["location"])
+        self.assertRegex(page.text, r'data-project-error autofocus>Подсеть 10\.0\.0\.0/28 уже существует')
+
+        with self.factory() as db:
+            project = db.scalars(select(Project)).one()
+            records = db.scalars(select(IPAddress).order_by(IPAddress.ordinal)).all()
+            self.assertEqual(project.cidr, "10.0.0.0/28")
+            self.assertEqual([row.address for row in records], [f"10.0.0.{host}" for host in range(1, 15)])
+            self.assertEqual(records[0].hostname, "gw")
+            self.assertEqual(records[1].hostname, "")
+            self.assertEqual(records[3].hostname, "server")
+            self.assertEqual(db.scalars(select(PingJob)).one().project_id, project.id)
 
     def test_logout_revokes_copied_cookie_but_preserves_independent_login(self) -> None:
         browser = self.client()

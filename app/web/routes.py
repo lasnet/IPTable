@@ -38,7 +38,7 @@ from app.services.custom_fields import (
     lock_custom_field_schema,
     replace_custom_fields,
 )
-from app.services.inventory import create_custom_field, create_project_with_addresses
+from app.services.inventory import ProjectCreationError, create_custom_field, create_project_with_addresses
 from app.services.history import FieldChange, build_field_change, record_ip_address_history
 from app.services.i18n import translate, translate_error_message
 from app.services.network import NetworkValidationError
@@ -823,12 +823,6 @@ async def create_project(
     if not clean_cidr:
         return _redirect_error(error_path, _ui("project.cidr_required"))
 
-    existing = db.scalar(
-        select(Project).where(Project.folder_id == folder.id, func.lower(Project.name) == clean_name.lower())
-    )
-    if existing:
-        return _redirect_error(error_path, _ui("project.duplicate"))
-
     try:
         project = create_project_with_addresses(
             db,
@@ -837,64 +831,67 @@ async def create_project(
             cidr=clean_cidr,
             description=description,
             max_addresses=settings.max_project_addresses,
+            commit=False,
         )
-    except NetworkValidationError as exc:
+        project_id = project.id
+        ensure_project_ping_schedule(db, project_id, settings, commit=False)
+        enqueue_project_ping(db, project_id, reason="project-created", commit=False)
+        db.commit()
+    except (NetworkValidationError, ProjectCreationError) as exc:
+        db.rollback()
         return _redirect_error(error_path, _ui_error(str(exc)))
     except IntegrityError:
         db.rollback()
         return _redirect_error(error_path, _ui("project.create_failed_unique"))
 
-    ensure_project_ping_schedule(db, project.id, settings)
-    enqueue_project_ping(db, project.id, reason="project-created")
-    return _redirect(f"/projects/{project.id}?hide_empty=false")
+    return _redirect(f"/projects/{project_id}?hide_empty=false")
 
 
-@router.post("/folders/{folder_id}/projects/import")
+@router.post("/folders/{folder_id}/projects/import", response_model=None)
 async def import_project_csv(
     folder_id: int,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
     name: Annotated[str, Form(min_length=1, max_length=160)],
     description: Annotated[str, Form(max_length=2000)] = "",
+    cidr: Annotated[str, Form(max_length=64)] = "",
     csv_file: UploadFile = File(...),
-) -> RedirectResponse:
+) -> RedirectResponse | JSONResponse:
     error_path = f"/inventory?new_project_folder={folder_id}"
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+    def failure(detail: str, *, status_code: int = 422, path: str = error_path) -> RedirectResponse | JSONResponse:
+        message = _import_error_message(detail)
+        if wants_json:
+            return JSONResponse({"error": message}, status_code=status_code)
+        return _redirect_error(path, message)
+
     if not _can_import_csv(current_user):
-        return _redirect_error(
-            error_path,
-            _ui("import.denied"),
-        )
+        return failure(_ui("import.denied"), status_code=403)
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/inventory", _ui("folder.not_found"))
+        return failure(_ui("folder.not_found"), status_code=404, path="/inventory")
 
     clean_name = _clean_text(name, 160)
     if not clean_name:
-        return _redirect_error(error_path, _import_error_message(_ui("import.name_required")))
+        return failure(_ui("import.name_required"))
 
     if not csv_file.filename:
-        return _redirect_error(error_path, _import_error_message(_ui("import.file_required")))
+        return failure(_ui("import.file_required"))
 
     content = await csv_file.read(settings.csv_import_max_bytes + 1)
     if len(content) > settings.csv_import_max_bytes:
-        return _redirect_error(
-            error_path,
-            _import_error_message(_ui("import.file_too_large", max_bytes=settings.csv_import_max_bytes)),
-        )
-
-    existing = db.scalar(
-        select(Project).where(Project.folder_id == folder.id, func.lower(Project.name) == clean_name.lower())
-    )
-    if existing:
-        return _redirect_error(error_path, _import_error_message(_ui("project.duplicate")))
+        return failure(_ui("import.file_too_large", max_bytes=settings.csv_import_max_bytes), status_code=413)
 
     try:
         import_result = parse_assets_file(
             content,
             filename=csv_file.filename,
             max_addresses=settings.max_project_addresses,
+            cidr=cidr,
         )
         project = create_project_with_addresses(
             db,
@@ -903,44 +900,31 @@ async def import_project_csv(
             cidr=import_result.cidr,
             description=description,
             max_addresses=settings.max_project_addresses,
+            imported_rows=import_result.rows,
+            commit=False,
         )
-        records_by_address = {
-            ip_record.address: ip_record
-            for ip_record in db.scalars(select(IPAddress).where(IPAddress.project_id == project.id)).all()
-        }
-        for row in import_result.rows:
-            ip_record = records_by_address.get(row.address)
-            if ip_record is None:
-                raise CSVImportError(
-                    _ui(
-                        "import.ip_outside_subnet",
-                        row=row.row_number,
-                        address=row.address,
-                        cidr=import_result.cidr,
-                    )
-                )
-            ip_record.hostname = row.hostname
-            ip_record.os = row.os
-            ip_record.asset_type = row.asset_type
-            ip_record.comment = row.comment
+        project_id = project.id
+        ensure_project_ping_schedule(db, project_id, settings, commit=False)
+        enqueue_project_ping(db, project_id, reason="project-imported", commit=False)
         db.commit()
-    except CSVImportError as exc:
+    except (CSVImportError, NetworkValidationError) as exc:
         db.rollback()
-        return _redirect_error(error_path, _import_error_message(_ui_error(str(exc))))
-    except NetworkValidationError as exc:
+        return failure(_ui_error(str(exc)))
+    except ProjectCreationError as exc:
         db.rollback()
-        return _redirect_error(error_path, _import_error_message(_ui_error(str(exc))))
+        return failure(_ui_error(str(exc)), status_code=409)
     except IntegrityError:
         db.rollback()
-        return _redirect_error(error_path, _import_error_message(_ui("import.failed_unique")))
+        return failure(_ui("import.failed_unique"), status_code=409)
 
-    ensure_project_ping_schedule(db, project.id, settings)
-    enqueue_project_ping(db, project.id, reason="project-imported")
-
-    return _redirect_message(
-        f"/projects/{project.id}?hide_empty=true",
-        _ui("import.success", rows=len(import_result.rows), cidr=project.cidr),
-    )
+    message = _ui("import.success", rows=len(import_result.rows), cidr=import_result.cidr)
+    if import_result.skipped_reserved:
+        message += " " + _ui("import.skipped_reserved", count=import_result.skipped_reserved)
+    query = urlencode({"hide_empty": "false", "message": message})
+    location = f"/projects/{project_id}?{query}"
+    if wants_json:
+        return JSONResponse({"location": location}, status_code=201)
+    return _redirect(location)
 
 
 @router.post("/projects/{project_id}/update")

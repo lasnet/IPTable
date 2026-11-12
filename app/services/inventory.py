@@ -1,9 +1,21 @@
-from sqlalchemy import select
+from __future__ import annotations
+
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
+
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import CustomField, IPAddress, Project
+from app.models import CustomField, Folder, IPAddress, Project
 from app.services.custom_fields import lock_custom_field_schema, make_custom_field_key, next_available_key
 from app.services.network import address_sort_key, iter_project_addresses, normalize_cidr, reserved_project_addresses
+
+if TYPE_CHECKING:
+    from app.services.csv_io import ImportedAsset
+
+
+class ProjectCreationError(ValueError):
+    pass
 
 
 def create_project_with_addresses(
@@ -14,18 +26,53 @@ def create_project_with_addresses(
     cidr: str,
     description: str,
     max_addresses: int,
+    imported_rows: Iterable[ImportedAsset] = (),
+    commit: bool = True,
 ) -> Project:
     normalized_cidr = normalize_cidr(cidr, max_addresses=max_addresses)
-    project = Project(folder_id=folder_id, name=name.strip(), cidr=normalized_cidr, description=description.strip())
+    clean_name = name.strip()
+
+    # Serialize creation within a folder, including when legacy duplicates already exist.
+    if db.get_bind().dialect.name == "sqlite":
+        locked_folder = db.scalar(
+            update(Folder).where(Folder.id == folder_id).values(updated_at=Folder.updated_at).returning(Folder.id)
+        )
+    else:
+        locked_folder = db.scalar(select(Folder.id).where(Folder.id == folder_id).with_for_update())
+    if locked_folder is None:
+        raise ProjectCreationError("Папка не найдена")
+
+    existing_cidr = db.scalar(
+        select(Project.cidr)
+        .where(
+            Project.folder_id == folder_id,
+            or_(Project.cidr == normalized_cidr, func.lower(Project.name) == clean_name.lower()),
+        )
+        .order_by((Project.cidr == normalized_cidr).desc())
+        .limit(1)
+    )
+    if existing_cidr == normalized_cidr:
+        raise ProjectCreationError(f"Подсеть {normalized_cidr} уже существует в выбранной папке")
+    if existing_cidr is not None:
+        raise ProjectCreationError("Проект с таким именем уже существует в выбранной папке")
+
+    project = Project(folder_id=folder_id, name=clean_name, cidr=normalized_cidr, description=description.strip())
     db.add(project)
     db.flush()
 
-    db.add_all(
-        IPAddress(project_id=project.id, ordinal=ordinal, address=address)
-        for ordinal, address in iter_project_addresses(normalized_cidr)
-    )
-    db.commit()
-    db.refresh(project)
+    assets_by_address = {row.address: row for row in imported_rows}
+    for ordinal, address in iter_project_addresses(normalized_cidr):
+        record = IPAddress(project_id=project.id, ordinal=ordinal, address=address)
+        asset = assets_by_address.get(address)
+        if asset is not None:
+            record.hostname = asset.hostname
+            record.os = asset.os
+            record.asset_type = asset.asset_type
+            record.comment = asset.comment
+        db.add(record)
+    if commit:
+        db.commit()
+        db.refresh(project)
     return project
 
 

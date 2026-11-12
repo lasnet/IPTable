@@ -1006,15 +1006,53 @@
     }
   });
 
-  document.addEventListener("submit", (event) => {
+  document.addEventListener("submit", async (event) => {
     const form = event.target;
     if (!form.classList.contains("project-create-form")) {
       return;
     }
 
     const fileInput = form.querySelector("input[type='file'][name='csv_file']");
-    const hasFile = fileInput?.files?.length > 0;
-    form.action = hasFile ? form.dataset.importAction : form.dataset.manualAction;
+    if (!fileInput?.files?.length) return;
+
+    event.preventDefault();
+    if (form.getAttribute("aria-busy") === "true") return;
+    const submit = form.querySelector("button[type='submit']");
+    const alert = form.querySelector("[data-project-error]");
+    submit.disabled = true;
+    form.setAttribute("aria-busy", "true");
+    alert.hidden = true;
+
+    let message = form.dataset.uploadError;
+    try {
+      const response = await fetch(form.dataset.importAction, {
+        method: "POST",
+        headers: {"X-Requested-With": "XMLHttpRequest"},
+        body: new FormData(form),
+      });
+      if (response.redirected) {
+        window.location.assign(response.url);
+        return;
+      }
+      if (response.status === 413) message = form.dataset.uploadTooLarge;
+      if (response.headers.get("content-type")?.includes("application/json")) {
+        const result = await response.json();
+        if (response.ok && result.location) {
+          window.location.assign(result.location);
+          return;
+        }
+        if (typeof result.error === "string") message = result.error;
+      }
+    } catch {
+      // The user can retry with the current form and file after a network error.
+    } finally {
+      submit.disabled = false;
+      form.removeAttribute("aria-busy");
+    }
+
+    alert.textContent = message;
+    alert.hidden = false;
+    alert.focus();
   }, true);
 })();
 

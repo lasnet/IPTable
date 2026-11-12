@@ -240,11 +240,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "import.file_required": "Выберите CSV или XLSX-файл для импорта",
         "import.file_too_large": "Файл импорта слишком большой. Лимит: {max_bytes} байт",
         "import.failed_unique": "Не удалось импортировать файл: проверьте уникальность проекта",
-        "import.hint": "CSV/XLSX: порядок колонок ip;hostname;os;type;comment. Заголовок можно добавить первой строкой, но он не обязателен. CSV использует разделитель точка с запятой. IP-адреса должны быть IPv4, без дублей, без network/broadcast адресов. Подсеть будет рассчитана автоматически.",
-        "import.ip_outside_subnet": "Строка {row}, колонка ip: IP {address} не входит в рассчитанную подсеть {cidr}",
+        "import.hint": "Колонки CSV/XLSX идут в порядке ip;hostname;os;type;comment. Заголовок необязателен. В CSV используйте точку с запятой. Укажите CIDR, если знаете размер подсети. При пустом поле будет выбрана наименьшая подсеть, охватывающая все IP из файла. Network и broadcast пропускаются.",
         "import.name_required": "Название проекта обязательно для импорта",
         "import.open": "Импортировать из CSV/XLSX",
-        "import.success": "Файл импортирован: {rows} строк, рассчитанная подсеть {cidr}. Ping-проверка поставлена в очередь",
+        "import.success": "Импортировано строк: {rows}. Подсеть {cidr}. Ping-проверка поставлена в очередь.",
+        "import.skipped_reserved": "Пропущено служебных адресов (network/broadcast): {count}.",
+        "import.upload_failed": "Не удалось загрузить файл. Повторите попытку или обновите страницу.",
+        "import.upload_too_large": "Файл превышает допустимый размер загрузки.",
         "index.empty_text": "Создайте папку и проект-подсеть или выберите существующий проект в левой панели.",
         "index.select_project": "Выберите проект",
         "js.selected_row": "выбранной строки",
@@ -556,11 +558,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "import.file_required": "Choose a CSV or XLSX file to import",
         "import.file_too_large": "Import file is too large. Limit: {max_bytes} bytes",
         "import.failed_unique": "Could not import file: check project uniqueness",
-        "import.hint": "CSV/XLSX: column order is ip;hostname;os;type;comment. A header row is supported but optional. CSV uses semicolon as the separator. IP addresses must be IPv4, without duplicates and without network/broadcast addresses. The subnet will be calculated automatically.",
-        "import.ip_outside_subnet": "Row {row}, column ip: IP {address} is outside the calculated subnet {cidr}",
+        "import.hint": "CSV/XLSX column order is ip;hostname;os;type;comment. A header row is optional. Use semicolons in CSV. Enter a CIDR if you know the subnet size. Leave it blank to use the smallest subnet that covers all IPs in the file. Network and broadcast addresses are skipped.",
         "import.name_required": "Project name is required for import",
         "import.open": "Import from CSV/XLSX",
-        "import.success": "File imported: {rows} rows, calculated subnet {cidr}. Ping check has been queued",
+        "import.success": "Imported {rows} rows into {cidr}. A ping check has been queued.",
+        "import.skipped_reserved": "Skipped {count} reserved addresses (network/broadcast).",
+        "import.upload_failed": "Could not upload the file. Try again or reload the page.",
+        "import.upload_too_large": "The file exceeds the upload size limit.",
         "index.empty_text": "Create a folder and subnet project, or choose an existing project in the left panel.",
         "index.select_project": "Select a project",
         "js.selected_row": "selected row",
@@ -653,8 +657,14 @@ ERROR_TRANSLATIONS = {
     "Не удалось прочитать файл: используйте UTF-8 или Windows-1251": {
         "EN": "Could not read the file: use UTF-8 or Windows-1251",
     },
-    "CSV не содержит строк с IP-адресами": {
-        "EN": "CSV does not contain rows with IP addresses",
+    "Файл не содержит строк с IP-адресами": {
+        "EN": "The file contains no rows with IP addresses",
+    },
+    "Папка не найдена": {
+        "EN": "Folder not found",
+    },
+    "Проект с таким именем уже существует в выбранной папке": {
+        "EN": "A project with this name already exists in the selected folder",
     },
     "CSV-файл пустой или не содержит заголовок": {
         "EN": "CSV file is empty or has no header",
@@ -712,8 +722,8 @@ ERROR_PATTERNS = [
         {"EN": "Row {row}, column {field}: value is longer than {limit} characters"},
     ),
     (
-        re.compile(r"^CSV содержит больше строк, чем разрешенный лимит проекта: (?P<limit>\d+)$"),
-        {"EN": "CSV contains more rows than the allowed project limit: {limit}"},
+        re.compile(r"^Файл содержит больше строк, чем разрешенный лимит проекта: (?P<limit>\d+)$"),
+        {"EN": "The file contains more rows than the allowed project limit: {limit}"},
     ),
     (
         re.compile(
@@ -722,8 +732,16 @@ ERROR_PATTERNS = [
         {"EN": "Imported IP addresses produce subnet {network} with {count} addresses, limit: {limit}"},
     ),
     (
-        re.compile(r"^CSV содержит network/broadcast адреса для подсети (?P<network>.+): (?P<sample>.+)$"),
-        {"EN": "CSV contains network/broadcast addresses for subnet {network}: {sample}"},
+        re.compile(r"^Строка (?P<row>\d+), колонка ip: IP (?P<address>.+) не входит в подсеть (?P<network>.+)$"),
+        {"EN": "Row {row}, column ip: IP {address} is outside subnet {network}"},
+    ),
+    (
+        re.compile(r"^В файле только служебные адреса подсети (?P<network>.+)$"),
+        {"EN": "The file contains only reserved addresses for subnet {network}"},
+    ),
+    (
+        re.compile(r"^Подсеть (?P<network>.+) уже существует в выбранной папке$"),
+        {"EN": "Subnet {network} already exists in the selected folder"},
     ),
     (
         re.compile(r"^Строка (?P<row>\d+), колонка после comment: слишком много столбцов$"),

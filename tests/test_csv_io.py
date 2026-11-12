@@ -69,6 +69,23 @@ class CSVImportTest(unittest.TestCase):
         self.assertEqual(len(result.rows), 2)
         self.assertEqual(result.rows[0].hostname, "gw")
 
+    def test_import_skips_only_network_and_broadcast_of_the_selected_subnet(self) -> None:
+        content = b"10.10.0.0;Network\n10.10.16.255;host\n10.10.31.255;Broadcast\n"
+        for cidr in ("", "10.10.16.1/19"):
+            with self.subTest(cidr=cidr):
+                result = parse_assets_csv(content, max_addresses=8192, cidr=cidr)
+                self.assertEqual(result.cidr, "10.10.0.0/19")
+                self.assertEqual(result.skipped_reserved, 2)
+                self.assertEqual([row.address for row in result.rows], ["10.10.16.255"])
+
+    def test_import_rejects_addresses_outside_the_entered_cidr(self) -> None:
+        with self.assertRaisesRegex(CSVImportError, r"Строка 2.*10\.0\.1\.2.*10\.0\.0\.0/24"):
+            parse_assets_csv(b"10.0.0.1;gw\n10.0.1.2;host\n", max_addresses=256, cidr="10.0.0.0/24")
+
+    def test_import_rejects_a_file_with_only_reserved_rows(self) -> None:
+        with self.assertRaisesRegex(CSVImportError, "только служебные адреса"):
+            parse_assets_csv(b"10.0.0.0;Network\n10.0.0.255;Broadcast\n", max_addresses=256)
+
     def test_parse_assets_csv_accepts_missing_header(self) -> None:
         content = (
             "192.168.10.10;gw;RouterOS;Gateway;main\n"
@@ -117,7 +134,32 @@ class CSVImportTest(unittest.TestCase):
         result = parse_assets_xlsx(buffer.getvalue(), max_addresses=256)
 
         self.assertEqual(result.cidr, "10.10.10.10/31")
+        self.assertEqual(len(result.rows), 2)
         self.assertEqual(result.rows[0].asset_type, "Camera")
+
+    def test_parse_strict_xlsx_preserves_cell_text(self) -> None:
+        workbook = Workbook()
+        strict_uri = b"http://purl.oclc.org/ooxml/spreadsheetml/main"
+        workbook.active.append(["10.10.10.1", "server", "Linux", "VM", strict_uri.decode()])
+        original = io.BytesIO()
+        workbook.save(original)
+
+        strict = io.BytesIO()
+        with zipfile.ZipFile(original) as source, zipfile.ZipFile(strict, "w") as target:
+            for name in source.namelist():
+                part = source.read(name)
+                part = part.replace(b"http://schemas.openxmlformats.org/spreadsheetml/2006/main", strict_uri)
+                part = part.replace(
+                    b"http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+                    b"http://purl.oclc.org/ooxml/officeDocument/relationships",
+                )
+                if name == "xl/workbook.xml":
+                    part = part.replace(b"<workbook ", b'<workbook conformance="strict" ')
+                target.writestr(name, part)
+
+        result = parse_assets_xlsx(strict.getvalue(), max_addresses=256, cidr="10.10.10.0/24")
+        self.assertEqual(result.cidr, "10.10.10.0/24")
+        self.assertEqual(result.rows[0].comment, strict_uri.decode())
 
     def test_parse_assets_xlsx_accepts_missing_header(self) -> None:
         workbook = Workbook()

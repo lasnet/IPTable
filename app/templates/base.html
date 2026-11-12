@@ -8,7 +8,7 @@
   <link rel="icon" href="{{ url_for('static', path='/favicon.ico').path }}">
   <link rel="stylesheet" href="{{ url_for('static', path='/styles.css').path }}?v=column-tabs-1">
   <link rel="stylesheet" href="{{ url_for('static', path='/atlas.css').path }}?v=role-actions-1">
-  <script src="{{ url_for('static', path='/app.js').path }}?v=column-tabs-1" defer></script>
+  <script src="{{ url_for('static', path='/app.js').path }}?v=project-import-1" defer></script>
 </head>
 
 <body data-i18n-selected-row="{{ _('js.selected_row') }}"
@@ -21,6 +21,8 @@
   {% if current_user is defined %}
   {% set history_view = request.url.path == '/history' or request.url.path.endswith('/history') %}
   {% set inventory_view = request.url.path == '/inventory' or ((request.url.path.startswith('/projects/') or request.url.path.startswith('/folders/')) and not history_view) %}
+  {% set project_dialog_folder = request.query_params.get('new_project_folder') %}
+  {% set project_dialog_open = inventory_view and project_dialog_folder and current_user.can_create_inventory and project_dialog_folder in (folders | map(attribute='id') | map('string') | list) %}
   <header class="topbar">
     <a class="topbar-brand" href="/" aria-label="{{ app_name }}">{{ app_name }}<small> / {{ _('nav.workspace') }}</small></a>
     <form class="global-search" action="/search" method="get">
@@ -166,7 +168,7 @@
       {% if message %}
       <div class="notice success" role="status">{{ message }}</div>
       {% endif %}
-      {% if error %}
+      {% if error and not project_dialog_open %}
       <div class="notice error" role="alert">{{ error }}</div>
       {% endif %}
       {% block content %}{% endblock %}
@@ -199,9 +201,11 @@
 
   {% for folder in folders %}
   {% if current_user.can_create_inventory %}
-  <dialog class="modal-dialog" id="project-create-modal-{{ folder.id }}" {% if request.query_params.get('new_project_folder') == folder.id|string %}data-open-on-load{% endif %}>
+  {% set open_on_load = project_dialog_open and project_dialog_folder == folder.id|string %}
+  <dialog class="modal-dialog" id="project-create-modal-{{ folder.id }}" {% if open_on_load %}data-open-on-load{% endif %}>
     <form class="modal-form project-create-form" action="/projects" method="post" enctype="multipart/form-data"
-      data-manual-action="/projects" data-import-action="/folders/{{ folder.id }}/projects/import">
+      data-import-action="/folders/{{ folder.id }}/projects/import"
+      data-upload-error="{{ _('import.upload_failed') }}" data-upload-too-large="{{ _('import.upload_too_large') }}">
       {{ csrf_input(request) }}
       <input type="hidden" name="folder_id" value="{{ folder.id }}">
       <div class="modal-head">
@@ -211,16 +215,19 @@
         </div>
         <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
       </div>
-      <div class="form-hint">
+      <div class="notice error" role="alert" tabindex="-1" data-project-error{% if open_on_load and error %} autofocus>{{ error }}{% else %} hidden>{% endif %}</div>
+      {% if current_user.can_edit_inventory %}
+      <div class="form-hint" id="project-import-hint-{{ folder.id }}">
         {{ _('import.hint') }}
       </div>
+      {% endif %}
       <label>
         {{ _('project.name_label') }}
         <input name="name" maxlength="160" required placeholder="{{ _('project.name_placeholder') }}">
       </label>
       <label>
         {{ _('project.cidr_label') }}
-        <input name="cidr" maxlength="64" placeholder="172.16.16.0/24">
+        <input name="cidr" maxlength="64" placeholder="172.16.16.0/24" {% if current_user.can_edit_inventory %}aria-describedby="project-import-hint-{{ folder.id }}"{% endif %}>
       </label>
       <label>
         {{ _('project.comment_label') }}

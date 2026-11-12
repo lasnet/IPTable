@@ -203,7 +203,7 @@ def enqueue_project_ping(
     return job
 
 
-def ensure_project_ping_schedule(db, project_id: int, settings: Settings) -> PingSchedule:
+def ensure_project_ping_schedule(db, project_id: int, settings: Settings, *, commit: bool = True) -> PingSchedule:
     schedule = db.scalar(
         select(PingSchedule).where(
             PingSchedule.scope == PING_SCHEDULE_PROJECT,
@@ -221,8 +221,9 @@ def ensure_project_ping_schedule(db, project_id: int, settings: Settings) -> Pin
         next_run_at=_next_run(settings.ping_interval_seconds),
     )
     db.add(schedule)
-    db.commit()
-    db.refresh(schedule)
+    if commit:
+        db.commit()
+        db.refresh(schedule)
     return schedule
 
 
