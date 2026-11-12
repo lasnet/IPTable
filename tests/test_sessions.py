@@ -1,5 +1,7 @@
 import copy
-from datetime import datetime, timedelta
+import csv
+from datetime import UTC, datetime, timedelta
+import io
 import re
 import unittest
 from unittest.mock import patch
@@ -12,8 +14,9 @@ from sqlalchemy.pool import StaticPool
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.main import create_app
-from app.models import Base, CustomField, Folder, IPAddress, IPAddressHistory, PingJob, Project, Role, User, UserSession
+from app.models import Base, CustomField, Folder, HistoryEntry, IPAddress, PingJob, Project, Role, User, UserSession
 from app.services.auth import hash_password
+from app.services.history import build_field_change, record_ip_address_history
 
 
 class BrowserSessionTest(unittest.TestCase):
@@ -107,6 +110,91 @@ class BrowserSessionTest(unittest.TestCase):
             self.assertEqual(records[3].hostname, "server")
             self.assertEqual(db.scalars(select(PingJob)).one().project_id, project.id)
 
+    def test_history_records_inventory_mutations_and_survives_deletion(self) -> None:
+        admin = self.client()
+        token = self.login(admin, "admin", "admin-password")
+
+        def post(path, **fields):
+            return admin.post(path, data={"_csrf_token": token, **fields})
+
+        self.assertEqual(post("/folders", name="Office").status_code, 303)
+        self.assertIn("Создать подсеть", admin.get("/inventory").text)
+        self.assertEqual(post("/projects", folder_id=1, name="LAN", cidr="192.0.2.0/30").status_code, 303)
+        self.assertEqual(post("/projects/1/update", name="LAN renamed", description="Rack B").status_code, 303)
+        self.assertEqual(post("/projects/1/update", name="LAN renamed", description="Rack B").status_code, 303)
+
+        imported = admin.post("/folders/1/projects/import", data={"_csrf_token": token, "name": "Imported"},
+                              files={"csv_file": ("Склад.csv", b"198.51.100.1;server\n")})
+        self.assertEqual(imported.status_code, 303)
+        self.assertIn("error=", post("/projects/1/update", name="Imported", description="Rejected").headers["location"])
+        self.assertEqual(post("/folders/1/update", name="Warehouse").status_code, 303)
+
+        with self.factory() as db:
+            address = db.scalar(select(IPAddress).where(IPAddress.address == "192.0.2.1"))
+            change = build_field_change("hostname", "Hostname", "", "retained-ip-edit")
+            record_ip_address_history(db, ip_record=address, user=None, changes=[change])
+            db.commit()
+        subnet_history = admin.get("/projects/1/history").text
+        self.assertIn("Создание подсети", subnet_history)
+        self.assertIn("Rack B", subnet_history)
+        self.assertNotIn("Склад.csv", subnet_history)
+
+        self.assertEqual(post("/projects/1/delete").status_code, 303)
+        folder_history = admin.get("/folders/1/history").text
+        self.assertIn("Удаление подсети", folder_history)
+        self.assertIn("Склад.csv", folder_history)
+        self.assertIn("retained-ip-edit", folder_history)
+        self.assertEqual(post("/folders/1/delete").status_code, 303)
+
+        global_history = admin.get("/history").text
+        self.assertIn("Удаление папки", global_history)
+        self.assertIn("retained-ip-edit", global_history)
+        self.assertNotIn("Rejected", global_history)
+        with self.factory() as db:
+            deleted_subnets = db.scalars(select(HistoryEntry).where(HistoryEntry.action == "subnet_deleted")).all()
+            self.assertEqual({(row.cidr, row.username) for row in deleted_subnets}, {
+                ("192.0.2.0/30", "admin"), ("198.51.100.1/32", "admin"),
+            })
+            updates = db.scalars(select(HistoryEntry).where(HistoryEntry.action == "subnet_updated")).all()
+            self.assertEqual(len(updates), 2)
+
+    def test_history_export_respects_period_scope_and_permissions_without_page_limit(self) -> None:
+        now = datetime.now(UTC).replace(tzinfo=None)
+        with self.factory() as db:
+            db.add(Folder(id=1, name="Office", created_at=now - timedelta(days=150)))
+            db.add(Project(id=1, folder_id=1, name="LAN", cidr="192.0.2.0/24", created_at=now - timedelta(days=150)))
+            for days, value in ((0.5, "=1+1"), (2, "2d"), (10, "10d"), (40, "40d"), (100, "100d")):
+                db.add(HistoryEntry(
+                    action="ip_updated", folder_id=1, project_id=1, folder_name="Office", subnet_name="LAN",
+                    cidr="192.0.2.0/24", address="192.0.2.1", username="admin", field_label="Hostname",
+                    field_name="hostname", new_value=value, created_at=now - timedelta(days=days),
+                ))
+            db.add_all(HistoryEntry(action="folder_created", folder_id=2, folder_name=f"Folder {i}") for i in range(205))
+            db.commit()
+
+        admin = self.client()
+        token = self.login(admin, "admin", "admin-password")
+        self.assertEqual(admin.get("/history").text.count('class="history-item"'), 200)
+        self.assertEqual(admin.post("/history/export", data={"period": "all"}).status_code, 403)
+        reader = self.client()
+        reader_token = self.login(reader)
+        self.assertNotIn('id="history-export-modal"', reader.get("/history").text)
+        self.assertEqual(reader.post("/history/export", data={"period": "all", "_csrf_token": reader_token}).status_code, 403)
+
+        def export(period, **filters):
+            response = admin.post("/history/export", data={"period": period, "_csrf_token": token, **filters})
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("attachment", response.headers["Content-Disposition"])
+            self.assertTrue(response.content.startswith(b"\xef\xbb\xbf"))
+            return list(csv.DictReader(io.StringIO(response.content.decode("utf-8-sig")), delimiter=";"))
+
+        self.assertEqual(len(export("all")), 210)
+        expected = ["'=1+1", "2d", "10d", "40d", "100d"]
+        for count, period in enumerate(("1", "7", "30", "90", "all"), 1):
+            with self.subTest(period=period):
+                rows = export(period, project_id=1, address="192.0.2.1", q="192.0.2")
+                self.assertEqual([row["Стало"] for row in rows], expected[:count])
+
     def test_logout_revokes_copied_cookie_but_preserves_independent_login(self) -> None:
         browser = self.client()
         csrf = self.login(browser)
@@ -191,7 +279,8 @@ class BrowserSessionTest(unittest.TestCase):
             db.add(Folder(id=1, name="Office"))
             db.add(Project(id=1, folder_id=1, name="Office LAN", cidr="192.0.2.0/24"))
             db.add(IPAddress(id=1, project_id=1, ordinal=1, address="192.0.2.1"))
-            db.add_all(IPAddressHistory(
+            db.add_all(HistoryEntry(
+                action="ip_updated", folder_id=1, folder_name="Office", subnet_name="Office LAN", cidr="192.0.2.0/24",
                 project_id=1, ip_address_id=1, user_id=actor_id, username=actor_name,
                 address="192.0.2.1", field_name="hostname", field_label="Hostname", new_value=value,
             ) for actor_id, actor_name, value in (
@@ -328,7 +417,7 @@ class BrowserSessionTest(unittest.TestCase):
                           reader.get(response.headers["location"]).text)
         with self.factory() as db:
             self.assertEqual(db.get(IPAddress, 1).hostname, "original")
-            self.assertIsNone(db.scalar(select(IPAddressHistory.id)))
+            self.assertIsNone(db.scalar(select(HistoryEntry.id)))
 
     def test_only_unassigned_custom_roles_can_be_deleted(self) -> None:
         with self.factory() as db:
@@ -472,7 +561,7 @@ class BrowserSessionTest(unittest.TestCase):
             row = db.get(IPAddress, 1)
             self.assertEqual(row.hostname, "original")
             self.assertEqual(row.custom_values, {})
-            self.assertIsNone(db.scalar(select(IPAddressHistory)))
+            self.assertIsNone(db.scalar(select(HistoryEntry)))
 
         self.assertIn(f'data-custom-name="{fresh_input}"', editor.get("/projects/1").text)
         token = editor.post(lock, data={"_csrf_token": editor_csrf}).json()["token"]

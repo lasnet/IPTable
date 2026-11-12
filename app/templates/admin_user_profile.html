@@ -28,13 +28,17 @@
         <li>
           <span class="users-activity-icon">{{ icon(item.field_name) }}</span>
           <div class="users-activity-content">
-            <strong>{{ item.field_label }}</strong>
+            <strong>{{ item.field_label if item.action == 'ip_updated' else _('history.action.' ~ item.action) }}</strong>
+            {% if item.field_name %}
             <span class="users-activity-values">
               <span>{{ item.old_value or _('table.placeholder_empty') }}</span>
               <span aria-hidden="true">→</span>
               <span>{{ item.new_value or _('table.placeholder_empty') }}</span>
             </span>
-            <small>{{ item.address }} · {{ item.project.name }}</small>
+            {% elif item.source_filename %}
+            <span>{{ item.source_filename }}</span>
+            {% endif %}
+            <small>{% if item.address %}{{ item.address }} · {% endif %}{{ item.subnet_name or item.folder_name }}{% if item.cidr %} · {{ item.cidr }}{% endif %}</small>
           </div>
           <time datetime="{{ item.created_at.isoformat() }}">{{ item.created_at.strftime('%Y-%m-%d %H:%M') }}</time>
         </li>

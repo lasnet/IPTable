@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
@@ -13,9 +13,18 @@ from app.services.network import address_sort_key, iter_project_addresses, norma
 if TYPE_CHECKING:
     from app.services.csv_io import ImportedAsset
 
+InventoryItem = TypeVar("InventoryItem", Folder, Project)
+
 
 class ProjectCreationError(ValueError):
     pass
+
+
+def lock_inventory_row(db: Session, model: type[InventoryItem], item_id: int) -> InventoryItem | None:
+    # SQLite needs a write to serialize mutations before reading the previous values.
+    if db.get_bind().dialect.name == "sqlite":
+        db.execute(update(model).where(model.id == item_id).values(updated_at=model.updated_at))
+    return db.get(model, item_id, with_for_update=True, populate_existing=True)
 
 
 def create_project_with_addresses(
@@ -33,13 +42,7 @@ def create_project_with_addresses(
     clean_name = name.strip()
 
     # Serialize creation within a folder, including when legacy duplicates already exist.
-    if db.get_bind().dialect.name == "sqlite":
-        locked_folder = db.scalar(
-            update(Folder).where(Folder.id == folder_id).values(updated_at=Folder.updated_at).returning(Folder.id)
-        )
-    else:
-        locked_folder = db.scalar(select(Folder.id).where(Folder.id == folder_id).with_for_update())
-    if locked_folder is None:
+    if lock_inventory_row(db, Folder, folder_id) is None:
         raise ProjectCreationError("Папка не найдена")
 
     existing_cidr = db.scalar(
@@ -54,7 +57,7 @@ def create_project_with_addresses(
     if existing_cidr == normalized_cidr:
         raise ProjectCreationError(f"Подсеть {normalized_cidr} уже существует в выбранной папке")
     if existing_cidr is not None:
-        raise ProjectCreationError("Проект с таким именем уже существует в выбранной папке")
+        raise ProjectCreationError("Подсеть с таким названием уже существует в выбранной папке")
 
     project = Project(folder_id=folder_id, name=clean_name, cidr=normalized_cidr, description=description.strip())
     db.add(project)

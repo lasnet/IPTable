@@ -148,7 +148,7 @@ def _parse_import_rows(
         parsed_addresses.append(parsed_ip)
 
         if len(rows) > max_addresses:
-            raise CSVImportError(f"Файл содержит больше строк, чем разрешенный лимит проекта: {max_addresses}")
+            raise CSVImportError(f"Файл содержит больше строк, чем разрешенный лимит подсети: {max_addresses}")
 
     if not rows:
         raise CSVImportError("Файл не содержит строк с IP-адресами")
@@ -276,7 +276,7 @@ def render_project_csv(project: Project, ip_records: list[IPAddress]) -> str:
     writer.writerow(EXPORT_COLUMNS)
     for ip_record in ip_records:
         writer.writerow(
-            [_safe_csv_cell(value) for value in (
+            [safe_csv_cell(value) for value in (
                 ip_record.address,
                 ip_record.hostname,
                 ip_record.os,
@@ -287,7 +287,7 @@ def render_project_csv(project: Project, ip_records: list[IPAddress]) -> str:
     return output.getvalue()
 
 
-def _safe_csv_cell(value: str | None) -> str:
+def safe_csv_cell(value: str | None) -> str:
     text = value or ""
     # CSV has no cell types; neutralize spreadsheet formulas at export time only.
     if text.lstrip().startswith(("=", "+", "-", "@")) or text.startswith(("\t", "\r", "\n")):

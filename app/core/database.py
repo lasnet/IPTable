@@ -45,7 +45,7 @@ REQUIRED_TABLES = {
     "projects",
     "project_column_visibility",
     "ip_addresses",
-    "ip_address_history",
+    "inventory_history",
     "custom_fields",
     "login_rate_limit_events",
     "ping_schedules",

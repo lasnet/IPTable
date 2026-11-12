@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import get_db
 from app.main import create_app
-from app.models import Base, Folder, IPAddress, IPAddressHistory, Project, User
+from app.models import Base, Folder, HistoryEntry, IPAddress, Project, User
 from app.services.inventory import is_ip_record_empty
 from app.web import routes as web_routes
 
@@ -73,7 +73,7 @@ class InventoryServiceTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 403)
                 with session_factory() as db:
                     self.assertEqual(db.get(IPAddress, ip_id).hostname, "original")
-                    self.assertEqual(db.scalars(select(IPAddressHistory)).all(), [])
+                    self.assertEqual(db.scalars(select(HistoryEntry)).all(), [])
 
         app.dependency_overrides[web_routes.require_user] = lambda: User(
             id=2, username="editor", is_active=True, can_edit=True,

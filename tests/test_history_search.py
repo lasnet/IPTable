@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import get_db
 from app.main import create_app
-from app.models import Base, Folder, IPAddress, IPAddressHistory, Project, User
+from app.models import Base, Folder, HistoryEntry, IPAddress, Project, User
 from app.web import routes as web_routes
 
 
@@ -33,8 +33,13 @@ class HistorySearchTest(unittest.TestCase):
                 db.add(ip_record)
                 db.flush()
                 db.add(
-                    IPAddressHistory(
+                    HistoryEntry(
+                        action="ip_updated",
+                        folder_id=folder.id,
+                        folder_name=folder.name,
                         project_id=project.id,
+                        subnet_name=project.name,
+                        cidr=project.cidr,
                         ip_address_id=ip_record.id,
                         address=address,
                         username="admin",

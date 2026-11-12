@@ -3,7 +3,7 @@ import unittest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Base, Folder, IPAddress, IPAddressHistory, Project, User
+from app.models import Base, Folder, HistoryEntry, IPAddress, Project, User
 from app.services.history import build_field_change, record_ip_address_history
 
 
@@ -32,7 +32,7 @@ class HistoryServiceTest(unittest.TestCase):
             count = record_ip_address_history(db, ip_record=ip_record, user=user, changes=[change])
             db.commit()
 
-            history_item = db.scalar(select(IPAddressHistory).where(IPAddressHistory.ip_address_id == ip_record.id))
+            history_item = db.scalar(select(HistoryEntry).where(HistoryEntry.ip_address_id == ip_record.id))
 
         self.assertEqual(count, 1)
         self.assertIsNotNone(history_item)

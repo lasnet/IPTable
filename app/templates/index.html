@@ -36,7 +36,15 @@
       <div class="panel-heading"><div><h2>{{ _('dashboard.latest_changes') }}</h2></div><a href="/history">{{ _('dashboard.all_history') }} →</a></div>
       <div class="dashboard-activity-list">
         {% for item in recent_history %}
-        <a class="dashboard-activity" href="/projects/{{ item.project_id }}/history?address={{ item.address | urlencode }}"><span class="activity-marker"></span><span><strong><span>{{ item.address }}</span> <span class="activity-field">{{ item.field_label }}</span></strong><small><span>{{ item.username or _('history.deleted_user') }}</span> <span class="activity-cidr">{{ item.project.cidr }}</span></small></span><time>{{ item.created_at.strftime('%d.%m %H:%M') }}</time></a>
+        {% set live_project_created = live_projects.get(item.project_id) %}
+        <a class="dashboard-activity" href="{% if live_project_created and item.created_at >= live_project_created %}/projects/{{ item.project_id }}/history{% if item.address %}?address={{ item.address | urlencode }}{% endif %}{% else %}/history{% endif %}">
+          <span class="activity-marker"></span>
+          <span>
+            <strong><span>{{ item.address or item.subnet_name or item.folder_name }}</span> <span class="activity-field">{{ item.field_label if item.action == 'ip_updated' else _('history.action.' ~ item.action) }}</span></strong>
+            <small><span>{{ item.username or _('history.deleted_user') }}</span> <span class="activity-cidr">{{ item.cidr }}</span></small>
+          </span>
+          <time>{{ item.created_at.strftime('%d.%m %H:%M') }}</time>
+        </a>
         {% else %}
         <p class="dashboard-empty">{{ _('history.empty') }}</p>
         {% endfor %}

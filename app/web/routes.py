@@ -1,11 +1,12 @@
 import time
 from collections.abc import AsyncIterator, Iterable
+from datetime import UTC, datetime, timedelta
 from ipaddress import ip_network
 from typing import Annotated, Literal, get_args
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy import String, cast, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -15,7 +16,7 @@ from starlette.datastructures import FormData
 
 from app.core.config import InterfaceTheme, Settings, _request_settings, get_settings
 from app.core.database import get_db
-from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, ProjectColumnVisibility, Role, User
+from app.models import CustomField, Folder, HistoryEntry, IPAddress, PingSchedule, Project, ProjectColumnVisibility, Role, User
 from app.models import AppConfiguration, AppConfigurationAudit, IntegrationCredential
 from app.services import address_locks
 from app.services.settings import GROUPS, RevisionConflict, replace_token, save_group
@@ -38,8 +39,10 @@ from app.services.custom_fields import (
     lock_custom_field_schema,
     replace_custom_fields,
 )
-from app.services.inventory import ProjectCreationError, create_custom_field, create_project_with_addresses
-from app.services.history import FieldChange, build_field_change, record_ip_address_history
+from app.services.inventory import ProjectCreationError, create_custom_field, create_project_with_addresses, lock_inventory_row
+from app.services.history import (
+    FieldChange, build_field_change, history_query, record_inventory_history, record_ip_address_history, render_history_csv,
+)
 from app.services.i18n import translate, translate_error_message
 from app.services.network import NetworkValidationError
 from app.services.ping import (
@@ -549,12 +552,7 @@ def index(
         "offline": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(False))) or 0,
         "untested": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(None))) or 0,
     }
-    recent_history = db.scalars(
-        select(IPAddressHistory)
-        .options(selectinload(IPAddressHistory.project))
-        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
-        .limit(5)
-    ).all()
+    recent_history = db.scalars(history_query().limit(5)).all()
     return _templates(request).TemplateResponse(
         request,
         "index.html",
@@ -565,6 +563,7 @@ def index(
             "current_user": current_user,
             "stats": stats,
             "recent_history": recent_history,
+            "live_projects": {project.id: project.created_at for folder in folders for project in folder.projects},
             "error": error,
             "message": message,
         },
@@ -698,15 +697,8 @@ def global_history(
     current_user: Annotated[User, Depends(require_user)],
     q: Annotated[str, Query(max_length=64)] = "",
 ) -> HTMLResponse:
-    history_query = _clean_text(q, 64)
-    history_conditions = [IPAddressHistory.address.startswith(history_query, autoescape=True)] if history_query else []
-    history_items = db.scalars(
-        select(IPAddressHistory)
-        .where(*history_conditions)
-        .options(selectinload(IPAddressHistory.project))
-        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
-        .limit(200)
-    ).all()
+    search = _clean_text(q, 64)
+    history_items = db.scalars(history_query(search=search).limit(200)).all()
     return _templates(request).TemplateResponse(
         request,
         "history.html",
@@ -715,12 +707,41 @@ def global_history(
             "history_subtitle": _ui("history.global_hint"),
             "history_back_url": "/inventory",
             "history_items": history_items,
-            "history_query": history_query,
-            "show_history_project": True,
+            "history_query": search,
             "folders": [],
             "active_project": None,
             "current_user": current_user,
         },
+    )
+
+
+@router.post("/history/export")
+def export_history(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    period: Annotated[Literal["1", "7", "30", "90", "all"], Form()],
+    folder_id: Annotated[int | None, Form(ge=1)] = None,
+    project_id: Annotated[int | None, Form(ge=1)] = None,
+    address: Annotated[str, Form(max_length=64)] = "",
+    q: Annotated[str, Form(max_length=64)] = "",
+) -> StreamingResponse:
+    folder = db.get(Folder, folder_id) if folder_id is not None else None
+    project = db.get(Project, project_id) if project_id is not None else None
+    if folder_id is not None and folder is None:
+        raise HTTPException(status_code=404, detail=_ui("folder.not_found"))
+    if project_id is not None and project is None:
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    since = now - timedelta(days=int(period)) if period != "all" else None
+    entries = db.scalars(history_query(
+        folder=folder, project=project, address=_clean_text(address, 64), search=_clean_text(q, 64), since=since,
+    ).execution_options(yield_per=500))
+    return StreamingResponse(
+        render_history_csv(entries, language=get_settings().interface_language),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="history-{period}-{now:%Y-%m-%d}.csv"',
+                 "Cache-Control": "no-store"},
     )
 
 
@@ -742,8 +763,11 @@ def create_folder(
     if existing:
         return _redirect_error(error_path, _ui("folder.duplicate"))
 
-    db.add(Folder(name=clean_name))
+    folder = Folder(name=clean_name)
+    db.add(folder)
     try:
+        db.flush()
+        record_inventory_history(db, user=current_user, action="folder_created", folder=folder)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -762,7 +786,7 @@ def update_folder(
     if not current_user.can_edit_inventory:
         return _redirect_error("/inventory", _ui("folder.edit_denied"))
 
-    folder = db.get(Folder, folder_id)
+    folder = lock_inventory_row(db, Folder, folder_id)
     if folder is None:
         return _redirect_error("/inventory", _ui("folder.not_found"))
 
@@ -770,8 +794,10 @@ def update_folder(
     if not clean_name:
         return _redirect_error(error_path, _ui("folder.name_empty"))
 
+    change = build_field_change("name", "", folder.name, clean_name)
     folder.name = clean_name
     try:
+        record_inventory_history(db, user=current_user, action="folder_updated", folder=folder, changes=[change])
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -788,10 +814,14 @@ def delete_folder(
     if not current_user.can_delete_inventory:
         return _redirect_error("/inventory", _ui("folder.delete_denied"))
 
-    folder = db.get(Folder, folder_id)
+    folder = lock_inventory_row(db, Folder, folder_id)
     if folder is None:
         return _redirect_error("/inventory", _ui("folder.not_found"))
 
+    projects = db.scalars(select(Project).where(Project.folder_id == folder.id).order_by(Project.id).with_for_update())
+    for project in projects:
+        record_inventory_history(db, user=current_user, action="subnet_deleted", folder=folder, project=project)
+    record_inventory_history(db, user=current_user, action="folder_deleted", folder=folder)
     db.delete(folder)
     db.commit()
     return _redirect("/inventory")
@@ -834,6 +864,7 @@ async def create_project(
             commit=False,
         )
         project_id = project.id
+        record_inventory_history(db, user=current_user, action="subnet_created", folder=folder, project=project)
         ensure_project_ping_schedule(db, project_id, settings, commit=False)
         enqueue_project_ping(db, project_id, reason="project-created", commit=False)
         db.commit()
@@ -904,6 +935,10 @@ async def import_project_csv(
             commit=False,
         )
         project_id = project.id
+        record_inventory_history(
+            db, user=current_user, action="subnet_imported", folder=folder, project=project,
+            source_filename=csv_file.filename,
+        )
         ensure_project_ping_schedule(db, project_id, settings, commit=False)
         enqueue_project_ping(db, project_id, reason="project-imported", commit=False)
         db.commit()
@@ -938,7 +973,7 @@ def update_project(
     if not current_user.can_edit_inventory:
         return _redirect_error(f"/projects/{project_id}", _ui("project.edit_denied"))
 
-    project = db.get(Project, project_id)
+    project = lock_inventory_row(db, Project, project_id)
     if project is None:
         return _redirect_error("/inventory", _ui("project.not_found"))
 
@@ -946,9 +981,17 @@ def update_project(
     if not clean_name:
         return _redirect_error(f"/projects/{project_id}", _ui("project.name_empty"))
 
+    clean_description = _clean_text(description, 2000)
+    changes = [
+        build_field_change("name", "", project.name, clean_name),
+        build_field_change("description", "", project.description, clean_description),
+    ]
     project.name = clean_name
-    project.description = _clean_text(description, 2000)
+    project.description = clean_description
     try:
+        record_inventory_history(
+            db, user=current_user, action="subnet_updated", folder=project.folder, project=project, changes=changes,
+        )
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -965,10 +1008,11 @@ def delete_project(
     if not current_user.can_delete_inventory:
         return _redirect_error(f"/projects/{project_id}", _ui("project.delete_denied"))
 
-    project = db.get(Project, project_id)
+    project = lock_inventory_row(db, Project, project_id)
     if project is None:
         return _redirect_error("/inventory", _ui("project.not_found"))
 
+    record_inventory_history(db, user=current_user, action="subnet_deleted", folder=project.folder, project=project)
     db.delete(project)
     db.commit()
     return _redirect("/inventory")
@@ -1052,7 +1096,7 @@ def project_detail(
         .where(Project.id == project_id)
     )
     if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
 
     custom_fields = db.scalars(
         select(CustomField).where(CustomField.project_id == project.id).order_by(CustomField.position.asc())
@@ -1267,10 +1311,8 @@ def admin_user_profile(
     if account is None:
         raise HTTPException(status_code=404, detail=_ui("admin.user_not_found"))
     activity = db.scalars(
-        select(IPAddressHistory)
-        .where(IPAddressHistory.user_id == account.id)
-        .options(selectinload(IPAddressHistory.project))
-        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
+        history_query()
+        .where(HistoryEntry.user_id == account.id, HistoryEntry.created_at >= account.created_at)
         .limit(50)
     ).all()
     return _templates(request).TemplateResponse(request, "admin_user_profile.html", {
@@ -1596,7 +1638,7 @@ def add_custom_field(
         return _redirect_error(f"/projects/{project_id}", _ui("field.edit_denied"))
 
     if db.get(Project, project_id) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
 
     clean_name = _clean_text(name, 120)
     if not clean_name:
@@ -1617,7 +1659,7 @@ async def save_column_visibility(
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
     if db.get(Project, project_id) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
     form = await request.form()
     custom_fields = db.scalars(select(CustomField).where(CustomField.project_id == project_id))
     hidden = sorted(_hideable_columns(custom_fields).intersection(form.getlist("hidden_column")))
@@ -1643,7 +1685,7 @@ async def save_global_column_visibility(
 ) -> RedirectResponse:
     project = db.get(Project, project_id)
     if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
     form = await request.form()
     custom_fields = db.scalars(select(CustomField).where(CustomField.project_id == project_id))
     project.hidden_columns = sorted(_hideable_columns(custom_fields).intersection(form.getlist("hidden_column")))
@@ -1664,7 +1706,7 @@ def configure_custom_fields(
     if not current_user.can_manage_project_columns:
         return _redirect_error(f"/projects/{project_id}", _ui("field.edit_denied"))
     if db.get(Project, project_id) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
 
     hide_empty = form.get("hide_empty") == "true"
     page = _safe_positive_int(form.get("page"), 1)
@@ -1928,27 +1970,13 @@ def project_history(
     address: Annotated[str, Query(max_length=64)] = "",
     q: Annotated[str, Query(max_length=64)] = "",
 ) -> HTMLResponse:
-    project = db.scalar(
-        select(Project)
-        .where(Project.id == project_id)
-        .options(selectinload(Project.folder))
-    )
+    project = db.get(Project, project_id)
     if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
 
     clean_address = _clean_text(address, 64)
-    history_query = _clean_text(q, 64)
-    history_conditions = [IPAddressHistory.project_id == project.id]
-    if clean_address:
-        history_conditions.append(IPAddressHistory.address == clean_address)
-    if history_query:
-        history_conditions.append(IPAddressHistory.address.startswith(history_query, autoescape=True))
-    history_items = db.scalars(
-        select(IPAddressHistory)
-        .where(*history_conditions)
-        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
-        .limit(200)
-    ).all()
+    search = _clean_text(q, 64)
+    history_items = db.scalars(history_query(project=project, address=clean_address, search=search).limit(200)).all()
 
     return _templates(request).TemplateResponse(
         request,
@@ -1958,8 +1986,9 @@ def project_history(
             "project": project,
             "history_subtitle": f"{project.cidr} / {clean_address}" if clean_address else project.cidr,
             "history_items": history_items,
-            "history_query": history_query,
+            "history_query": search,
             "history_address": clean_address,
+            "history_project_id": project.id,
             "folders": _load_sidebar_folders(db),
             "folder_schedules": _load_folder_schedules(db),
             "default_ping_interval_minutes": _default_ping_interval_minutes(),
@@ -1981,16 +2010,8 @@ def folder_history(
     if folder is None:
         raise HTTPException(status_code=404, detail="Folder not found")
 
-    history_query = _clean_text(q, 64)
-    history_conditions = [IPAddressHistory.address.startswith(history_query, autoescape=True)] if history_query else []
-    history_items = db.scalars(
-        select(IPAddressHistory)
-        .join(Project, IPAddressHistory.project_id == Project.id)
-        .where(Project.folder_id == folder.id, *history_conditions)
-        .options(selectinload(IPAddressHistory.project))
-        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
-        .limit(200)
-    ).all()
+    search = _clean_text(q, 64)
+    history_items = db.scalars(history_query(folder=folder, search=search).limit(200)).all()
 
     return _templates(request).TemplateResponse(
         request,
@@ -2001,8 +2022,8 @@ def folder_history(
             "history_subtitle": folder.name,
             "history_back_url": "/inventory",
             "history_items": history_items,
-            "history_query": history_query,
-            "show_history_project": True,
+            "history_query": search,
+            "history_folder_id": folder.id,
             "folders": _load_sidebar_folders(db),
             "folder_schedules": _load_folder_schedules(db),
             "default_ping_interval_minutes": _default_ping_interval_minutes(),

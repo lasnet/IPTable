@@ -84,7 +84,7 @@ class SidebarTest(unittest.TestCase):
 
         inventory_response = client.get("/inventory")
         self.assertEqual(inventory_response.status_code, 200)
-        self.assertIn("Выберите проект", inventory_response.text)
+        self.assertIn("Выберите подсеть", inventory_response.text)
         self.assertIn('class="sidebar"', inventory_response.text)
         self.assertIn('id="folder-create-modal"', inventory_response.text)
 

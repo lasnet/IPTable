@@ -119,7 +119,6 @@ class Project(TimestampMixin, Base):
     column_preferences: Mapped[list["ProjectColumnVisibility"]] = relationship(cascade="all, delete-orphan")
     ping_jobs: Mapped[list["PingJob"]] = relationship(back_populates="project", cascade="all, delete-orphan")
     ping_schedules: Mapped[list["PingSchedule"]] = relationship(back_populates="project", cascade="all, delete-orphan")
-    ip_history: Mapped[list["IPAddressHistory"]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
 class ProjectColumnVisibility(Base):
@@ -158,34 +157,35 @@ class IPAddress(TimestampMixin, Base):
     edit_lock_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="ip_addresses")
-    history: Mapped[list["IPAddressHistory"]] = relationship(back_populates="ip_address", cascade="all, delete-orphan")
 
 
-class IPAddressHistory(TimestampMixin, Base):
-    __tablename__ = "ip_address_history"
+class HistoryEntry(Base):
+    __tablename__ = "inventory_history"
     __table_args__ = (
-        Index("ix_ip_history_project_created", "project_id", "created_at"),
-        Index("ix_ip_history_ip_created", "ip_address_id", "created_at"),
+        Index("ix_history_created", "created_at", "id"),
+        Index("ix_history_folder_created", "folder_id", "created_at", "id"),
+        Index("ix_history_project_created", "project_id", "created_at", "id"),
+        Index("ix_history_user_created", "user_id", "created_at", "id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    ip_address_id: Mapped[int] = mapped_column(
-        ForeignKey("ip_addresses.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
+    action: Mapped[str] = mapped_column(String(24), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    # Keep the original scope and labels after the objects have been removed.
+    folder_id: Mapped[int | None] = mapped_column(Integer)
+    project_id: Mapped[int | None] = mapped_column(Integer)
+    ip_address_id: Mapped[int | None] = mapped_column(Integer)
+    folder_name: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    subnet_name: Mapped[str] = mapped_column(String(160), default="", nullable=False)
+    cidr: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    source_filename: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     username: Mapped[str] = mapped_column(String(80), default="", nullable=False)
-    address: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    field_name: Mapped[str] = mapped_column(String(180), nullable=False)
-    field_label: Mapped[str] = mapped_column(String(180), nullable=False)
+    address: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    field_name: Mapped[str] = mapped_column(String(180), default="", nullable=False)
+    field_label: Mapped[str] = mapped_column(String(180), default="", nullable=False)
     old_value: Mapped[str] = mapped_column(Text, default="", nullable=False)
     new_value: Mapped[str] = mapped_column(Text, default="", nullable=False)
-
-    project: Mapped[Project] = relationship(back_populates="ip_history")
-    ip_address: Mapped[IPAddress] = relationship(back_populates="history")
-    user: Mapped[User | None] = relationship()
 
 
 class CustomField(TimestampMixin, Base):
