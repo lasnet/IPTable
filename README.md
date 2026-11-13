@@ -38,12 +38,16 @@ cd IPTable
 docker compose up -d --build
 ```
 
-Откройте **http://IP-адрес-сервера:8000** (на самой машине —
-**http://localhost:8000**). Логин по умолчанию - `admin`,
+Откройте **http://localhost:8000** на сервере приложения. По умолчанию порт
+привязан к loopback. Для доступа с другого компьютера настройте HTTPS ниже
+или внешний TLS proxy. Логин по умолчанию - `admin`,
 пароль - тот, который вы указали в `INITIAL_ADMIN_PASSWORD`.
 База, миграции и ping-worker запускаются автоматически. По умолчанию Nginx
 не запускается, сертификаты не требуются. HTTP не шифрует пароли и cookie;
-для доступа через интернет включите HTTPS или используйте свой HTTPS proxy.
+для сетевого доступа включите HTTPS или используйте свой HTTPS proxy.
+Для HTTP в изолированной доверенной сети можно явно задать
+`APP_BIND_ADDRESS=0.0.0.0` и соответствующий HTTP `APP_PUBLIC_URL`.
+Этот режим передаёт пароли, cookie и инвентаризацию открытым текстом.
 
 Вместо редактирования Compose можно скопировать `.env.example` в `.env`
 и заполнить те же настройки там. Настройки из `.env` используются в выражениях
@@ -57,6 +61,7 @@ docker compose up -d --build
 HTTPS_ENABLED=false
 APP_PUBLIC_URL=https://iptable.example.com
 APP_PORT=8000
+APP_BIND_ADDRESS=192.168.1.20
 TRUSTED_PROXY_IPS=192.168.1.10
 ```
 
@@ -85,6 +90,7 @@ location / {
 
 ```dotenv
 HTTPS_ENABLED=true
+APP_BIND_ADDRESS=0.0.0.0
 COMPOSE_PATH_SEPARATOR=:
 COMPOSE_FILE=docker-compose.yml:deploy/https/${HTTPS_ENABLED:-false}.yml
 APP_PUBLIC_URL=https://iptable.example.com
@@ -162,11 +168,12 @@ HTTPS-порт, также перенаправляется. Если порт H
 | `TLS_CERT_FILE` / `TLS_KEY_FILE` | пусто | Абсолютные пути PEM-сертификата с цепочкой и ключа. |
 | `TLS_KEY_GID` | `0` | Дополнительная группа Nginx для чтения ключа. |
 | `TRUSTED_PROXY_IPS` | `127.0.0.1` | Доверенные адреса/CIDR внешнего прокси; не используйте `*` для открытого backend. |
-| `APP_BIND_ADDRESS` | `0.0.0.0` | Адрес прослушивания; `127.0.0.1` ограничит доступ самим сервером. |
+| `APP_BIND_ADDRESS` | `127.0.0.1` | Адрес прослушивания. Для сетевого HTTPS задайте интерфейс сервера или `0.0.0.0`. |
 | `APP_NAME` | `IPtable` | Название приложения. |
 | `INTERFACE_LANGUAGE` | `RU` | Язык интерфейса: `RU` или `EN`. |
 | `INTERFACE_THEME` | `blue` | Начальное оформление при создании настроек: `blue`, `green` или `dark`. |
 | `POSTGRES_USER` / `POSTGRES_DB` | `iptable` | Пользователь и название базы. |
+| `POSTGRES_APP_USER` | `auto` | Отдельная рабочая DB-роль web/worker. Для стандартного POSTGRES_USER имя роли — `iptable_app`. |
 | `SESSION_IDLE_TIMEOUT_SECONDS` | `86400` | Завершение сессии после указанного числа секунд бездействия. |
 | `LOGIN_RATE_LIMIT_ATTEMPTS` | `5` | Сколько неудачных попыток входа допускается за окно ограничения. |
 | `LOGIN_RATE_LIMIT_WINDOW_SECONDS` | `300` | Длина окна ограничения входа в секундах. |
@@ -182,9 +189,30 @@ HTTPS-порт, также перенаправляется. Если порт H
 | `PROJECT_TABLE_DEFAULT_PAGE_SIZE` | `25` | Количество строк на странице таблицы. |
 | `MAX_PROJECT_ADDRESSES` | `4096` | Максимум адресов в одной подсети. |
 | `CSV_IMPORT_MAX_BYTES` | `2097152` | Максимальный размер CSV/XLSX-файла в байтах. |
+| `MAX_REQUEST_BODY_BYTES` | `3145728` | Общий предел тела HTTP-запроса до разбора формы, включая multipart overhead. Применяется при перезапуске. |
 | `INTEGRATION_API_TOKEN` | пусто | Токен REST API. Без него API отключен. |
 | `APP_ENV` | `production` | Рабочий режим с отключенными Swagger/OpenAPI; `local` используется при разработке. |
 | `DATABASE_URL` | пусто | Необязательное подключение к существующей БД. Для встроенной PostgreSQL заполнять не нужно. |
+| `MIGRATION_DATABASE_URL` | пусто | Отдельное подключение для миграций внешней PostgreSQL с правами управления схемой. |
+
+Во встроенной PostgreSQL сервис `migrate` автоматически создаёт отдельную роль
+web/worker с правами чтения и изменения таблиц и использования sequences.
+Административный пароль БД получают PostgreSQL и migrate. Пароль рабочей роли
+вычисляется из `SECRET_KEY` и имени роли. При обновлении сохраняйте `SECRET_KEY`,
+`POSTGRES_USER`, имя базы и Compose project. Роль создаётся и для существующего
+тома, данные сохраняются. После смены `SECRET_KEY` остановите web/worker и выполните
+обычный `up -d --build`, чтобы migrate обновил пароль до запуска новых процессов.
+
+Для внешней PostgreSQL задавайте `DATABASE_URL` рабочей роли и отдельный
+`MIGRATION_DATABASE_URL` владельца схемы. Выдайте рабочей роли DML и sequence grants
+на таблицы приложения, включая default privileges для будущих миграций.
+Production web/worker проверяют отсутствие SUPERUSER, CREATEDB, CREATEROLE,
+REPLICATION и BYPASSRLS при запуске. Backup/restore использует администратора,
+после restore скрипт автоматически выполняет migrate и восстанавливает grants.
+
+Login rate limit глобально удаляет просроченные события независимо от имени
+пользователя. Хранилище ограничено 10 000 событиями; при заполнении новые попытки
+получают HTTP 429 до освобождения места по сроку хранения.
 
 Параметры `APP_NAME`, `INTERFACE_LANGUAGE`, `INTERFACE_THEME`, `SESSION_IDLE_TIMEOUT_SECONDS`,
 `LOGIN_RATE_LIMIT_*`, `PING_*`, `PROJECT_TABLE_DEFAULT_PAGE_SIZE`,

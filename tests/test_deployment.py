@@ -2,18 +2,26 @@ import copy
 import os
 import re
 import secrets
+import sqlite3
 import unittest
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.core.config import Settings, get_settings
+from app.core.config import Settings, get_settings, runtime_database_role_name
 from app.main import create_app
+from app.core.database import engine
 from sqlalchemy.engine import make_url
 
 
 class DeploymentTest(unittest.TestCase):
+    def test_sqlite_runtime_uses_defensive_mode(self) -> None:
+        if engine.dialect.name != "sqlite" or not hasattr(sqlite3, "SQLITE_DBCONFIG_DEFENSIVE"):
+            self.skipTest("Requires SQLite bindings with defensive configuration support")
+        with engine.connect() as connection:
+            self.assertTrue(connection.connection.driver_connection.getconfig(sqlite3.SQLITE_DBCONFIG_DEFENSIVE))
+
     def test_http_session_does_not_replace_a_legacy_secure_cookie(self) -> None:
         settings = Settings(_env_file=None, app_public_url="https://inventory.example")
         with patch("app.main.get_settings", return_value=settings):
@@ -100,6 +108,35 @@ class DeploymentTest(unittest.TestCase):
             with self.assertRaises(ValidationError):
                 Settings(_env_file=None, postgres_host="postgres", postgres_password="")
             self.assertEqual(Settings(_env_file=None).database_url, "sqlite:///./data/iptable.sqlite3")
+
+    def test_runtime_role_uses_separate_reproducible_credentials(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            values = dict(_env_file=None, postgres_host="postgres", postgres_app_user="iptable_app",
+                          secret_key=secrets.token_hex(32))
+            first = make_url(Settings(**values).database_url)
+            second = make_url(Settings(**values).database_url)
+            self.assertEqual(first.username, "iptable_app")
+            self.assertEqual(first.password, second.password)
+            self.assertEqual(len(first.password), 64)
+            rotated = make_url(Settings(**(values | {"secret_key": secrets.token_hex(32)})).database_url)
+            self.assertNotEqual(first.password, rotated.password)
+
+    def test_oversized_anonymous_multipart_is_rejected_before_login(self) -> None:
+        settings = Settings(_env_file=None, max_request_body_bytes=1024)
+        with patch("app.main.get_settings", return_value=settings):
+            client = TestClient(create_app())
+        response = client.post("/login", files={"unused": ("payload.bin", b"x" * 1025)})
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+
+    def test_automatic_runtime_role_handles_existing_administrator_names(self) -> None:
+        for owner in ["iptable", "iptable_app", "a" * 63, "администратор" * 3]:
+            role = runtime_database_role_name(owner, "iptable")
+            self.assertNotEqual(role, owner)
+            self.assertLessEqual(len(role.encode()), 63)
+            settings = Settings(_env_file=None, database_url="", postgres_host="postgres", postgres_user=owner,
+                                postgres_app_user="auto", secret_key=secrets.token_hex(32))
+            self.assertEqual(make_url(settings.database_url).username, role)
 
     def test_production_https_session_persists_and_openapi_stays_disabled(self) -> None:
         with patch.dict(os.environ, {

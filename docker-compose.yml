@@ -10,6 +10,7 @@ x-app-environment: &app-environment
   APP_NAME: ${APP_NAME:-IPtable} # Imported once; change later via app.manage.
   APP_ENV: ${APP_ENV:-production}
   POSTGRES_HOST: postgres
+  POSTGRES_APP_USER: ${POSTGRES_APP_USER:-auto}
   DATABASE_URL: ${DATABASE_URL:-} # Optional override for an existing database.
   SECRET_KEY: ${SECRET_KEY:-} # Required: a random string of at least 32 characters.
   INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
@@ -35,6 +36,7 @@ x-app-environment: &app-environment
   PROJECT_TABLE_DEFAULT_PAGE_SIZE: ${PROJECT_TABLE_DEFAULT_PAGE_SIZE:-25} # Overridable per account.
   MAX_PROJECT_ADDRESSES: ${MAX_PROJECT_ADDRESSES:-4096}
   CSV_IMPORT_MAX_BYTES: ${CSV_IMPORT_MAX_BYTES:-2097152}
+  MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-3145728}
 
 x-app: &app
   image: ${COMPOSE_PROJECT_NAME:-iptable}-app
@@ -57,7 +59,11 @@ services:
 
   migrate:
     <<: *app
-    command: ["python", "-m", "app.manage", "migrate"]
+    environment:
+      <<: *app-environment
+      POSTGRES_APP_USER: ""
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:-${DATABASE_URL:-}}
+    command: ["python", "-m", "app.manage", "migrate", "--runtime-role", "${POSTGRES_APP_USER:-auto}"]
     healthcheck:
       disable: true
     depends_on:
@@ -70,9 +76,10 @@ services:
     environment:
       <<: *app-environment
       ENABLE_PING_WORKER: "false"
+      POSTGRES_PASSWORD: ""
       FORWARDED_ALLOW_IPS: ${TRUSTED_PROXY_IPS:-127.0.0.1}
     ports:
-      - "${APP_BIND_ADDRESS:-0.0.0.0}:${APP_PORT:-8000}:8000"
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8000}:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -84,6 +91,7 @@ services:
     environment:
       <<: *app-environment
       ENABLE_PING_WORKER: "true"
+      POSTGRES_PASSWORD: ""
     depends_on:
       migrate:
         condition: service_completed_successfully

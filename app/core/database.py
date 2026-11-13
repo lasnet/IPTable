@@ -1,7 +1,8 @@
 from collections.abc import Generator
 from pathlib import Path
+import sqlite3
 
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -34,6 +35,16 @@ engine = create_engine(
     pool_pre_ping=True,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+if engine.dialect.name == "sqlite":
+    @event.listens_for(engine, "connect")
+    def enable_sqlite_defensive_mode(connection, _record):
+        # Blocks unsafe schema/index operations on SQLite builds whose FTS5 fixes
+        # require defensive mode. Older Python SQLite bindings may lack this API.
+        option = getattr(sqlite3, "SQLITE_DBCONFIG_DEFENSIVE", None)
+        if option is not None:
+            connection.setconfig(option, True)
 
 
 REQUIRED_TABLES = {

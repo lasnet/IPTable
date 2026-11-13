@@ -12,12 +12,14 @@ from starlette.responses import PlainTextResponse
 
 from app.api.routes import api_router
 from app.core.config import _request_settings, get_settings
-from app.core.database import SessionLocal, init_db
+from app.core.database import SessionLocal, engine, init_db
+from app.services.database_roles import validate_runtime_role
 from app.services.auth import bootstrap_initial_admin
 from app.services.i18n import html_language, make_translator, normalize_language
 from app.services.inventory import normalize_project_address_rows
 from app.services.ping import ensure_default_project_schedules, run_ping_scheduler
 from app.services.security import csrf_input
+from app.services.request_limits import RequestBodyLimitMiddleware
 from app.services.settings import current
 from app.web.routes import router
 
@@ -26,6 +28,8 @@ from app.web.routes import router
 async def lifespan(app: FastAPI):
     settings = get_settings()
     init_db()
+    if settings.app_env == "production":
+        validate_runtime_role(engine)
     with SessionLocal() as db:
         bootstrap_initial_admin(db, settings)
         normalize_project_address_rows(db)
@@ -107,6 +111,7 @@ def create_app() -> FastAPI:
         https_only=secure_cookie,
         default_max_age=settings.session_idle_timeout_seconds,
     )
+    app.add_middleware(RequestBodyLimitMiddleware, max_bytes=settings.max_request_body_bytes)
 
     @app.middleware("http")
     async def add_security_headers(request: Request, call_next) -> Response:

@@ -1,6 +1,7 @@
 """Database migration and settings recovery commands."""
 import argparse
 import json
+import os
 
 from alembic import command
 from alembic.config import Config
@@ -9,7 +10,8 @@ from alembic.config import Config
 def main() -> None:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("migrate")
+    migrate = sub.add_parser("migrate")
+    migrate.add_argument("--runtime-role", help="Provision a dedicated role for the bundled PostgreSQL")
     settings = sub.add_parser("settings")
     actions = settings.add_subparsers(dest="action", required=True)
     actions.add_parser("show")
@@ -27,6 +29,15 @@ def main() -> None:
         from app.services.settings import initialize
         with SessionLocal() as db:
             initialize(db)
+        if args.runtime_role and not os.environ.get("DATABASE_URL"):
+            from app.core.config import get_settings
+            from app.core.database import engine
+            from app.services.database_roles import provision_runtime_role
+            if engine.dialect.name == "postgresql":
+                try:
+                    provision_runtime_role(engine, args.runtime_role, get_settings().secret_key)
+                except Exception:
+                    raise RuntimeError("Runtime database role provisioning failed; check the dedicated role name and migration permissions") from None
         return
     from app.core.database import SessionLocal
     from app.models import AppConfiguration, AppConfigurationAudit

@@ -1,4 +1,5 @@
 FROM nginx:stable-alpine
+ENV MAX_REQUEST_BODY_BYTES=3145728
 
 # hadolint ignore=DL3018
 RUN apk upgrade --no-cache && apk add --no-cache openssl

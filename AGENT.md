@@ -97,6 +97,12 @@ Python 3.12+, понятные имена, SQLAlchemy 2 style, типы на г�
 Модели/миграции, auth/security, настройки, Dockerfile, Compose и update_stable.py.
 Не используйте create_all в старте приложения вместо Alembic.
 Не меняйте имена volumes существующей установки автоматически.
+HTTP по умолчанию привязан к loopback; сетевой bind задаётся явно.
+MAX_REQUEST_BODY_BYTES ограничивает полный body до разбора multipart.
+POSTGRES_USER используется для миграций/backup, POSTGRES_APP_USER — для web/worker.
+Пароль runtime-роли вычисляется из SECRET_KEY; migrate выдаёт DML/sequence grants
+на новых и существующих томах. Внешней DB нужны отдельные runtime/migration URL.
+Production startup отклоняет административную DB-роль web/worker.
 
 ## 11. Что нельзя коммитить
 

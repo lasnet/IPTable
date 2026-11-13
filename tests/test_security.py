@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from fastapi import Depends, FastAPI, Request
@@ -27,6 +27,7 @@ from app.services.security import (
     require_csrf_token,
     reset_login_failures,
 )
+from app.services.request_limits import RequestBodyLimitMiddleware
 from app.web.routes import SESSION_LAST_ACTIVITY_KEY, _session_idle_expired
 
 
@@ -185,6 +186,31 @@ class SecurityTest(unittest.TestCase):
 
         self.assertEqual(remaining_events, [])
 
+    def test_login_events_expire_across_unrelated_identities(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        now = datetime(2026, 11, 13)
+        with sessionmaker(bind=engine)() as db:
+            record_login_failure(db, "127.0.0.1", "old-user", attempts=5,
+                                 window_seconds=300, lockout_seconds=900, now=now - timedelta(days=1))
+            login_rate_limit_retry_after(db, "127.0.0.1", "other-user", attempts=5,
+                                         window_seconds=300, lockout_seconds=900, now=now)
+            self.assertEqual(db.scalars(select(LoginRateLimitEvent)).all(), [])
+
+    def test_login_events_capacity_fails_closed_and_recovers_after_expiry(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        now = datetime(2026, 11, 13)
+        with sessionmaker(bind=engine)() as db, patch("app.services.security.MAX_LOGIN_RATE_LIMIT_EVENTS", 3):
+            for index in range(10):
+                record_login_failure(db, "127.0.0.1", f"user-{index}", attempts=5,
+                                     window_seconds=300, lockout_seconds=900, now=now)
+            self.assertEqual(len(db.scalars(select(LoginRateLimitEvent)).all()), 3)
+            self.assertEqual(login_rate_limit_retry_after(db, "127.0.0.1", "new-user", attempts=5,
+                             window_seconds=300, lockout_seconds=900, now=now), 60)
+            self.assertIsNone(login_rate_limit_retry_after(db, "127.0.0.1", "new-user", attempts=5,
+                              window_seconds=300, lockout_seconds=900, now=now + timedelta(hours=1)))
+
     def test_session_idle_timeout_expires_old_activity(self) -> None:
         request = SimpleNamespace(session={"user_id": 1, SESSION_LAST_ACTIVITY_KEY: 100})
         settings = Settings(initial_admin_password="x", session_idle_timeout_seconds=60)
@@ -202,6 +228,45 @@ class SecurityTest(unittest.TestCase):
         settings = Settings(initial_admin_password="x", session_idle_timeout_seconds=60)
 
         self.assertFalse(_session_idle_expired(request, settings, now=160))
+
+
+class RequestBodyLimitTest(unittest.IsolatedAsyncioTestCase):
+    async def run_request(self, chunks, headers=()):
+        responses = []
+        bodies = []
+        messages = iter({"type": "http.request", "body": chunk, "more_body": i < len(chunks) - 1}
+                        for i, chunk in enumerate(chunks))
+
+        async def receive():
+            return next(messages)
+
+        async def send(message):
+            responses.append(message)
+
+        async def endpoint(scope, receive, send):
+            data = bytearray()
+            while True:
+                message = await receive()
+                data.extend(message["body"])
+                if not message.get("more_body"):
+                    break
+            bodies.append(bytes(data))
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        app = RequestBodyLimitMiddleware(endpoint, max_bytes=10)
+        await app({"type": "http", "headers": list(headers)}, receive, send)
+        return responses[0]["status"], bodies
+
+    async def test_declared_oversize_rejected_before_endpoint(self):
+        self.assertEqual(await self.run_request([], [(b"content-length", b"11")]), (413, []))
+
+    async def test_streamed_body_limit_with_absent_or_understated_length(self):
+        for headers in [[], [(b"content-length", b"1")]]:
+            self.assertEqual(await self.run_request([b"123456", b"78901"], headers), (413, []))
+
+    async def test_accepted_body_is_replayed_exactly(self):
+        self.assertEqual(await self.run_request([b"12345", b"67890"]), (200, [b"1234567890"]))
 
 
 if __name__ == "__main__":

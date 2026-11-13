@@ -42,7 +42,7 @@ python3 scripts/update_stable.py --push   # выполнить merge в stable
 ## Запуск без Docker
 
 ```bash
-python3 -m venv .venv
+uv venv --python 3.12.16 .venv
 source .venv/bin/activate
 pip install -r requirements-dev.lock
 export APP_ENV=local
@@ -89,6 +89,12 @@ GitPython приложению не нужен и также исключён и
 CI в dev проверяет тесты, Ruff, зависимости, секреты, сборку и реальную установку
 через корневой Compose, HTTP и встроенный HTTPS с проверкой тестового сертификата,
 загрузку CSS/JS, редиректы, скрытие версии Nginx, ping и backup/restore PostgreSQL.
+Версия разработки закреплена в `.python-version` и совпадает с runtime Python 3.12.16.
+SQLite-подключения приложения включают defensive mode при поддержке Python binding.
+Для существующей `.venv` сначала переименуйте её в резервную копию, затем создайте
+новую через `uv venv --python 3.12.16 .venv` и установите `requirements-dev.lock`.
+PostgreSQL использует официальный образ 16.16-alpine. При security-обновлении
+выполняйте `docker compose build --pull --no-cache`, затем `docker compose up -d`.
 Bandit Medium/High блокирует CI; Low проверяйте вручную. Не отключайте правила
 глобально ради зеленого отчета. Semgrep/Checkov и остальные команды запускаются
 также при изменениях auth/session/admin/export/upload/Docker.
