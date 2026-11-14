@@ -15,13 +15,19 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def issue_session(db: Session, user: User, timeout_seconds: int) -> str:
+def issue_session(db: Session, user_id: int, verified_password_hash: str, timeout_seconds: int) -> str | None:
     now = datetime.utcnow()
+    updated = db.execute(update(User).where(
+        User.id == user_id, User.is_active.is_(True), User.password_hash == verified_password_hash,
+    ).values(last_login_at=now))
+    if updated.rowcount != 1:
+        db.rollback()
+        return None
     db.execute(delete(UserSession).where(UserSession.expires_at <= now))
     token = secrets.token_urlsafe(32)
     db.add(UserSession(
-        token_hash=_digest(token), user_id=user.id,
-        credential_hash=_digest(user.password_hash),
+        token_hash=_digest(token), user_id=user_id,
+        credential_hash=_digest(verified_password_hash),
         expires_at=now + timedelta(seconds=timeout_seconds),
     ))
     db.commit()

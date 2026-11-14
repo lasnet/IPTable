@@ -14,10 +14,8 @@ from app.api.routes import api_router
 from app.core.config import _request_settings, get_settings
 from app.core.database import SessionLocal, engine, init_db
 from app.services.database_roles import validate_runtime_role
-from app.services.auth import bootstrap_initial_admin
 from app.services.i18n import html_language, make_translator, normalize_language
-from app.services.inventory import normalize_project_address_rows
-from app.services.ping import ensure_default_project_schedules, run_ping_scheduler
+from app.services.ping import run_ping_scheduler
 from app.services.security import csrf_input
 from app.services.request_limits import RequestBodyLimitMiddleware
 from app.services.settings import current
@@ -30,24 +28,22 @@ async def lifespan(app: FastAPI):
     init_db()
     if settings.app_env == "production":
         validate_runtime_role(engine)
-    with SessionLocal() as db:
-        bootstrap_initial_admin(db, settings)
-        normalize_project_address_rows(db)
-        ensure_default_project_schedules(db, current(db, settings))
     app.state.config_ready = True
 
     ping_task: asyncio.Task | None = None
     if settings.enable_ping_worker:
         ping_task = asyncio.create_task(run_ping_scheduler(settings))
 
-    yield
-
-    if ping_task:
-        ping_task.cancel()
-        try:
-            await ping_task
-        except asyncio.CancelledError:
-            pass
+    try:
+        yield
+    finally:
+        app.state.config_ready = False
+        if ping_task:
+            ping_task.cancel()
+            try:
+                await ping_task
+            except asyncio.CancelledError:
+                pass
 
 
 class RuntimeSessionMiddleware:
@@ -65,7 +61,7 @@ class RuntimeSessionMiddleware:
             return
         base = get_settings()
         runtime_path = scope.get("path", "")
-        if (runtime_path != "/health" and not runtime_path.startswith("/static/")
+        if (runtime_path not in {"/health", "/ready"} and not runtime_path.startswith("/static/")
                 and scope.get("app") and getattr(scope["app"].state, "config_ready", False)):
             try:
                 def load_snapshot():

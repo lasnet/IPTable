@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -232,11 +232,16 @@ class PingSchedule(TimestampMixin, Base):
     folder: Mapped[Folder | None] = relationship()
 
 
+ACTIVE_PING_JOB = text("status IN ('queued', 'running')")
+
+
 class PingJob(TimestampMixin, Base):
     __tablename__ = "ping_jobs"
     __table_args__ = (
         Index("ix_ping_jobs_queue", "status", "run_after", "id"),
         Index("ix_ping_jobs_project_status", "project_id", "status"),
+        Index("uq_ping_jobs_active_project", "project_id", unique=True,
+              postgresql_where=ACTIVE_PING_JOB, sqlite_where=ACTIVE_PING_JOB),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -247,6 +252,7 @@ class PingJob(TimestampMixin, Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    claim_token: Mapped[str | None] = mapped_column(String(32))
     error: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
     project: Mapped[Project] = relationship(back_populates="ping_jobs")

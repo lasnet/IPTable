@@ -151,6 +151,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "drawer.lock_unavailable": "Не удалось проверить, кто редактирует строку. Повторяем проверку.",
         "export.folder": "Экспорт папки",
         "export.folder_empty": "В папке нет подсетей для экспорта",
+        "export.archive_failed": "Не удалось создать архив",
         "export.folder_hint": "Экспортирует подсети папки в ZIP-архив с отдельным файлом для каждой подсети.",
         "export.password_placeholder": "Пароль архива",
         "export.password_required_folder": "Введите пароль для защищенного экспорта папки",
@@ -487,6 +488,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "drawer.lock_unavailable": "Could not check the edit lock. Retrying.",
         "export.folder": "Export folder",
         "export.folder_empty": "This folder has no subnets to export",
+        "export.archive_failed": "Could not create the archive",
         "export.folder_hint": "Exports the folder’s subnets into a ZIP archive with a separate file for each subnet.",
         "export.password_placeholder": "Archive password",
         "export.password_required_folder": "Enter a password for protected folder export",
@@ -710,6 +712,9 @@ ERROR_TRANSLATIONS = {
     },
     "XLSX-файл слишком большой после распаковки": {
         "EN": "XLSX file is too large after unpacking",
+    },
+    "XLSX-лист слишком велик: удалите лишние пустые строки и столбцы": {
+        "EN": "The XLSX worksheet is too large: remove excess empty rows and columns",
     },
     "Поддерживаются только файлы .csv и .xlsx": {
         "EN": "Only .csv and .xlsx files are supported",

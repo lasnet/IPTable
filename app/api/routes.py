@@ -188,12 +188,10 @@ def list_project_addresses(
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    custom_fields = db.scalars(
-        select(CustomField).where(CustomField.project_id == project.id).order_by(CustomField.position.asc())
-    ).all()
     query = select(IPAddress).where(IPAddress.project_id == project.id).order_by(IPAddress.ordinal.asc())
     count_query = select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id)
     if hide_empty:
+        custom_fields = db.scalars(select(CustomField).where(CustomField.project_id == project.id)).all()
         condition = _filled_condition(list(custom_fields))
         query = query.where(condition)
         count_query = count_query.where(condition)

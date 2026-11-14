@@ -5,8 +5,10 @@ import io
 import re
 import unittest
 from unittest.mock import patch
+import zipfile
 
 from fastapi.testclient import TestClient
+from pyzipper import AESZipFile
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -15,8 +17,9 @@ from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.main import create_app
 from app.models import Base, CustomField, Folder, HistoryEntry, IPAddress, PingJob, Project, Role, User, UserSession
-from app.services.auth import hash_password
+from app.services.auth import authenticate_user, hash_password
 from app.services.history import build_field_change, record_ip_address_history
+from app.services.sessions import issue_session
 
 
 class BrowserSessionTest(unittest.TestCase):
@@ -71,6 +74,48 @@ class BrowserSessionTest(unittest.TestCase):
         for cookie in client.cookies.jar:
             other.cookies.jar.set_cookie(copy.copy(cookie))
         return other
+
+    def test_folder_export_keeps_legacy_duplicate_cidrs(self) -> None:
+        with self.factory() as db:
+            folder = Folder(id=1, name="Office")
+            for name in ("alpha", "beta", "gamma"):
+                project = Project(name=name, cidr="192.0.2.0/30" if name != "gamma" else "192.0.2.4/30")
+                project.ip_addresses.append(IPAddress(
+                    ordinal=1, address="192.0.2.1" if name != "gamma" else "192.0.2.5", hostname=name,
+                ))
+                folder.projects.append(project)
+            db.add(folder)
+            db.commit()
+        client = self.client()
+        csrf = self.login(client, "admin", "admin-password")
+        for password in ("", "archive-password"):
+            with self.subTest(encrypted=bool(password)):
+                response = client.post("/folders/1/export", data={
+                    "_csrf_token": csrf, "use_password": "on" if password else "", "password": password,
+                })
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(int(response.headers["content-length"]), len(response.content))
+                archive_type = AESZipFile if password else zipfile.ZipFile
+                with archive_type(io.BytesIO(response.content)) as archive:
+                    self.assertEqual(len(archive.namelist()), 3)
+                    self.assertIn("192.0.2.4_30.csv", archive.namelist())
+                    names = {
+                        archive.read(name, pwd=password.encode() or None).decode("utf-8-sig").splitlines()[1].split(";")[1]
+                        for name in archive.namelist()
+                    }
+                    self.assertEqual(names, {"alpha", "beta", "gamma"})
+
+    def test_password_change_between_verification_and_session_issue(self) -> None:
+        with self.factory() as login_db:
+            user = authenticate_user(login_db, "reader", "reader-password")
+            user_id, verified_hash = user.id, user.password_hash
+            login_db.commit()
+            with self.factory() as admin_db:
+                admin_db.get(User, user_id).password_hash = hash_password("new-password")
+                admin_db.commit()
+            self.assertIsNone(issue_session(login_db, user_id, verified_hash, 3600))
+            self.assertIsNone(login_db.scalar(select(UserSession)))
+            self.assertIsNone(login_db.get(User, user_id).last_login_at)
 
     def test_import_opens_full_subnet_and_rejects_duplicate_cidr(self) -> None:
         with self.factory() as db:

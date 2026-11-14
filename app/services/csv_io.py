@@ -5,6 +5,7 @@ import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv4Network, ip_address
+from typing import BinaryIO, Protocol
 from xml.etree import ElementTree as ET
 
 from defusedxml.common import DefusedXmlException
@@ -13,7 +14,6 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 import pyzipper
 
-from app.models import IPAddress
 from app.services.network import NetworkValidationError, normalize_cidr, reserved_project_addresses
 
 BASE_COLUMNS = ["ip", "hostname", "os", "type", "comment"]
@@ -39,6 +39,19 @@ FIELD_LIMITS = {
 
 class CSVImportError(ValueError):
     pass
+
+
+class ExportRow(Protocol):
+    @property
+    def address(self) -> str: ...
+    @property
+    def hostname(self) -> str: ...
+    @property
+    def os(self) -> str: ...
+    @property
+    def asset_type(self) -> str: ...
+    @property
+    def comment(self) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -181,6 +194,18 @@ def _mapped_rows(rows: Iterable[Iterable[object]]) -> Iterable[tuple[int, dict[s
         yield row_number, _import_row_mapping(values, row_number=row_number)
 
 
+def _bounded_xlsx_rows(rows: Iterable[tuple[object, ...]], max_addresses: int) -> Iterable[tuple[object, ...]]:
+    # Allow a header and blank rows while bounding the grid that openpyxl expands
+    # between populated coordinates. A separate cell budget covers wide sparse rows.
+    row_limit = min(1_048_576, max_addresses + max(1024, max_addresses // 4) + 1)
+    cell_budget = max(65_536, row_limit * 32)
+    for row_number, values in enumerate(rows, start=1):
+        cell_budget -= max(1, len(values))
+        if row_number > row_limit or cell_budget < 0:
+            raise CSVImportError("XLSX-лист слишком велик: удалите лишние пустые строки и столбцы")
+        yield values
+
+
 def parse_assets_csv(content: bytes, *, max_addresses: int, cidr: str = "") -> CSVImportResult:
     reader = csv.reader(io.StringIO(_decode_csv(content), newline=""), delimiter=";", strict=True)
     try:
@@ -244,9 +269,8 @@ def parse_assets_xlsx(content: bytes, *, max_addresses: int, cidr: str = "") -> 
             raise CSVImportError("Не удалось прочитать XLSX-файл")
         worksheet = workbook.worksheets[0]
         worksheet.reset_dimensions()
-        return _parse_import_rows(
-            _mapped_rows(worksheet.iter_rows(values_only=True)), max_addresses=max_addresses, cidr=cidr,
-        )
+        rows = _bounded_xlsx_rows(worksheet.iter_rows(values_only=True), max_addresses)
+        return _parse_import_rows(_mapped_rows(rows), max_addresses=max_addresses, cidr=cidr)
     except (CSVImportError, NetworkValidationError):
         raise
     except (InvalidFileException, OSError, ValueError, KeyError, IndexError, TypeError,
@@ -266,7 +290,7 @@ def parse_assets_file(content: bytes, *, filename: str, max_addresses: int, cidr
     raise CSVImportError("Поддерживаются только файлы .csv и .xlsx")
 
 
-def render_project_csv(ip_records: list[IPAddress]) -> str:
+def render_project_csv(ip_records: Iterable[ExportRow]) -> str:
     output = io.StringIO(newline="")
     writer = csv.writer(output, delimiter=";", lineterminator="\n")
     writer.writerow(EXPORT_COLUMNS)
@@ -291,7 +315,7 @@ def safe_csv_cell(value: str | None) -> str:
     return text
 
 
-def render_project_xlsx(ip_records: list[IPAddress]) -> bytes:
+def render_project_xlsx(ip_records: Iterable[ExportRow]) -> bytes:
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = "Assets"
@@ -333,27 +357,20 @@ def safe_export_name(value: str, *, suffix: str) -> str:
     return f"{clean or 'export'}{suffix}"
 
 
-def _build_aes_zip_archive(files: dict[str, bytes], password: str) -> bytes:
-    buffer = io.BytesIO()
-    with pyzipper.AESZipFile(
-        buffer,
-        "w",
-        compression=zipfile.ZIP_DEFLATED,
-        encryption=pyzipper.WZ_AES,
-    ) as archive:
-        archive.setpassword(password.encode("utf-8"))
-        for filename, content in files.items():
+def write_zip_archive(output: BinaryIO, files: Iterable[tuple[str, bytes]], *, password: str | None = None) -> None:
+    if password:
+        archive = pyzipper.AESZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, encryption=pyzipper.WZ_AES)
+    else:
+        archive = zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED)
+
+    with archive:
+        if password:
+            archive.setpassword(password.encode("utf-8"))
+        for filename, content in files:
             archive.writestr(filename, content)
-    return buffer.getvalue()
 
 
 def build_zip_archive(files: dict[str, bytes], *, password: str | None = None) -> bytes:
-    if password:
-        return _build_aes_zip_archive(files, password)
-
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for filename, content in files.items():
-            archive.writestr(filename, content)
-
+    write_zip_archive(buffer, files.items(), password=password)
     return buffer.getvalue()

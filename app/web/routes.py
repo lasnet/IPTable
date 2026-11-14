@@ -1,8 +1,10 @@
 import time
-from collections.abc import AsyncIterator, Iterable
+from collections import Counter
+from collections.abc import AsyncIterator, Iterable, Iterator
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_network
-from typing import Annotated, Literal, get_args
+from tempfile import SpooledTemporaryFile
+from typing import Annotated, BinaryIO, Literal, get_args
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -10,12 +12,12 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from sqlalchemy import String, cast, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 from starlette.datastructures import FormData
 
 from app.core.config import InterfaceTheme, Settings, _request_settings, get_settings
-from app.core.database import get_db
+from app.core.database import check_database_readiness, get_db
 from app.models import CustomField, Folder, HistoryEntry, IPAddress, PingSchedule, Project, ProjectColumnVisibility, Role, User
 from app.models import AppConfiguration, AppConfigurationAudit, IntegrationCredential
 from app.services import address_locks
@@ -23,12 +25,14 @@ from app.services.settings import GROUPS, RevisionConflict, replace_token, save_
 from app.services.auth import authenticate_user, create_user, hash_password
 from app.services.csv_io import (
     CSVImportError,
+    ExportRow,
     build_zip_archive,
     csv_bytes,
     parse_assets_file,
     render_project_csv,
     render_project_xlsx,
     safe_export_name,
+    write_zip_archive,
 )
 from app.services.custom_fields import (
     CUSTOM_FIELD_TYPES,
@@ -450,18 +454,57 @@ def _zip_response(filename: str, content: bytes) -> Response:
     )
 
 
-def _project_export_file(project: Project, ip_records: list[IPAddress], export_format: str) -> tuple[str, bytes, str]:
-    if export_format == "xlsx":
-        filename = safe_export_name(project.cidr.replace("/", "_"), suffix=".xlsx")
-        return filename, render_project_xlsx(ip_records), "xlsx"
+def _project_export_filename(cidr: str, export_format: str) -> str:
+    return safe_export_name(cidr.replace("/", "_"), suffix=f".{export_format}")
 
-    filename = safe_export_name(project.cidr.replace("/", "_"), suffix=".csv")
-    return filename, csv_bytes(render_project_csv(ip_records)), "csv"
+
+def _project_export_content(ip_records: Iterable[ExportRow], export_format: str) -> bytes:
+    if export_format == "xlsx":
+        return render_project_xlsx(ip_records)
+    return csv_bytes(render_project_csv(ip_records))
+
+
+def _folder_export_buffer() -> Iterator[BinaryIO]:
+    with SpooledTemporaryFile(max_size=2 * 1024 * 1024, mode="w+b") as buffer:
+        yield buffer
+
+
+def _folder_export_files(db: Session, folder_id: int, export_format: str) -> Iterator[tuple[str, bytes]]:
+    projects = db.execute(select(Project.id, Project.cidr, Project.name).where(Project.folder_id == folder_id)).all()
+    db.rollback()
+    filenames = Counter(_project_export_filename(project.cidr, export_format) for project in projects)
+    reserved_names = set(filenames)
+    for project in sorted(projects, key=lambda item: (item.name.lower(), item.id)):
+        filename = _project_export_filename(project.cidr, export_format)
+        if filenames[filename] > 1:
+            stem = filename.removesuffix(f".{export_format}")
+            stem = f"{stem}--{project.id}"
+            filename = f"{stem}.{export_format}"
+            while filename in reserved_names:
+                stem += "-"
+                filename = f"{stem}.{export_format}"
+            reserved_names.add(filename)
+        rows = db.execute(
+            select(IPAddress.address, IPAddress.hostname, IPAddress.os, IPAddress.asset_type, IPAddress.comment)
+            .where(IPAddress.project_id == project.id)
+            .order_by(IPAddress.ordinal)
+        ).all()
+        db.rollback()
+        yield filename, _project_export_content(rows, export_format)
 
 
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/ready", include_in_schema=False)
+def readiness() -> Response:
+    try:
+        check_database_readiness()
+    except (SQLAlchemyError, RuntimeError):
+        return JSONResponse({"status": "unavailable"}, status_code=503)
+    return JSONResponse({"status": "ready"})
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -518,11 +561,14 @@ def login(
             return _redirect_error("/login", _login_rate_limit_message(retry_after))
         return _redirect_error("/login", _ui("login.invalid"))
 
+    user_id, verified_password_hash = user.id, user.password_hash
     reset_login_failures(db, client_ip, username)
     revoke_session(db, request.session.get(SESSION_TOKEN_KEY))
-    session_token = issue_session(db, user, settings.session_idle_timeout_seconds)
+    session_token = issue_session(db, user_id, verified_password_hash, settings.session_idle_timeout_seconds)
     request.session.clear()
-    request.session["user_id"] = user.id
+    if session_token is None:
+        return _redirect_error("/login", _ui("login.invalid"))
+    request.session["user_id"] = user_id
     request.session[SESSION_TOKEN_KEY] = session_token
     request.session[SESSION_LAST_ACTIVITY_KEY] = int(time.time())
     return _redirect("/")
@@ -544,13 +590,19 @@ def index(
     message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> Response:
     folders = _load_sidebar_folders(db)
+    addresses, active, offline, untested = db.execute(select(
+        func.count(),
+        func.count().filter(IPAddress.is_reachable.is_(True)),
+        func.count().filter(IPAddress.is_reachable.is_(False)),
+        func.count().filter(IPAddress.is_reachable.is_(None)),
+    ).select_from(IPAddress)).one()
     stats = {
         "folders": len(folders),
         "projects": sum(len(folder.projects) for folder in folders),
-        "addresses": db.scalar(select(func.count(IPAddress.id))) or 0,
-        "active": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(True))) or 0,
-        "offline": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(False))) or 0,
-        "untested": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(None))) or 0,
+        "addresses": addresses,
+        "active": active,
+        "offline": offline,
+        "untested": untested,
     }
     recent_history = db.scalars(history_query().limit(5)).all()
     return _templates(request).TemplateResponse(
@@ -828,7 +880,7 @@ def delete_folder(
 
 
 @router.post("/projects")
-async def create_project(
+def create_project(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
@@ -879,7 +931,7 @@ async def create_project(
 
 
 @router.post("/folders/{folder_id}/projects/import", response_model=None)
-async def import_project_csv(
+def import_project_csv(
     folder_id: int,
     request: Request,
     db: Annotated[Session, Depends(get_db)],
@@ -913,7 +965,7 @@ async def import_project_csv(
     if not csv_file.filename:
         return failure(_ui("import.file_required"))
 
-    content = await csv_file.read(settings.csv_import_max_bytes + 1)
+    content = csv_file.file.read(settings.csv_import_max_bytes + 1)
     if len(content) > settings.csv_import_max_bytes:
         return failure(_ui("import.file_too_large", max_bytes=settings.csv_import_max_bytes), status_code=413)
 
@@ -1129,7 +1181,9 @@ def project_detail(
     visible_conditions = [IPAddress.project_id == project.id, *filter_conditions]
     if hide_empty:
         visible_conditions.append(filled_condition)
-    visible_count = db.scalar(select(func.count(IPAddress.id)).where(*visible_conditions)) or 0
+    visible_count = filled_total if hide_empty and not filter_conditions else (
+        db.scalar(select(func.count(IPAddress.id)).where(*visible_conditions)) or 0
+    )
     page_size = _normalize_project_page_size(per_page, settings, current_user.project_table_page_size)
     pagination = _pagination_context(
         project.id,
@@ -1178,13 +1232,11 @@ def project_detail(
             },
         )
 
-    total_count = db.scalar(select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id)) or 0
-    online_count = db.scalar(
-        select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, IPAddress.is_reachable.is_(True))
-    ) or 0
-    offline_count = db.scalar(
-        select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, IPAddress.is_reachable.is_(False))
-    ) or 0
+    total_count, online_count, offline_count = db.execute(select(
+        func.count(),
+        func.count().filter(IPAddress.is_reachable.is_(True)),
+        func.count().filter(IPAddress.is_reachable.is_(False)),
+    ).where(IPAddress.project_id == project.id)).one()
     folders = _load_sidebar_folders(db)
     project_schedule = db.scalar(
         select(PingSchedule).where(
@@ -1518,10 +1570,10 @@ def admin_update_user(
     user.is_active = protected or _checked(is_active)
     if clean_password:
         user.password_hash = hash_password(clean_password)
-    if clean_password or not user.is_active or role_changed:
-        revoke_user_sessions(db, user.id)
-
     try:
+        if clean_password or not user.is_active or role_changed:
+            db.flush()
+            revoke_user_sessions(db, user.id)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -1566,7 +1618,8 @@ def export_project(
         select(IPAddress).where(IPAddress.project_id == project.id).order_by(IPAddress.ordinal.asc())
     ).all()
     clean_format = "xlsx" if export_format == "xlsx" else "csv"
-    export_filename, export_content, clean_format = _project_export_file(project, list(ip_records), clean_format)
+    export_filename = _project_export_filename(project.cidr, clean_format)
+    export_content = _project_export_content(ip_records, clean_format)
 
     if not _checked(use_password):
         if clean_format == "xlsx":
@@ -1590,38 +1643,37 @@ def export_folder(
     folder_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
+    buffer: Annotated[BinaryIO, Depends(_folder_export_buffer, scope="request")],
     export_format: Annotated[str, Form()] = "csv",
     use_password: Annotated[str | None, Form()] = None,
     password: Annotated[str, Form(max_length=200)] = "",
 ) -> Response:
-    folder = db.scalar(
-        select(Folder)
-        .where(Folder.id == folder_id)
-        .options(selectinload(Folder.projects).selectinload(Project.ip_addresses))
-    )
-    if folder is None:
+    folder_name = db.scalar(select(Folder.name).where(Folder.id == folder_id))
+    if folder_name is None:
         return _redirect_error("/inventory", _ui("folder.not_found"))
-    error_path = f"/inventory?export_folder={folder.id}"
-    if not folder.projects:
+    error_path = f"/inventory?export_folder={folder_id}"
+    if db.scalar(select(Project.id).where(Project.folder_id == folder_id).limit(1)) is None:
         return _redirect_error(error_path, _ui("export.folder_empty"))
-
-    files: dict[str, bytes] = {}
-    clean_format = "xlsx" if export_format == "xlsx" else "csv"
-    for project in sorted(folder.projects, key=lambda item: item.name.lower()):
-        ordered_records = sorted(project.ip_addresses, key=lambda item: item.ordinal)
-        filename, content, _ = _project_export_file(project, ordered_records, clean_format)
-        files[filename] = content
-
     clean_password = password.strip() if _checked(use_password) else ""
     if _checked(use_password) and not clean_password:
         return _redirect_error(error_path, _ui("export.password_required_folder"))
 
+    clean_format = "xlsx" if export_format == "xlsx" else "csv"
     try:
-        archive = build_zip_archive(files, password=clean_password or None)
-    except RuntimeError as exc:
-        return _redirect_error(error_path, _ui_error(str(exc)))
+        write_zip_archive(buffer, _folder_export_files(db, folder_id, clean_format), password=clean_password or None)
+        length = buffer.tell()
+        buffer.seek(0)
+    except (OSError, RuntimeError):
+        return _redirect_error(error_path, _ui("export.archive_failed"))
 
-    return _zip_response(safe_export_name(folder.name, suffix=".zip"), archive)
+    return StreamingResponse(
+        iter(lambda: buffer.read(65_536), b""),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_export_name(folder_name, suffix=".zip")}"',
+            "Content-Length": str(length),
+        },
+    )
 
 
 @router.post("/projects/{project_id}/fields")

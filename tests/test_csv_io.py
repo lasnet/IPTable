@@ -174,6 +174,15 @@ class CSVImportTest(unittest.TestCase):
         self.assertEqual(result.rows[0].row_number, 1)
         self.assertEqual(result.rows[0].asset_type, "Camera")
 
+    def test_xlsx_rejects_large_sparse_row_number(self) -> None:
+        workbook = Workbook()
+        workbook.active["A1000000"] = "192.0.2.1"
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+
+        with self.assertRaisesRegex(CSVImportError, "XLSX-лист слишком велик"):
+            parse_assets_xlsx(buffer.getvalue(), max_addresses=4096)
+
     def test_render_project_xlsx_contains_asset_fields(self) -> None:
         content = render_project_xlsx(
             [

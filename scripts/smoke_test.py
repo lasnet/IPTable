@@ -51,6 +51,8 @@ def check_application(url: str, ca_file: str | None = None, http_url: str | None
 
     health_status, _ = request("/health")
     expect(health_status == 200, f"Health check failed: HTTP {health_status}")
+    readiness_status, _ = request("/ready")
+    expect(readiness_status == 200, f"Database readiness check failed: HTTP {readiness_status}")
     for path in ("/docs", "/redoc", "/openapi.json"):
         expect(request(path)[0] == 404, "OpenAPI should be disabled")
     status, login = request("/login")

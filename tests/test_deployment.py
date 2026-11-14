@@ -16,6 +16,14 @@ from sqlalchemy.engine import make_url
 
 
 class DeploymentTest(unittest.TestCase):
+    def test_readiness_distinguishes_database_failure_from_liveness(self) -> None:
+        client = TestClient(create_app())
+        with patch("app.web.routes.check_database_readiness") as check:
+            self.assertEqual(client.get("/ready").json(), {"status": "ready"})
+            check.side_effect = RuntimeError("configuration missing")
+            self.assertEqual(client.get("/ready").status_code, 503)
+            self.assertEqual(client.get("/health").json(), {"status": "ok"})
+
     def test_sqlite_runtime_uses_defensive_mode(self) -> None:
         if engine.dialect.name != "sqlite" or not hasattr(sqlite3, "SQLITE_DBCONFIG_DEFENSIVE"):
             self.skipTest("Requires SQLite bindings with defensive configuration support")

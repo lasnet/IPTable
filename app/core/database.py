@@ -2,7 +2,8 @@ from collections.abc import Generator
 from pathlib import Path
 import sqlite3
 
-from sqlalchemy import create_engine, event, inspect
+from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -35,6 +36,17 @@ engine = create_engine(
     pool_pre_ping=True,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+readiness_engine = (
+    create_engine(engine.url, poolclass=NullPool,
+                  connect_args={"connect_timeout": 2, "options": "-c statement_timeout=1000"})
+    if engine.dialect.name == "postgresql" else engine
+)
+
+
+def check_database_readiness() -> None:
+    with readiness_engine.connect() as connection:
+        if connection.scalar(text("SELECT id FROM app_configuration WHERE id = 1")) is None:
+            raise RuntimeError("Application configuration is not initialized")
 
 
 if engine.dialect.name == "sqlite":
@@ -72,7 +84,7 @@ def init_db() -> None:
     missing_tables = sorted(REQUIRED_TABLES - existing_tables)
     if missing_tables:
         missing = ", ".join(missing_tables)
-        raise RuntimeError(f"Database schema is not initialized. Run `alembic upgrade head`. Missing: {missing}")
+        raise RuntimeError(f"Database schema is not initialized. Run `python -m app.manage migrate`. Missing: {missing}")
 
 
 def get_db() -> Generator[Session, None, None]:

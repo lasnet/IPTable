@@ -3,20 +3,25 @@ import asyncio
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, update
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import Settings
-from app.models import Base, Folder, PingJob, PingSchedule, Project
+from app.models import Base, Folder, IPAddress, PingJob, PingSchedule, Project
 from app.services.ping import (
     PING_JOB_QUEUED,
     PING_JOB_RUNNING,
+    PING_JOB_DONE,
+    PING_JOB_FAILED,
     PING_SCHEDULE_PROJECT,
+    PingResult,
     _claim_next_ping_job,
     _chunk_rows,
+    _finish_ping_job,
     _supports_postgres_advisory_locks,
     enqueue_due_ping_schedules,
     enqueue_project_ping,
+    ensure_default_project_schedules,
     ensure_project_ping_schedule,
     requeue_stale_ping_jobs,
     build_ping_command,
@@ -102,12 +107,79 @@ class PingServiceTest(unittest.TestCase):
             project_id = project.id
 
             claimed_job = _claim_next_ping_job(db)
-            saved_job = db.get(PingJob, job_id)
             second_claim = _claim_next_ping_job(db)
+            saved_job = db.get(PingJob, job_id)
 
-        self.assertEqual(claimed_job, (job_id, project_id))
+        self.assertEqual((claimed_job.job_id, claimed_job.project_id), (job_id, project_id))
+        self.assertEqual(saved_job.claim_token, claimed_job.token)
         self.assertEqual(saved_job.status, PING_JOB_RUNNING)
         self.assertIsNone(second_claim)
+
+    def test_expired_claim_cannot_publish_or_overwrite_new_claim(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        self.addCleanup(engine.dispose)
+        Base.metadata.create_all(engine)
+        factory = sessionmaker(bind=engine)
+        checked_at = datetime(2026, 1, 1, 0, 1)
+        was_seen = checked_at - timedelta(minutes=1)
+        with factory() as db:
+            folder = Folder(name="Office")
+            project = Project(name="LAN", cidr="192.0.2.0/30", folder=folder)
+            addresses = [
+                IPAddress(address="192.0.2.1", ordinal=1, last_seen_at=was_seen),
+                IPAddress(address="192.0.2.2", ordinal=2, last_seen_at=was_seen),
+            ]
+            project.ip_addresses = addresses
+            db.add(project)
+            db.commit()
+            project_id = project.id
+            first_ip_id, second_ip_id = (address.id for address in addresses)
+            job = enqueue_project_ping(db, project_id)
+            first_claim = _claim_next_ping_job(db)
+            db.execute(update(PingJob).where(PingJob.id == job.id).values(lease_expires_at=was_seen))
+            db.commit()
+            self.assertEqual(requeue_stale_ping_jobs(db, Settings()), 1)
+            second_claim = _claim_next_ping_job(db)
+
+        results = [
+            PingResult(first_ip_id, project_id, True, 1.0, checked_at, True),
+            PingResult(second_ip_id, project_id, False, None, checked_at, True),
+        ]
+        with patch("app.services.ping.SessionLocal", factory):
+            self.assertFalse(_finish_ping_job(first_claim, results))
+            self.assertFalse(_finish_ping_job(first_claim, [], error="failed late"))
+            self.assertTrue(_finish_ping_job(second_claim, results))
+            with factory() as db:
+                self.assertEqual(db.get(PingJob, second_claim.job_id).status, PING_JOB_DONE)
+                self.assertEqual(db.get(IPAddress, first_ip_id).last_seen_at, checked_at)
+                self.assertEqual(db.get(IPAddress, second_ip_id).last_seen_at, was_seen)
+                self.assertIs(db.get(IPAddress, second_ip_id).is_reachable, False)
+                failure = enqueue_project_ping(db, project_id)
+                failure_id = failure.id
+                failure_claim = _claim_next_ping_job(db)
+            self.assertTrue(_finish_ping_job(
+                failure_claim, [PingResult(first_ip_id, project_id, None, None, checked_at, False)],
+            ))
+            with factory() as db:
+                self.assertEqual(db.get(PingJob, failure_id).status, PING_JOB_FAILED)
+                self.assertIs(db.get(IPAddress, first_ip_id).is_reachable, True)
+
+    def test_default_schedule_repair_preserves_existing_schedule(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        self.addCleanup(engine.dispose)
+        Base.metadata.create_all(engine)
+        with sessionmaker(bind=engine)() as db:
+            folder = Folder(name="Office")
+            project = Project(name="LAN", cidr="192.0.2.0/30", folder=folder)
+            db.add_all([project, Project(name="VPN", cidr="192.0.2.4/30", folder=folder)])
+            db.flush()
+            schedule = PingSchedule(scope="project", project_id=project.id, enabled=False, interval_seconds=600)
+            db.add(schedule)
+            db.commit()
+            self.assertEqual(ensure_default_project_schedules(db, Settings()), 1)
+            self.assertEqual(ensure_default_project_schedules(db, Settings()), 0)
+            self.assertFalse(schedule.enabled)
+            self.assertEqual(schedule.interval_seconds, 600)
 
     def test_sqlite_does_not_use_postgres_advisory_locks(self) -> None:
         engine = create_engine("sqlite:///:memory:")
