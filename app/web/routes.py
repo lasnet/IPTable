@@ -453,10 +453,10 @@ def _zip_response(filename: str, content: bytes) -> Response:
 def _project_export_file(project: Project, ip_records: list[IPAddress], export_format: str) -> tuple[str, bytes, str]:
     if export_format == "xlsx":
         filename = safe_export_name(project.cidr.replace("/", "_"), suffix=".xlsx")
-        return filename, render_project_xlsx(project, ip_records), "xlsx"
+        return filename, render_project_xlsx(ip_records), "xlsx"
 
     filename = safe_export_name(project.cidr.replace("/", "_"), suffix=".csv")
-    return filename, csv_bytes(render_project_csv(project, ip_records)), "csv"
+    return filename, csv_bytes(render_project_csv(ip_records)), "csv"
 
 
 @router.get("/health")
@@ -1987,10 +1987,6 @@ def project_history(
             "history_query": search,
             "history_address": clean_address,
             "history_project_id": project.id,
-            "folders": _load_sidebar_folders(db),
-            "folder_schedules": _load_folder_schedules(db),
-            "default_ping_interval_minutes": _default_ping_interval_minutes(),
-            "active_project": project,
             "current_user": current_user,
         },
     )
@@ -2022,10 +2018,6 @@ def folder_history(
             "history_items": history_items,
             "history_query": search,
             "history_folder_id": folder.id,
-            "folders": _load_sidebar_folders(db),
-            "folder_schedules": _load_folder_schedules(db),
-            "default_ping_interval_minutes": _default_ping_interval_minutes(),
-            "active_folder_id": folder.id,
             "current_user": current_user,
         },
     )

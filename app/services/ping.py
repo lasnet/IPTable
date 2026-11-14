@@ -307,7 +307,7 @@ def set_folder_ping_schedule(
     return schedule
 
 
-def enqueue_due_ping_schedules(db, settings: Settings) -> int:
+def enqueue_due_ping_schedules(db) -> int:
     if not _try_ping_advisory_lock(db, PING_SCHEDULER_LOCK_ID):
         return 0
 
@@ -472,7 +472,7 @@ async def run_ping_scheduler(settings: Settings) -> None:
                 requeued_count = requeue_stale_ping_jobs(db, settings)
                 if requeued_count:
                     logger.warning("Requeued stale ping jobs: %s", requeued_count)
-                enqueue_due_ping_schedules(db, settings)
+                enqueue_due_ping_schedules(db)
 
             if time.monotonic() >= next_poll_at:
                 processed = await run_next_ping_job(settings)

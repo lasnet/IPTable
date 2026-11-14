@@ -94,7 +94,7 @@
       <nav class="tree">
         {% for folder in folders %}
         <div class="folder-node">
-          <details class="tree-folder" {% if (active_project and active_project.folder_id == folder.id) or (active_folder_id is defined and active_folder_id == folder.id) %}open{% endif %}>
+          <details class="tree-folder" {% if active_project and active_project.folder_id == folder.id %}open{% endif %}>
             <summary class="folder-line">
               <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="m9 18 6-6-6-6" />

@@ -9,7 +9,7 @@ import pyzipper
 from app.services.csv_io import (
     CSVImportError, build_zip_archive, parse_assets_csv, parse_assets_xlsx, render_project_xlsx, render_project_csv,
 )
-from app.models import IPAddress, Project
+from app.models import IPAddress
 
 
 class CSVImportTest(unittest.TestCase):
@@ -44,15 +44,14 @@ class CSVImportTest(unittest.TestCase):
             parse_assets_xlsx(buffer.getvalue(), max_addresses=256)
 
     def test_export_preserves_xlsx_text_and_neutralizes_csv_formulas(self) -> None:
-        project = Project(name="LAN", cidr="10.0.0.0/24")
         for text in ("=1+1", "+1+1", "-1+1", "@SUM(1)", "  =1+1", "\t=1+1"):
             with self.subTest(text=text):
                 record = IPAddress(address="10.0.0.1", hostname="server", os="Linux", asset_type="VM", comment=text)
-                workbook = load_workbook(io.BytesIO(render_project_xlsx(project, [record])), data_only=False)
+                workbook = load_workbook(io.BytesIO(render_project_xlsx([record])), data_only=False)
                 self.assertEqual(workbook.active["E2"].data_type, "s")
                 self.assertEqual(workbook.active["E2"].value, text)
                 workbook.close()
-                rows = list(csv.reader(io.StringIO(render_project_csv(project, [record])), delimiter=";"))
+                rows = list(csv.reader(io.StringIO(render_project_csv([record])), delimiter=";"))
                 self.assertEqual(rows[1][4], "'" + text)
                 self.assertEqual(record.comment, text)
 
@@ -177,7 +176,6 @@ class CSVImportTest(unittest.TestCase):
 
     def test_render_project_xlsx_contains_asset_fields(self) -> None:
         content = render_project_xlsx(
-            Project(id=1, folder_id=1, name="LAN", cidr="192.168.1.0/24"),
             [
                 IPAddress(
                     id=1,

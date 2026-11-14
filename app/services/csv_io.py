@@ -13,7 +13,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 import pyzipper
 
-from app.models import IPAddress, Project
+from app.models import IPAddress
 from app.services.network import NetworkValidationError, normalize_cidr, reserved_project_addresses
 
 BASE_COLUMNS = ["ip", "hostname", "os", "type", "comment"]
@@ -266,7 +266,7 @@ def parse_assets_file(content: bytes, *, filename: str, max_addresses: int, cidr
     raise CSVImportError("Поддерживаются только файлы .csv и .xlsx")
 
 
-def render_project_csv(project: Project, ip_records: list[IPAddress]) -> str:
+def render_project_csv(ip_records: list[IPAddress]) -> str:
     output = io.StringIO(newline="")
     writer = csv.writer(output, delimiter=";", lineterminator="\n")
     writer.writerow(EXPORT_COLUMNS)
@@ -291,7 +291,7 @@ def safe_csv_cell(value: str | None) -> str:
     return text
 
 
-def render_project_xlsx(project: Project, ip_records: list[IPAddress]) -> bytes:
+def render_project_xlsx(ip_records: list[IPAddress]) -> bytes:
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = "Assets"

@@ -133,7 +133,7 @@ class PingServiceTest(unittest.TestCase):
             schedule.next_run_at = datetime.utcnow() - timedelta(seconds=1)
             db.commit()
 
-            enqueued = enqueue_due_ping_schedules(db, Settings(initial_admin_password="x"))
+            enqueued = enqueue_due_ping_schedules(db)
             job = db.scalar(select(PingJob).where(PingJob.project_id == project.id))
             saved_schedule = db.scalar(
                 select(PingSchedule).where(
@@ -164,7 +164,7 @@ class PingServiceTest(unittest.TestCase):
             db.commit()
 
             with patch("app.services.ping._try_ping_advisory_lock", return_value=False):
-                enqueued = enqueue_due_ping_schedules(db, Settings(initial_admin_password="x"))
+                enqueued = enqueue_due_ping_schedules(db)
             job = db.scalar(select(PingJob).where(PingJob.project_id == project.id))
 
         self.assertEqual(enqueued, 0)
