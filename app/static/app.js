@@ -45,21 +45,6 @@
 })();
 
 (function () {
-  const links = [...document.querySelectorAll(".section-pane-link[href^='#']")];
-  if (!links.length) return;
-  function selectCurrent() {
-    const selected = links.find((link) => link.hash === window.location.hash) || links[0];
-    links.forEach((link) => {
-      link.classList.toggle("selected", link === selected);
-      if (link === selected) link.setAttribute("aria-current", "location");
-      else link.removeAttribute("aria-current");
-    });
-  }
-  window.addEventListener("hashchange", selectCurrent);
-  selectCurrent();
-})();
-
-(function () {
   let dirtyRow = null;
   let drawerOpener = null;
   let allowSubmit = false;

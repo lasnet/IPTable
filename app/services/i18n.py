@@ -27,13 +27,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dashboard.all_history": "Вся история",
         "history.global_hint": "Последние 200 событий по папкам, подсетям и IP-адресам.",
         "nav.primary": "Основная навигация",
-        "nav.quick_links": "В этом разделе",
         "nav.workspace": "Рабочее пространство",
         "nav.dashboard": "Дашборд",
         "nav.inventory": "IP-таблица",
         "nav.inventory_hint": "Папки и подсети",
         "nav.settings": "Настройки",
-        "settings.subtitle": "Раздел для будущих настроек приложения.",
         "settings.interface": "Интерфейс",
         "settings.personal_subtitle": "Настройки вашего аккаунта",
         "settings.admin_subtitle": "Личные настройки и параметры установки",
@@ -47,12 +45,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.rows_per_page": "Строк на странице",
         "settings.interface_invalid": "Выберите доступные значения в настройках интерфейса.",
         "settings.saved": "Настройки сохранены",
-        "settings.interface_hint": "Язык, представление таблицы и персональные предпочтения.",
-        "settings.monitoring": "Мониторинг",
-        "settings.monitoring_hint": "Параметры ping и расписание проверок.",
-        "settings.security": "Безопасность",
-        "settings.security_hint": "Параметры сессий и доступа.",
-        "settings.planned": "Планируется",
         "admin.active_admin": "Администратор активен",
         "admin.account": "Учетная запись",
         "admin.active": "активен",
@@ -371,13 +363,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dashboard.all_history": "Full history",
         "history.global_hint": "Latest 200 events for folders, subnets and IP addresses.",
         "nav.primary": "Main navigation",
-        "nav.quick_links": "In this section",
         "nav.workspace": "Workspace",
         "nav.dashboard": "Dashboard",
         "nav.inventory": "IP table",
         "nav.inventory_hint": "Folders and subnets",
         "nav.settings": "Settings",
-        "settings.subtitle": "A home for future application settings.",
         "settings.interface": "Interface",
         "settings.personal_subtitle": "Your account preferences",
         "settings.admin_subtitle": "Personal preferences and installation settings",
@@ -391,12 +381,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.rows_per_page": "Rows per page",
         "settings.interface_invalid": "Choose one of the available values for each preference.",
         "settings.saved": "Settings saved",
-        "settings.interface_hint": "Language, table view and personal preferences.",
-        "settings.monitoring": "Monitoring",
-        "settings.monitoring_hint": "Ping options and check schedules.",
-        "settings.security": "Security",
-        "settings.security_hint": "Session and access options.",
-        "settings.planned": "Planned",
         "admin.active_admin": "Admin is active",
         "admin.account": "Account",
         "admin.active": "active",
@@ -718,12 +702,6 @@ ERROR_TRANSLATIONS = {
     "Подсеть с таким названием уже существует в выбранной папке": {
         "EN": "A subnet with this name already exists in the selected folder",
     },
-    "CSV-файл пустой или не содержит заголовок": {
-        "EN": "CSV file is empty or has no header",
-    },
-    "CSV-файл пустой или не содержит строк с IP-адресами": {
-        "EN": "CSV file is empty or has no IP address rows",
-    },
     "Не удалось прочитать XLSX-файл": {
         "EN": "Could not read the XLSX file",
     },
@@ -732,12 +710,6 @@ ERROR_TRANSLATIONS = {
     },
     "XLSX-файл слишком большой после распаковки": {
         "EN": "XLSX file is too large after unpacking",
-    },
-    "XLSX-файл пустой или не содержит заголовок": {
-        "EN": "XLSX file is empty or has no header",
-    },
-    "XLSX-файл пустой или не содержит строк с IP-адресами": {
-        "EN": "XLSX file is empty or has no IP address rows",
     },
     "Поддерживаются только файлы .csv и .xlsx": {
         "EN": "Only .csv and .xlsx files are supported",
@@ -748,10 +720,6 @@ ERROR_PATTERNS = [
     (
         re.compile(r"^Подсеть содержит (?P<count>\d+) адресов, лимит: (?P<limit>\d+)$"),
         {"EN": "Subnet contains {count} addresses, limit: {limit}"},
-    ),
-    (
-        re.compile(r"^Неверный заголовок (?P<source>.+)\. Ожидается: (?P<expected>.+)$"),
-        {"EN": "Invalid {source} header. Expected: {expected}"},
     ),
     (
         re.compile(r"^Строка (?P<row>\d+), колонка ip: обязательное значение$"),

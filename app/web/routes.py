@@ -1240,8 +1240,6 @@ def project_detail(
         "empty_count": max(total_count - filled_total, 0),
         "online_count": online_count,
         "offline_count": offline_count,
-        "shown_count": len(ip_records),
-        "visible_count": visible_count,
     }
     return _templates(request).TemplateResponse(request, "project.html", context)
 

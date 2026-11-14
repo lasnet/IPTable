@@ -1,20 +1,10 @@
-{#
-  The number column is hidden through this flag to keep colgroup and sticky IP column stable.
-  If the number column is needed again:
-  1. Change false to true.
-  2. Set .col-number width and move .locked-col by the same width in app/static/styles.css.
-#}
-{% set show_number_column = false %}
 {% set visible_base = base_address_columns | rejectattr('0', 'in', hidden_columns) | list %}
 {% set visible_custom = custom_fields | rejectattr('visibility_key', 'in', hidden_columns) | list %}
-{% set table_colspan = (3 if show_number_column else 2) + visible_base|length + visible_custom|length %}
+{% set table_colspan = 2 + visible_base|length + visible_custom|length %}
 <div class="asset-table-wrap">
   <table class="asset-table"{% if not ip_records %} data-empty{% endif %}{% if hidden_columns %} data-personal-columns{% endif %}>
     {% if ip_records %}
     <colgroup>
-      {% if show_number_column %}
-      <col class="col-number">
-      {% endif %}
       <col class="col-ip">
       {% for key, label, css_name in visible_base %}
       <col class="col-{{ css_name }}">
@@ -26,9 +16,6 @@
     </colgroup>
     <thead>
       <tr>
-        {% if show_number_column %}
-        <th class="number-head">№</th>
-        {% endif %}
         <th class="locked-col">{{ _('table.ip_address') }}</th>
         {% for key, label, css_name in visible_base %}
         <th>{{ label }}</th>
@@ -56,9 +43,6 @@
         data-ping-status-filter="{{ table_filters.ping_status }}"
         data-type-filter="{{ table_filters.type_filter }}"
         data-os-filter="{{ table_filters.os_filter }}">
-        {% if show_number_column %}
-        <td class="number-cell">{{ ip.ordinal }}</td>
-        {% endif %}
         <td class="ip-cell locked-col" data-detail-field="address"><button class="ip-open-button" type="button" data-host-drawer-open aria-label="{{ _('drawer.open', address=ip.address) }}" aria-controls="host-drawer-{{ project.id }}" aria-expanded="false">{{ ip.address }}</button></td>
         {# The drawer also reads hidden cells to show and preserve their values. #}
         {% for key, label, css_name in base_address_columns %}

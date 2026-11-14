@@ -52,12 +52,11 @@ async def lifespan(app: FastAPI):
 
 class RuntimeSessionMiddleware:
     def __init__(self, app, *, secret_key: str, session_cookie: str, https_only: bool,
-                 default_max_age: int, same_site: str = "lax"):
+                 same_site: str = "lax"):
         self.app = app
         self.secret_key = secret_key
         self.session_cookie = session_cookie
         self.https_only = https_only
-        self.default_max_age = default_max_age
         self.same_site = same_site
 
     async def __call__(self, scope, receive, send):
@@ -109,7 +108,6 @@ def create_app() -> FastAPI:
         session_cookie="__Host-iptable_session" if secure_cookie else "iptable_http_session",
         same_site="lax",
         https_only=secure_cookie,
-        default_max_age=settings.session_idle_timeout_seconds,
     )
     app.add_middleware(RequestBodyLimitMiddleware, max_bytes=settings.max_request_body_bytes)
 

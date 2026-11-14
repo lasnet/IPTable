@@ -336,7 +336,7 @@ def enqueue_due_ping_schedules(db, settings: Settings) -> int:
         schedule.last_run_at = now
         schedule.next_run_at = now + timedelta(seconds=schedule.interval_seconds)
 
-    if schedules or enqueued_count:
+    if schedules:
         db.commit()
     return enqueued_count
 
@@ -454,19 +454,6 @@ async def run_next_ping_job(settings: Settings) -> bool:
             finished_job.error = ""
             db.commit()
     return True
-
-
-async def run_ping_pass(settings: Settings) -> int:
-    with SessionLocal() as db:
-        project_ids = db.scalars(select(Project.id).order_by(Project.id.asc())).all()
-
-    updated_count = 0
-    for project_index, project_id in enumerate(project_ids):
-        updated_count += await run_ping_project(project_id, settings)
-        if settings.ping_project_pause_seconds and project_index < len(project_ids) - 1:
-            await asyncio.sleep(settings.ping_project_pause_seconds)
-
-    return updated_count
 
 
 async def run_ping_scheduler(settings: Settings) -> None:

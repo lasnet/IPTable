@@ -107,12 +107,8 @@ def _parse_import_rows(
     parsed_addresses: list[IPv4Address] = []
     seen_addresses: dict[str, int] = {}
 
-    for row_number, raw_row in rows_with_numbers:
-        normalized = {key: _cell_text(raw_row.get(key)) for key in EXPORT_COLUMNS}
-        if not any(normalized.values()):
-            continue
-
-        raw_ip = normalized["ip"]
+    for row_number, row in rows_with_numbers:
+        raw_ip = row["ip"]
         if not raw_ip:
             raise CSVImportError(f"Строка {row_number}, колонка ip: обязательное значение")
 
@@ -132,17 +128,17 @@ def _parse_import_rows(
         seen_addresses[address] = row_number
 
         for field_name, limit in FIELD_LIMITS.items():
-            if len(normalized[field_name]) > limit:
+            if len(row[field_name]) > limit:
                 raise CSVImportError(f"Строка {row_number}, колонка {field_name}: значение длиннее {limit} символов")
 
         rows.append(
             ImportedAsset(
                 row_number=row_number,
                 address=address,
-                hostname=normalized["hostname"],
-                os=normalized["os"],
-                asset_type=normalized["type"],
-                comment=normalized["comment"],
+                hostname=row["hostname"],
+                os=row["os"],
+                asset_type=row["type"],
+                comment=row["comment"],
             )
         )
         parsed_addresses.append(parsed_ip)

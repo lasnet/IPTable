@@ -51,7 +51,7 @@ export DATABASE_URL=sqlite:///./data/iptable.sqlite3
 export ENABLE_PING_WORKER=false
 export SECRET_KEY=local-development-key-change-me
 export INITIAL_ADMIN_PASSWORD=local-development-password-change-me
-alembic upgrade head
+python -m app.manage migrate
 uvicorn app.main:app --reload
 ```
 
