@@ -120,6 +120,19 @@
         <div><span>{{ 'Публичный адрес' if interface_language == 'RU' else 'Public origin' }}</span><strong>{{ request.app.state.bootstrap_settings.app_public_url or '—' }}</strong></div>
         <div><span>{{ 'База данных' if interface_language == 'RU' else 'Database' }}</span><strong>{{ 'PostgreSQL' if request.app.state.bootstrap_settings.database_url.startswith('postgresql') else 'SQLite' }}</strong></div>
       </div>
+      <form class="settings-form" action="/settings/default-page-size" method="post">
+        {{ csrf_input(request) }}
+        <input type="hidden" name="revision" value="{{ configuration.revision }}">
+        <label class="settings-field">
+          <span>{{ 'Строк на странице по умолчанию' if interface_language == 'RU' else 'Default rows per page' }}</span>
+          <select name="project_table_default_page_size">
+            {% for size in page_sizes %}
+              <option value="{{ size }}" {% if configuration.project_table_default_page_size == size %}selected{% endif %}>{{ size }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="settings-actions"><button type="submit">{{ _('button.save') }}</button></div>
+      </form>
       <h3 class="settings-history-title">{{ 'Последние изменения' if interface_language == 'RU' else 'Recent changes' }}</h3>
       <ul class="settings-history">{% for item in history %}<li><time>{{ item.created_at.strftime('%d.%m.%Y %H:%M') }}</time><span>{{ item.actor_name }}</span><strong>{{ item.section }}</strong></li>{% endfor %}</ul>
     </section>

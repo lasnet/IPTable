@@ -2,6 +2,7 @@ from functools import lru_cache
 import hashlib
 import hmac
 from contextvars import ContextVar
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -10,6 +11,7 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
+from app.core.installation_key import read_key, validate_key
 from app.services.i18n import normalize_language
 
 
@@ -35,13 +37,14 @@ class Settings(BaseSettings):
     app_public_url: str = ""
     https_enabled: bool = False
     secret_key: str = Field(default="", min_length=0)
+    secret_key_file: Path | None = None
     session_cookie_secure: bool | None = None
     session_idle_timeout_seconds: int = Field(default=86400, ge=60)
     login_rate_limit_attempts: int = Field(default=5, ge=1, le=100)
     login_rate_limit_window_seconds: int = Field(default=300, ge=60)
     login_rate_limit_lockout_seconds: int = Field(default=900, ge=60)
     integration_api_token: str = Field(default="", min_length=0)
-    interface_language: str = Field(default="RU", min_length=0, max_length=8)
+    interface_language: str = Field(default="EN", min_length=0, max_length=8)
     interface_theme: InterfaceTheme = "blue"
     initial_admin_username: str = Field(default="admin", min_length=3, max_length=80)
     initial_admin_password: str = Field(default="", min_length=0)
@@ -95,6 +98,11 @@ class Settings(BaseSettings):
             self.session_cookie_secure = secure
         if self.https_enabled and not self.app_public_url.startswith("https://"):
             raise ValueError("HTTPS_ENABLED requires an HTTPS APP_PUBLIC_URL")
+        if self.secret_key_file is not None:
+            try:
+                self.secret_key = read_key(self.secret_key_file)
+            except (OSError, UnicodeError):
+                raise ValueError("Cannot read the installation key file. Run app.manage migrate first") from None
         if not self.database_url:
             if self.postgres_host:
                 username = self.postgres_app_user or self.postgres_user
@@ -115,10 +123,7 @@ class Settings(BaseSettings):
         if self.app_env == "production":
             if self.session_cookie_secure is False and not self.app_public_url.startswith("http://"):
                 raise ValueError("Production requires SESSION_COOKIE_SECURE=true and an HTTPS ingress")
-            if len(self.secret_key.strip()) < 32 or self.secret_key.strip().startswith("replace-with-"):
-                raise ValueError("Production SECRET_KEY must be at least 32 characters and not a placeholder")
-            if len(self.initial_admin_password.strip()) < 12 or self.initial_admin_password.strip().startswith("replace-with-"):
-                raise ValueError("Production INITIAL_ADMIN_PASSWORD must be at least 12 characters and not a placeholder")
+            validate_key(self.secret_key)
         return self
 
 
@@ -129,7 +134,7 @@ class BootstrapSettings(Settings):
         # Filter before Pydantic parses values. Invalid old runtime env must not
         # prevent a configured installation from starting after migration.
         names = {
-            "app_env", "app_public_url", "https_enabled", "secret_key", "session_cookie_secure",
+            "app_env", "app_public_url", "https_enabled", "secret_key", "secret_key_file", "session_cookie_secure",
             "initial_admin_username", "initial_admin_password", "database_url", "postgres_host",
             "postgres_port", "postgres_user", "postgres_password", "postgres_db", "enable_ping_worker",
             "max_request_body_bytes", "postgres_app_user",

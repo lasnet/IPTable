@@ -18,9 +18,15 @@ if [[ "${CONFIRM_RESTORE:-}" != "YES" ]]; then
   exit 1
 fi
 
-docker compose exec -T postgres sh -c 'umask 077; cat > /tmp/iptable_restore.dump' < "$backup_file"
-docker compose exec -T postgres sh -c 'pg_restore --clean --if-exists --no-owner -U "$POSTGRES_USER" -d "$POSTGRES_DB" /tmp/iptable_restore.dump'
-docker compose exec -T postgres rm -f /tmp/iptable_restore.dump
+if [[ -f "${backup_file}.key" ]]; then
+  docker compose run --rm --no-deps -T migrate python -m app.manage restore-key < "${backup_file}.key"
+elif ! docker compose run --rm --no-deps -T --entrypoint sh migrate -c \
+  'test -s "$SECRET_KEY_FILE" || test -n "$SECRET_KEY"'; then
+  echo "Installation key missing. Provide ${backup_file}.key or configure the original SECRET_KEY." >&2
+  exit 1
+fi
+docker compose exec -T postgres sh -c '\
+  pg_restore --single-transaction --clean --if-exists --no-owner --no-privileges -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < "$backup_file"
 docker compose run --rm --no-deps migrate
 
 echo "Restore completed from: $backup_file"

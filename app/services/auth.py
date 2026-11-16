@@ -1,11 +1,11 @@
 import hashlib
 import secrets
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
-from app.models import Role, User
+from app.models import AppConfiguration, Role, User
 
 PBKDF2_ALGORITHM = "pbkdf2_sha256"
 PBKDF2_ITERATIONS = 390_000
@@ -51,43 +51,33 @@ def authenticate_user(db: Session, username: str, password: str) -> User | None:
     return user
 
 
+def validate_admin_password(password: str) -> None:
+    if len(password.strip()) < 12 or password.strip().startswith("replace-with-"):
+        raise ValueError("INITIAL_ADMIN_PASSWORD must be at least 12 characters and must be changed from its placeholder")
+
+
 def bootstrap_initial_admin(db: Session, settings: Settings) -> None:
-    if not settings.initial_admin_password:
+    db.execute(select(AppConfiguration.id).where(AppConfiguration.id == 1).with_for_update())
+    if db.scalar(select(User.id).where(User.is_admin.is_(True)).limit(1)) is not None:
+        return
+    password = settings.initial_admin_password
+    if settings.app_env == "production":
+        validate_admin_password(password)
+    elif not password:
         return
 
     username = settings.initial_admin_username.strip()
-    admin_role = db.scalar(select(Role).where(Role.code == "admin"))
-    user_role = db.scalar(select(Role).where(Role.code == "user"))
-    db.execute(
-        update(User)
-        .where(func.lower(User.username) != username.lower(), User.is_admin.is_(True))
-        .values(
-            is_admin=False,
-            can_create=False,
-            can_edit=False,
-            can_delete=False,
-            can_manage_columns=False,
-            role_id=user_role.id if user_role else None,
-        )
-    )
-    existing = db.scalar(select(User).where(func.lower(User.username) == username.lower()))
-    if existing is not None:
-        existing.is_admin = True
-        existing.role = admin_role
-        existing.is_active = True
-        existing.can_create = True
-        existing.can_edit = True
-        existing.can_delete = True
-        existing.can_manage_columns = True
-        db.commit()
-        return
+    if len(username) < 3:
+        raise ValueError("INITIAL_ADMIN_USERNAME must have at least 3 characters")
+    if db.scalar(select(User.id).where(func.lower(User.username) == username.lower())) is not None:
+        raise ValueError("INITIAL_ADMIN_USERNAME already belongs to an existing user. Choose a different login")
 
     db.add(
         User(
             username=username,
-            password_hash=hash_password(settings.initial_admin_password),
+            password_hash=hash_password(password),
             is_admin=True,
-            role=admin_role,
+            role=db.scalar(select(Role).where(Role.code == "admin")),
             can_create=True,
             can_edit=True,
             can_delete=True,

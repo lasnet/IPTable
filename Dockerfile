@@ -14,7 +14,8 @@ RUN pip install --no-cache-dir --only-binary=:all: --upgrade pip==26.2.2 \
     && pip install --no-cache-dir --only-binary=:all: -r requirements.txt \
     && pip uninstall -y pip
 
-RUN addgroup -S app && adduser -S -G app app
+RUN addgroup -S app && adduser -S -G app app \
+    && mkdir -m 700 /run/iptable && chown app:app /run/iptable
 
 # Runtime allowlist: tests, development tools, secrets and deployment files stay outside.
 COPY app/ ./app/
