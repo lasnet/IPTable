@@ -30,7 +30,7 @@ class BrowserSessionTest(unittest.TestCase):
         self.addCleanup(self.engine.dispose)
         Base.metadata.create_all(self.engine)
         self.factory = sessionmaker(bind=self.engine)
-        self.settings = Settings(_env_file=None, app_env="local", session_cookie_secure=False)
+        self.settings = Settings(_env_file=None, app_env="local", session_cookie_secure=False, interface_language="RU")
         with self.factory() as db:
             db.add_all([
                 Role(id=1, code="admin", name="Administrator", name_key="administrator",
@@ -50,8 +50,8 @@ class BrowserSessionTest(unittest.TestCase):
             with self.factory() as db:
                 yield db
 
-        with patch("app.main.get_settings", return_value=self.settings):
-            self.app = create_app()
+        self.enterContext(patch("app.core.config._bootstrap_settings", return_value=self.settings))
+        self.app = create_app()
         self.app.dependency_overrides[get_db] = database
         self.app.dependency_overrides[get_settings] = lambda: self.settings
 

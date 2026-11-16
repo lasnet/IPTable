@@ -55,7 +55,7 @@ jobs:
       COMPOSE_FILE: docker-compose.yml:deploy/https/${{ matrix.https }}.yml
       APP_PORT: "18000"
       HTTPS_PORT: "18443"
-      TLS_SERVER_NAME: localhost
+      INITIAL_ADMIN_USERNAME: installation-admin
       TLS_CERT_FILE: ${{ github.workspace }}/.cache/server.crt
       TLS_KEY_FILE: ${{ github.workspace }}/.cache/server.key
       APP_BIND_ADDRESS: "127.0.0.1"
@@ -65,7 +65,7 @@ jobs:
           persist-credentials: false
       - name: Generate disposable test secrets
         run: |
-          for setting in POSTGRES_PASSWORD SECRET_KEY INITIAL_ADMIN_PASSWORD; do
+          for setting in POSTGRES_PASSWORD INITIAL_ADMIN_PASSWORD; do
             value="$(openssl rand -hex 32)"
             echo "::add-mask::$value"
             echo "$setting=$value" >> "$GITHUB_ENV"
@@ -99,9 +99,12 @@ jobs:
         run: |
           scripts/backup_postgres.sh backups/ci.dump
           test -s backups/ci.dump
-          docker compose stop web worker
-          CONFIRM_RESTORE=YES scripts/restore_postgres.sh backups/ci.dump
-          docker compose up -d --no-build --wait --wait-timeout 180
+          test -s backups/ci.dump.key
+          docker compose down -v
+          INITIAL_ADMIN_USERNAME=admin INITIAL_ADMIN_PASSWORD= docker compose up -d --wait postgres
+          INITIAL_ADMIN_USERNAME=admin INITIAL_ADMIN_PASSWORD= CONFIRM_RESTORE=YES scripts/restore_postgres.sh backups/ci.dump
+          INITIAL_ADMIN_USERNAME=admin INITIAL_ADMIN_PASSWORD= docker compose up -d --no-build --wait --wait-timeout 180
+          docker compose exec -T web cat /run/iptable/secret-key | cmp - backups/ci.dump.key
           if [ "$HTTPS_ENABLED" = true ]; then
             python3 scripts/smoke_test.py --url "$APP_PUBLIC_URL" --ca-file .cache/server.crt
           else

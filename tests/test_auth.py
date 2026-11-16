@@ -33,7 +33,7 @@ class AuthServiceTest(unittest.TestCase):
         self.assertFalse(user.can_delete_inventory)
         self.assertFalse(user.can_manage_project_columns)
 
-    def test_bootstrap_initial_admin_demotes_previous_admin(self) -> None:
+    def test_bootstrap_initial_admin_preserves_previous_admin(self) -> None:
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine)
         session_factory = sessionmaker(bind=engine)
@@ -54,18 +54,31 @@ class AuthServiceTest(unittest.TestCase):
 
             bootstrap_initial_admin(
                 db,
-                Settings(initial_admin_username="env-admin", initial_admin_password="admin-password"),
+                Settings(app_env="production", secret_key="x" * 32, initial_admin_username="env-admin"),
             )
 
             old_admin = db.scalar(select(User).where(User.username == "old-admin"))
             env_admin = db.scalar(select(User).where(User.username == "env-admin"))
 
         self.assertIsNotNone(old_admin)
-        self.assertIsNotNone(env_admin)
-        self.assertFalse(old_admin.is_admin)
-        self.assertFalse(old_admin.can_create)
-        self.assertTrue(env_admin.is_admin)
-        self.assertTrue(env_admin.can_create_inventory)
+        self.assertIsNone(env_admin)
+        self.assertTrue(old_admin.is_admin)
+        self.assertTrue(old_admin.can_create)
+        self.assertEqual(old_admin.password_hash, "hash")
+
+    def test_production_bootstrap_requires_strong_password_for_new_admin(self) -> None:
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine)
+        session_factory = sessionmaker(bind=engine)
+        with session_factory() as db:
+            for password in ("", "short", "replace-with-strong-admin-password"):
+                with self.subTest(password=password), self.assertRaisesRegex(ValueError, "INITIAL_ADMIN_PASSWORD"):
+                    bootstrap_initial_admin(db, Settings(app_env="production", secret_key="x" * 32,
+                                                       initial_admin_password=password))
+                db.rollback()
+            bootstrap_initial_admin(db, Settings(app_env="production", secret_key="x" * 32,
+                                                 initial_admin_password="new-admin-password"))
+            self.assertTrue(authenticate_user(db, "admin", "new-admin-password").is_admin)
 
     def test_inactive_user_cannot_authenticate(self) -> None:
         engine = create_engine("sqlite:///:memory:")

@@ -703,6 +703,28 @@ async def save_interface_preferences(
     return _redirect_message("/settings", translate(language or defaults.interface_language, "settings.saved"))
 
 
+@router.post("/settings/default-page-size")
+async def save_default_page_size(request: Request, db: Annotated[Session, Depends(get_db)],
+                                 current_user: Annotated[User, Depends(require_admin)]) -> RedirectResponse:
+    form = await request.form()
+    configuration = db.get(AppConfiguration, 1)
+    if configuration is None:
+        raise HTTPException(status_code=503)
+    try:
+        size = int(str(form.get("project_table_default_page_size", "")))
+        revision = int(str(form.get("revision", "")))
+        values = {name: getattr(configuration, name) for name in GROUPS["interface"]}
+        values["project_table_default_page_size"] = size
+        save_group(db, "interface", values, revision, actor_id=current_user.id, actor_name=current_user.username)
+    except RevisionConflict:
+        db.rollback()
+        return HTMLResponse(_ui("settings.revision_conflict"), status_code=409)
+    except (ValueError, TypeError):
+        db.rollback()
+        return _redirect_error("/settings", _ui("settings.interface_invalid"))
+    return _redirect_message("/settings", _ui("settings.saved"))
+
+
 @router.post("/settings/{group}")
 async def settings_save(group: str, request: Request, db: Annotated[Session, Depends(get_db)],
                         current_user: Annotated[User, Depends(require_admin)]) -> RedirectResponse:
@@ -715,11 +737,11 @@ async def settings_save(group: str, request: Request, db: Annotated[Session, Dep
         save_group(db, group, values, revision, actor_id=current_user.id, actor_name=current_user.username)
     except RevisionConflict:
         db.rollback()
-        return HTMLResponse("Настройки изменены другим администратором. Обновите страницу.", status_code=409)
+        return HTMLResponse(_ui("settings.revision_conflict"), status_code=409)
     except (ValueError, KeyError, TypeError) as exc:
         db.rollback()
         return _redirect_error("/settings", str(exc)[:180])
-    return _redirect_message("/settings", "Настройки сохранены")
+    return _redirect_message("/settings", _ui("settings.saved"))
 
 
 @router.post("/settings/integrations/token/{action}")

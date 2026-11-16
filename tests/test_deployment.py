@@ -1,8 +1,10 @@
 import copy
 import os
+from pathlib import Path
 import re
 import secrets
 import sqlite3
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -10,12 +12,34 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.core.config import Settings, get_settings, runtime_database_role_name
+from app.core.installation_key import initialize_key, read_key
 from app.main import create_app
 from app.core.database import engine
 from sqlalchemy.engine import make_url
 
 
 class DeploymentTest(unittest.TestCase):
+    def test_installation_key_is_persistent_and_private(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "secret-key"
+            initialize_key(path)
+            key = read_key(path)
+            self.assertRegex(key, r"^[0-9a-f]{64}$")
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            initialize_key(path)
+            settings = Settings(_env_file=None, app_env="production", secret_key_file=path)
+            self.assertEqual(settings.secret_key, key)
+
+    def test_existing_installation_key_can_be_imported_but_never_replaced(self) -> None:
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "secret-key"
+            previous = " " + secrets.token_hex(32) + " "
+            initialize_key(path, previous)
+            self.assertEqual(read_key(path), previous)
+            with self.assertRaisesRegex(ValueError, "differs"):
+                initialize_key(path, secrets.token_hex(32))
+            self.assertEqual(read_key(path), previous)
+
     def test_readiness_distinguishes_database_failure_from_liveness(self) -> None:
         client = TestClient(create_app())
         with patch("app.web.routes.check_database_readiness") as check:
@@ -178,8 +202,6 @@ class DeploymentTest(unittest.TestCase):
             {"app_env": "prodution"},
             {"secret_key": "short"},
             {"secret_key": "replace-with-random-32-plus-character-secret"},
-            {"initial_admin_password": "short"},
-            {"initial_admin_password": "replace-with-strong-admin-password"},
         ]
         for invalid in cases:
             with self.subTest(keys=list(invalid)), self.assertRaises(ValidationError):

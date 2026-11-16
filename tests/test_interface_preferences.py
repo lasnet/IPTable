@@ -20,7 +20,7 @@ def app_and_db(monkeypatch):
     Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine)
     defaults = Settings(_env_file=None, app_env="local", session_cookie_secure=False,
-                        app_name="Lab", interface_theme="green", project_table_default_page_size=50)
+                        app_name="Lab", interface_language="RU", interface_theme="green", project_table_default_page_size=50)
     with factory() as db:
         initialize(db, defaults)
         db.add_all(User(id=key, username=name, password_hash=hash_password(f"{name}-password"), is_admin=key == 3)
@@ -112,7 +112,7 @@ def test_settings_permissions_and_input_validation(app_and_db):
     assert 'id="settings-interface"' in page
     for section in ("security", "ping", "limits", "integrations", "system"):
         assert f'id="settings-{section}"' not in page
-    for path in ("security", "ping", "limits", "integrations/token/create"):
+    for path in ("security", "ping", "limits", "integrations/token/create", "default-page-size"):
         assert reader.post(f"/settings/{path}", data={"_csrf_token": token}).status_code == 403
 
     assert save(reader, "bad", "dark", "EN", "25").status_code == 403
@@ -128,7 +128,14 @@ def test_settings_permissions_and_input_validation(app_and_db):
     assert 'id="settings-security"' in admin.get("/settings").text
     assert 'name="app_name"' not in admin.get("/settings").text
     assert save(admin, admin_token, "blue", "RU", "25", app_name="Changed", user_id="1").status_code == 303
+    response = admin.post("/settings/default-page-size", data={
+        "_csrf_token": admin_token, "revision": "1", "project_table_default_page_size": "100",
+    })
+    assert response.status_code == 303
     with factory() as db:
         assert db.get(AppConfiguration, 1).app_name == "Lab"
+        assert db.get(AppConfiguration, 1).project_table_default_page_size == 100
         assert db.get(User, 1).interface_theme is None
         assert db.get(User, 3).interface_theme == "blue"
+        assert db.get(User, 3).project_table_page_size == 25
+    assert reader.get("/projects/1").text.count("data-row-address=") == 100

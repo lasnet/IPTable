@@ -78,13 +78,13 @@ class SidebarTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.headers.get("location"))
-        self.assertIn("Обзор сети", response.text)
+        self.assertIn("Network overview", response.text)
         self.assertIn("192.168.1.0/24", response.text)
         self.assertNotIn('id="folder-create-modal"', response.text)
 
         inventory_response = client.get("/inventory")
         self.assertEqual(inventory_response.status_code, 200)
-        self.assertIn("Выберите подсеть", inventory_response.text)
+        self.assertIn("Select a subnet", inventory_response.text)
         self.assertIn('class="sidebar"', inventory_response.text)
         self.assertIn('id="folder-create-modal"', inventory_response.text)
 

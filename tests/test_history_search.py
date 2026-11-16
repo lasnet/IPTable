@@ -72,7 +72,7 @@ class HistorySearchTest(unittest.TestCase):
             self.assertNotIn("host-2", response.text)
 
         literal_wildcard = client.get("/history", params={"q": "%"})
-        self.assertIn("Ничего не найдено", literal_wildcard.text)
+        self.assertIn("Nothing found.", literal_wildcard.text)
 
         with_address = client.get(
             f"/projects/{project_id}/history", params={"address": "10.0.0.1", "q": "10.0"}

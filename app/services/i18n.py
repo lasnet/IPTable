@@ -2,7 +2,7 @@ import re
 
 
 SUPPORTED_INTERFACE_LANGUAGES = {"RU", "EN"}
-DEFAULT_INTERFACE_LANGUAGE = "RU"
+DEFAULT_INTERFACE_LANGUAGE = "EN"
 
 
 TRANSLATIONS: dict[str, dict[str, str]] = {
@@ -45,6 +45,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.rows_per_page": "Строк на странице",
         "settings.interface_invalid": "Выберите доступные значения в настройках интерфейса.",
         "settings.saved": "Настройки сохранены",
+        "settings.revision_conflict": "Настройки изменены другим администратором. Обновите страницу.",
         "admin.active_admin": "Администратор активен",
         "admin.account": "Учетная запись",
         "admin.active": "активен",
@@ -382,6 +383,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings.rows_per_page": "Rows per page",
         "settings.interface_invalid": "Choose one of the available values for each preference.",
         "settings.saved": "Settings saved",
+        "settings.revision_conflict": "Another administrator changed the settings. Refresh the page.",
         "admin.active_admin": "Admin is active",
         "admin.account": "Account",
         "admin.active": "active",
@@ -799,7 +801,7 @@ def translate(language: str | None, key: str, **kwargs) -> str:
 
 def translate_error_message(language: str | None, message: str) -> str:
     normalized = normalize_language(language)
-    if normalized == DEFAULT_INTERFACE_LANGUAGE:
+    if normalized == "RU":
         return message
 
     exact = ERROR_TRANSLATIONS.get(message)

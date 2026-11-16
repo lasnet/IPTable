@@ -11,11 +11,11 @@ class InterfaceLanguageTest(unittest.TestCase):
         self.assertEqual(settings.interface_language, "EN")
         self.assertEqual(html_language(settings.interface_language), "en")
 
-    def test_settings_falls_back_to_russian_for_unknown_language(self) -> None:
+    def test_settings_falls_back_to_english_for_unknown_language(self) -> None:
         settings = Settings(initial_admin_password="x", interface_language="de")
 
-        self.assertEqual(settings.interface_language, "RU")
-        self.assertEqual(html_language(settings.interface_language), "ru")
+        self.assertEqual(settings.interface_language, "EN")
+        self.assertEqual(html_language(settings.interface_language), "en")
 
     def test_translate_uses_english_dictionary(self) -> None:
         self.assertEqual(translate("EN", "nav.logout"), "Logout")

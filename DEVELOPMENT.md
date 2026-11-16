@@ -15,7 +15,7 @@ cd IPTable-dev
 docker compose -p iptable-dev up -d --build
 ```
 
-Сначала заполните пароли и SECRET_KEY в Compose или .env. При одновременном запуске
+Сначала задайте пароль PostgreSQL и начальный пароль администратора в .env. При одновременном запуске
 stable и dev на одном сервере задайте dev другой APP_PORT (и HTTPS_PORT при HTTPS). Имя iptable-dev отделяет
 его контейнеры, образ и volume от пользовательской установки.
 
@@ -105,19 +105,20 @@ Bandit Medium/High блокирует CI; Low проверяйте вручну�
 
 ## Настройки и данные
 
-Все настройки Docker находятся в корневом Compose. .env необязателен и подставляет
-значения в выражения `${NAME:-default}`. Внутри приложения DATABASE_URL имеет
+Docker Compose подставляет `.env` в выражения `${NAME:-default}`. Внутри приложения DATABASE_URL имеет
 приоритет; без него POSTGRES_HOST/PORT/USER/PASSWORD/DB собираются через SQLAlchemy
 URL.create, поэтому специальные символы пароля корректно кодируются.
 Без DATABASE_URL и POSTGRES_HOST сохраняется локальный SQLite fallback.
 Для ручного локального запуска после настройки окружения выполняйте
-`python -m app.manage migrate`: команда обновляет Alembic и однократно переносит
-прежние runtime-переменные в БД. При повторном запуске импорт не повторяется.
+`python -m app.manage migrate`: команда обновляет Alembic и создаёт начальные
+настройки в БД. Импорт переменных применяется только при первой инициализации.
+Для старого Compose с настройками в .env выполните миграцию с `--env-from-file .env`.
 `app/core/config.py` читает bootstrap-параметры из окружения; значения для
 интерфейса, ping, ограничений, сессий и интеграции после импорта читаются из БД.
 Личные тема, язык и число строк хранятся в `users`. Пустые значения наследуют
 настройки установки, в том числе после миграции существующей базы.
-Название приложения и общие значения интерфейса меняются только с сервера:
+Название приложения, язык и тема установки меняются с сервера. Общее число строк
+также можно изменить в админке.
 `python -m app.manage settings show` выводит текущие значения и ревизию,
 а `python -m app.manage settings set --group interface --expected-revision REVISION app_name=IPtable interface_language=RU interface_theme=blue project_table_default_page_size=25`
 сохраняет всю группу. Личные настройки пользователей при этом сохраняются.
@@ -131,14 +132,15 @@ FORWARDED_ALLOW_IPS передаётся Uvicorn через TRUSTED_PROXY_IPS, �
 явное отключение cookie требует указать HTTP APP_PUBLIC_URL. Несовпадение явного
 SESSION_COOKIE_SECURE со схемой URL отклоняется.
 
-Встроенный HTTPS: HTTPS_ENABLED=true и COMPOSE_FILE из .env.example выбирают
+Встроенный HTTPS: HTTPS_ENABLED=true и COMPOSE_FILE из примера в README выбирают
 deploy/https/true.yml; при false выбирается пустой false.yml. Это штатная dotenv
 интерполяция Compose, а не shell source env. Для явного -f указывайте оба файла;
 параметр -f имеет приоритет над COMPOSE_FILE. Нужен Compose 2.24.4+ (!override ports).
 Backend ports полностью сбрасываются, публикуется только gateway; внутри этой
 доверенной Compose-сети Uvicorn принимает forwarded headers. Сертификаты только
 пользовательские, read-only bind mounts с create_host_path=false. Gateway не
-выпускает и не обновляет сертификаты; валидирует имя, срок и ключ до старта Nginx.
+выпускает и не обновляет сертификаты; извлекает имя из APP_PUBLIC_URL и проверяет
+сертификат и ключ до старта Nginx.
 Не выдавайте контейнеру произвольные чувствительные host mounts или Docker socket.
 Перед перезапуском для смены режима выполните up -d --remove-orphans, не start.
 
@@ -150,8 +152,13 @@ UserSession хранит SHA-256 случайного токена и fingerprin
 сессии пользователя. Серверная expiry продлевается при авторизованных запросах;
 просроченные записи очищаются при следующем входе. Cookies старой версии отвергаются.
 
+В Compose `migrate` создаёт ключ в томе `installation_key` или переносит туда
+прежний `SECRET_KEY`. Web и worker читают файл через `SECRET_KEY_FILE` из тома,
+подключённого только для чтения. Пароль создания администратора получает только
+`migrate`. Дамп и ключ для восстановления создаёт `scripts/backup_postgres.sh`.
+
 Не меняйте имя Compose project существующей установки без переноса данных:
-volume привязан к имени project. Никогда не подключайте dev к пользовательской
+тома привязаны к имени project. Никогда не подключайте dev к пользовательской
 базе. Backup/restore запускайте с тем же Compose project, что и приложение.
 
 ## Изменения кода
