@@ -33,6 +33,12 @@ class DeploymentTest(unittest.TestCase):
             keys = set(re.findall(r"^([A-Z][A-Z0-9_]*)=", example, re.MULTILINE))
             self.assertEqual(keys - template_keys, set(), example)
 
+        _, heading, reference = readme.partition("\n### Параметры запуска\n")
+        self.assertTrue(heading, "README settings reference is missing")
+        reference = reference.partition("\n### ")[0]
+        described_keys = re.findall(r"^\| `([A-Z][A-Z0-9_]*)` \|", reference, re.MULTILINE)
+        self.assertCountEqual(described_keys, template_keys)
+
     def test_installation_key_is_persistent_and_private(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "secret-key"
