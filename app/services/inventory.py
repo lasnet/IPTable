@@ -1,9 +1,30 @@
-from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from __future__ import annotations
 
-from app.models import CustomField, IPAddress, Project
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, TypeVar
+
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.orm import Session
+
+from app.models import CustomField, Folder, IPAddress, Project
 from app.services.custom_fields import lock_custom_field_schema, make_custom_field_key, next_available_key
-from app.services.network import address_sort_key, iter_project_addresses, normalize_cidr, reserved_project_addresses
+from app.services.network import iter_project_addresses, normalize_cidr
+
+if TYPE_CHECKING:
+    from app.services.csv_io import ImportedAsset
+
+InventoryItem = TypeVar("InventoryItem", Folder, Project)
+
+
+class ProjectCreationError(ValueError):
+    pass
+
+
+def lock_inventory_row(db: Session, model: type[InventoryItem], item_id: int) -> InventoryItem | None:
+    # SQLite needs a write to serialize mutations before reading the previous values.
+    if db.get_bind().dialect.name == "sqlite":
+        db.execute(update(model).where(model.id == item_id).values(updated_at=model.updated_at))
+    return db.get(model, item_id, with_for_update=True, populate_existing=True)
 
 
 def create_project_with_addresses(
@@ -14,18 +35,47 @@ def create_project_with_addresses(
     cidr: str,
     description: str,
     max_addresses: int,
+    imported_rows: Iterable[ImportedAsset] = (),
+    commit: bool = True,
 ) -> Project:
     normalized_cidr = normalize_cidr(cidr, max_addresses=max_addresses)
-    project = Project(folder_id=folder_id, name=name.strip(), cidr=normalized_cidr, description=description.strip())
+    clean_name = name.strip()
+
+    # Serialize creation within a folder, including when legacy duplicates already exist.
+    if lock_inventory_row(db, Folder, folder_id) is None:
+        raise ProjectCreationError("Папка не найдена")
+
+    existing_cidr = db.scalar(
+        select(Project.cidr)
+        .where(
+            Project.folder_id == folder_id,
+            or_(Project.cidr == normalized_cidr, func.lower(Project.name) == clean_name.lower()),
+        )
+        .order_by((Project.cidr == normalized_cidr).desc())
+        .limit(1)
+    )
+    if existing_cidr == normalized_cidr:
+        raise ProjectCreationError(f"Подсеть {normalized_cidr} уже существует в выбранной папке")
+    if existing_cidr is not None:
+        raise ProjectCreationError("Подсеть с таким названием уже существует в выбранной папке")
+
+    project = Project(folder_id=folder_id, name=clean_name, cidr=normalized_cidr, description=description.strip())
     db.add(project)
     db.flush()
 
-    db.add_all(
-        IPAddress(project_id=project.id, ordinal=ordinal, address=address)
-        for ordinal, address in iter_project_addresses(normalized_cidr)
-    )
-    db.commit()
-    db.refresh(project)
+    assets_by_address = {row.address: row for row in imported_rows}
+    for ordinal, address in iter_project_addresses(normalized_cidr):
+        record = IPAddress(project_id=project.id, ordinal=ordinal, address=address)
+        asset = assets_by_address.get(address)
+        if asset is not None:
+            record.hostname = asset.hostname
+            record.os = asset.os
+            record.asset_type = asset.asset_type
+            record.comment = asset.comment
+        db.add(record)
+    if commit:
+        db.commit()
+        db.refresh(project)
     return project
 
 
@@ -36,44 +86,6 @@ def is_ip_record_empty(ip_record: IPAddress) -> bool:
         not any(str(value or "").strip() for value in base_values)
         and not any(str(value).strip() for value in custom_values.values())
     )
-
-
-def normalize_project_address_rows(db: Session) -> None:
-    projects = db.scalars(select(Project).options(selectinload(Project.ip_addresses))).all()
-    changed = False
-
-    for project in projects:
-        reserved = reserved_project_addresses(project.cidr)
-        for ip_record in list(project.ip_addresses):
-            if ip_record.address in reserved:
-                db.delete(ip_record)
-                changed = True
-
-        if changed:
-            db.flush()
-
-        usable_records = [
-            ip_record
-            for ip_record in project.ip_addresses
-            if ip_record.address not in reserved and ip_record not in db.deleted
-        ]
-        ordered_records = sorted(usable_records, key=lambda item: address_sort_key(item.address))
-
-        for index, ip_record in enumerate(ordered_records, start=1):
-            if ip_record.ordinal != index:
-                ip_record.ordinal = -index
-                changed = True
-
-        if changed:
-            db.flush()
-
-        for index, ip_record in enumerate(ordered_records, start=1):
-            if ip_record.ordinal != index:
-                ip_record.ordinal = index
-                changed = True
-
-    if changed:
-        db.commit()
 
 
 def create_custom_field(db: Session, *, project_id: int, name: str, field_type: str) -> CustomField:

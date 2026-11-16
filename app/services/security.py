@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from fastapi import HTTPException, Request
 from markupsafe import Markup
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.orm import Session
 
 from app.models import LoginRateLimitEvent
@@ -16,6 +16,7 @@ from app.models import LoginRateLimitEvent
 CSRF_SESSION_KEY = "csrf_token"
 CSRF_FORM_FIELD = "_csrf_token"
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
+MAX_LOGIN_RATE_LIMIT_EVENTS = 10_000
 
 
 def ensure_csrf_token(request: Request) -> str:
@@ -118,15 +119,24 @@ def _login_rate_limit_key(client_ip: str, username: str) -> str:
 def _prune_login_rate_limit_events(
     db: Session,
     *,
-    identity_hash: str,
     keep_after: datetime,
 ) -> None:
     db.execute(
         delete(LoginRateLimitEvent).where(
-            LoginRateLimitEvent.identity_hash == identity_hash,
             LoginRateLimitEvent.created_at < keep_after,
         )
     )
+
+
+def _prepare_login_events(db: Session, current_time: datetime, window_seconds: int,
+                          lockout_seconds: int) -> bool:
+    # Serialize capacity checks across PostgreSQL workers. SQLite's DELETE obtains
+    # the write transaction before the capacity query.
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(4804684, 1)"))
+    keep_seconds = max(window_seconds, lockout_seconds) + window_seconds
+    _prune_login_rate_limit_events(db, keep_after=current_time - timedelta(seconds=keep_seconds))
+    return db.scalar(select(LoginRateLimitEvent.id).limit(1).offset(MAX_LOGIN_RATE_LIMIT_EVENTS - 1)) is not None
 
 
 def login_rate_limit_retry_after(
@@ -141,9 +151,10 @@ def login_rate_limit_retry_after(
 ) -> int | None:
     current_time = now or datetime.utcnow()
     identity_hash = _login_rate_limit_key(client_ip, username)
-    keep_seconds = max(window_seconds, lockout_seconds) + window_seconds
-    keep_after = current_time - timedelta(seconds=keep_seconds)
-    _prune_login_rate_limit_events(db, identity_hash=identity_hash, keep_after=keep_after)
+    if _prepare_login_events(db, current_time, window_seconds, lockout_seconds):
+        db.commit()
+        return 60
+    keep_after = current_time - timedelta(seconds=max(window_seconds, lockout_seconds) + window_seconds)
 
     events = db.scalars(
         select(LoginRateLimitEvent.created_at)
@@ -181,8 +192,11 @@ def record_login_failure(
     now: datetime | None = None,
 ) -> int | None:
     current_time = now or datetime.utcnow()
+    if _prepare_login_events(db, current_time, window_seconds, lockout_seconds):
+        db.commit()
+        return 60
     db.add(LoginRateLimitEvent(identity_hash=_login_rate_limit_key(client_ip, username), created_at=current_time))
-    db.commit()
+    db.flush()
     return login_rate_limit_retry_after(
         db,
         client_ip,

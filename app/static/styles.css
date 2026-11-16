@@ -1561,10 +1561,6 @@ body.is-loading button {
   border-right: 0;
 }
 
-.col-number {
-  width: 74px;
-}
-
 .col-ip {
   width: 152px;
 }
@@ -1593,17 +1589,6 @@ body.is-loading button {
   width: 132px;
 }
 
-.number-cell {
-  position: sticky;
-  left: 0;
-  z-index: 7;
-  background: var(--surface);
-  color: var(--text);
-  text-align: center;
-  font-weight: 650;
-  box-shadow: 1px 0 0 var(--line);
-}
-
 .ip-cell {
   padding: 0 16px !important;
   color: var(--text);
@@ -1620,19 +1605,6 @@ body.is-loading button {
 
 th.locked-col {
   z-index: 12;
-}
-
-.number-head {
-  position: sticky;
-  left: 0;
-  z-index: 13;
-  box-shadow: 1px 0 0 var(--line);
-}
-
-/* Столбец "№" скрыт в app/templates/_project_table.html через show_number_column = false.
-   Если включите его обратно, задайте для .locked-col left: 74px. */
-.locked-col {
-  left: 0;
 }
 
 .asset-table tr[id] {
@@ -1727,8 +1699,7 @@ th.locked-col {
 }
 
 .asset-table tr.row-dirty td,
-.asset-table tr.row-dirty .locked-col,
-.asset-table tr.row-dirty .number-cell {
+.asset-table tr.row-dirty .locked-col {
   background: var(--dirty-bg);
 }
 
@@ -2695,12 +2666,6 @@ body { background: linear-gradient(135deg, #628dc3 0%, #3463a9 100%); }
 .inventory-welcome h1 { margin: 17px 0 5px; color: #2d5485; font-size: 23px; }
 .inventory-welcome p { max-width: 430px; margin: 0; font-size: 13px; }
 .inventory-welcome button { margin-top: 20px; }
-.settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.settings-tile { min-height: 230px; padding: 24px; border: 1px solid #e3ebf6; border-radius: 12px; background: #f9fbff; }
-.settings-tile-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 10px; background: #e5effb; color: #477fbe; font-size: 22px; }
-.settings-tile h2 { margin: 17px 0 8px; font-size: 17px; }
-.settings-tile p { min-height: 48px; margin: 0 0 17px; color: #8298b1; font-size: 12px; }
-.settings-status { padding: 6px 10px; border-radius: 99px; background: #eaf2fc; color: #5680ae; font-size: 10px; font-weight: 850; text-transform: uppercase; }
 .history-card .history-list, .admin-layout { min-height: 0; overflow-y: auto; }
 @media (max-height: 740px) and (min-width: 901px) {
   .workspace { padding-top: 18px; padding-bottom: 18px; }
@@ -2725,7 +2690,6 @@ body { background: linear-gradient(135deg, #628dc3 0%, #3463a9 100%); }
   .dashboard-page { min-height: calc(100vh - 110px); }
   .dashboard-panels { min-height: 340px; }
   .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .settings-grid { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 760px) {
   .topbar { height: 60px; flex-direction: row; align-items: center; gap: 8px; padding: 0 10px; }
@@ -2754,10 +2718,9 @@ body { background: linear-gradient(135deg, #628dc3 0%, #3463a9 100%); }
   .stat-grid { gap: 8px; }
   .stat-card { min-height: 112px; padding: 12px; }
   .stat-card strong { font-size: 27px; }
-  .dashboard-panels, .settings-grid { grid-template-columns: 1fr; }
+  .dashboard-panels { grid-template-columns: 1fr; }
   .dashboard-panel { min-height: 320px; }
   .dashboard-network-list, .dashboard-activity-list { overflow: visible; }
-  .settings-tile { min-height: 190px; }
 }
 
 /* A continuous, lightweight navigation surface on every page. */
@@ -2816,39 +2779,6 @@ body { background: linear-gradient(135deg, #628dc3 0%, #3463a9 100%); }
 .rail-link:not(.active) { transition: background-color 150ms ease-out; }
 
 .sidebar { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
-.section-pane { display: flex; flex: 1; flex-direction: column; min-height: 0; }
-.section-pane-header { padding: 3px 8px 22px; border-bottom: 1px solid #d5e1ef; }
-.section-pane-header h2 { margin: 7px 0 6px; color: #244b7f; font-size: 21px; letter-spacing: -.035em; }
-.section-pane-header p { margin: 0; color: #7e96b2; font-size: 12px; line-height: 1.45; }
-.section-pane-label { margin: 25px 9px 11px; color: #6d86a6; font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
-.section-pane-links { display: flex; flex-direction: column; gap: 8px; }
-.section-pane-link {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  min-height: 46px;
-  padding: 7px 11px;
-  border: 1px solid #e1eaf5;
-  border-radius: 9px;
-  background: rgba(255,255,255,.83);
-  box-shadow: 0 2px 6px rgba(43, 81, 132, .055);
-  color: #496a91;
-  font-size: 12px;
-  font-weight: 700;
-  text-decoration: none;
-  transition: background-color 150ms ease-out;
-}
-.section-pane-link:focus-visible { border-color: #b9d1ef; background: #fff; box-shadow: 0 5px 13px rgba(43, 81, 132, .1); }
-
-@media (hover: hover) {
-  .section-pane-link:hover { border-color: #b9d1ef; background: #fff; box-shadow: 0 5px 13px rgba(43, 81, 132, .1); }
-}
-
-.section-pane-link.selected { border-color: #477fda; background: linear-gradient(110deg, #5b97ed, #3675d6); box-shadow: 0 7px 16px rgba(48, 109, 199, .19); color: #fff; }
-.pane-link-icon { display: grid; flex: 0 0 auto; place-items: center; width: 24px; height: 24px; border-radius: 7px; background: #e7effa; color: #5086c8; font-size: 14px; }
-.selected .pane-link-icon { background: rgba(255,255,255,.18); color: #fff; }
-.section-pane-foot { display: flex; align-items: center; gap: 9px; margin-top: auto; padding: 17px 10px 2px; border-top: 1px solid #d5e1ef; color: #6881a0; font-size: 11px; font-weight: 700; }
-.pane-foot-dot { width: 8px; height: 8px; border-radius: 50%; background: #5ab99b; box-shadow: 0 0 0 4px rgba(90,185,155,.13); }
 .dashboard-panels { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .folder-line { min-height: 43px; padding-left: 10px; border: 1px solid #e1eaf5; border-radius: 9px; background: rgba(255,255,255,.82); box-shadow: 0 2px 6px rgba(43,81,132,.055); transition: background-color 150ms ease-out; }
 @media (hover: hover) {
@@ -2867,17 +2797,9 @@ body { background: linear-gradient(135deg, #628dc3 0%, #3463a9 100%); }
   .rail-indicator { display: none !important; }
   .rail-ready .rail-link.active { background: #fff; }
   .rail-link.active .icon { width: 19px; height: 19px; padding: 0; box-shadow: none; }
-  .section-pane { display: block; }
-  .section-pane-header { padding: 0 2px 8px; }
-  .section-pane-header h2 { margin: 0; font-size: 16px; }
-  .section-pane-header p, .section-pane-header .eyebrow, .section-pane-label, .section-pane-foot { display: none; }
-  .section-pane-links { flex-direction: row; gap: 7px; margin-top: 9px; overflow-x: auto; }
-  .section-pane-link { flex: 0 0 auto; min-height: 34px; padding: 5px 9px; font-size: 11px; white-space: nowrap; }
-  .pane-link-icon { width: 18px; height: 18px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .rail-indicator, .rail-link, .rail-link .icon, .section-pane-link { transition: none !important; }
-  .rail-arriving .section-pane-header, .rail-arriving .section-pane-links,
+  .rail-indicator, .rail-link, .rail-link .icon { transition: none !important; }
   .rail-arriving .inventory-sidebar-head, .rail-arriving .folders-title,
   .rail-arriving .tree { animation: none; }
 }
@@ -3020,11 +2942,6 @@ body { background: var(--bg); color: var(--text); font-family: Inter, ui-sans-se
 .stat-card-primary > span, .stat-card-primary strong { color: #fff; }
 .dashboard-panel, .admin-section { border-color: #e4ebf4; border-radius: 16px; box-shadow: var(--shadow); }
 .dashboard-network, .dashboard-activity { min-height: 60px; }
-.settings-tile { min-height: 235px; border-color: #e4ebf4; border-radius: 16px; background: #fff; box-shadow: var(--shadow); }
-.settings-tile-icon { border-radius: 12px; background: #e8f0ff; color: #3b82f6; }
-.settings-tile:nth-child(2) .settings-tile-icon { background: #e5f6f0; color: #159459; }
-.settings-tile:nth-child(3) .settings-tile-icon { background: #fff1e7; color: #d97839; }
-.settings-status { background: #eff4ff; color: #3b75db; }
 .admin-card .project-card-head { display: flex; margin-bottom: 16px; padding-bottom: 0; border: 0; }
 .admin-card .project-title .title-icon { display: grid; }
 .admin-layout { gap: 18px; }
@@ -3096,9 +3013,10 @@ body { background: var(--bg); color: var(--text); font-family: Inter, ui-sans-se
 .history-item { display: grid; grid-template-columns: minmax(130px, .8fr) minmax(140px, .9fr) minmax(240px, 1.7fr) minmax(150px, .8fr); align-items: center; gap: 16px; min-height: 90px; padding: 12px 16px; border: 1px solid #e2eaf5; border-radius: 14px; background: #fff; box-shadow: var(--shadow); }
 .history-identity, .history-field > span:last-child, .history-footer > span:last-child { display: grid; gap: 4px; min-width: 0; }
 .history-identity strong { color: #26334a; font-size: 14px; }
+.history-identity { overflow-wrap: anywhere; }
 .history-identity small, .history-field small, .history-footer time { color: var(--muted); font-size: 12px; }
 .history-field { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.history-field strong { overflow: hidden; color: #27344c; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.history-field strong { color: #27344c; font-size: 13px; overflow-wrap: anywhere; }
 .history-field-icon { display: grid; place-items: center; flex: 0 0 auto; width: 32px; height: 32px; border-radius: 9px; background: #eaf2ff; color: #3b82f6; font-size: 17px; }
 .history-field-icon .icon, .settings-card-mark .icon { width: 20px; height: 20px; }
 .history-change { display: grid; grid-template-columns: minmax(0,1fr) 18px minmax(0,1fr); align-items: center; gap: 8px; }
@@ -3278,12 +3196,9 @@ body { background: var(--bg); color: var(--text); font-family: Inter, ui-sans-se
     transition: transform 150ms ease-out, opacity 150ms ease-out;
   }
   .rail-indicator { transition: top .44s cubic-bezier(.22, 1, .36, 1); }
-  .rail-arriving .section-pane-header,
-  .rail-arriving .section-pane-links,
   .rail-arriving .inventory-sidebar-head,
   .rail-arriving .folders-title,
   .rail-arriving .tree { animation: pane-content-arrive .3s ease-out both; }
-  .rail-arriving .section-pane-links,
   .rail-arriving .folders-title { animation-delay: 100ms; }
   .rail-arriving .tree { animation-delay: 200ms; }
   @keyframes pane-content-arrive {

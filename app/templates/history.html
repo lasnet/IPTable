@@ -4,6 +4,7 @@
 {% set history_page_title = history_title | default(_('history.title')) %}
 {% set history_page_subtitle = history_subtitle | default(project.cidr if project is defined else '') %}
 {% set history_page_back_url = history_back_url | default('/projects/' ~ project.id if project is defined else '/') %}
+{% set action_icons = {'created': 'plus', 'imported': 'plus', 'deleted': 'delete'} %}
 
 {% block title %}{{ history_page_title }} {{ history_page_subtitle }} - {{ app_name }}{% endblock %}
 
@@ -25,6 +26,9 @@
     </div>
 
     <div class="project-actions">
+      {% if current_user.has_admin_access %}
+      <button class="soft-button" type="button" data-modal-target="history-export-modal">{{ _('history.export') }}</button>
+      {% endif %}
       <a class="soft-button" href="{{ history_page_back_url }}">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M15 18l-6-6 6-6" />
@@ -45,19 +49,21 @@
     {% for item in history_items %}
     <article class="history-item">
       <div class="history-identity">
-        <strong>{{ item.address }}</strong>
-        {% if show_history_project %}
-        <small>{{ item.project.cidr }}</small>
-        {% elif project is defined %}
-        <small>{{ project.cidr }}</small>
-        {% endif %}
+        <strong>{{ item.address or item.subnet_name or item.folder_name }}</strong>
+        {% if item.cidr %}<small>{{ item.cidr }}</small>{% endif %}
+        {% if item.folder_name and item.project_id %}<small>{{ item.folder_name }}</small>{% endif %}
       </div>
       <div class="history-field">
         <span class="history-field-icon" aria-hidden="true">
-          {{ icon(item.field_name) }}
+          {{ icon(item.field_name if item.action == 'ip_updated' else action_icons.get(item.action.rsplit('_', 1)[-1], 'edit')) }}
         </span>
+        {% if item.action == 'ip_updated' %}
         <span><strong>{{ item.field_label }}</strong><small>{{ _('history.field_changed') }}</small></span>
+        {% else %}
+        <span><strong>{{ _('history.action.' ~ item.action) }}</strong>{% if item.field_name %}<small>{{ _('history.field.' ~ item.field_name) }}</small>{% endif %}</span>
+        {% endif %}
       </div>
+      {% if item.field_name %}
       <div class="history-change">
         <div class="history-old">
           <small>{{ _('history.old_value') }}</small>
@@ -69,6 +75,11 @@
           <p>{{ item.new_value if item.new_value else _('table.placeholder_empty') }}</p>
         </div>
       </div>
+      {% else %}
+      <div class="history-identity">
+        {% if item.source_filename %}<small>{{ _('history.file') }}</small><strong>{{ item.source_filename }}</strong>{% endif %}
+      </div>
+      {% endif %}
       <div class="history-footer">
         <span class="history-avatar" aria-hidden="true">{{ (item.username or '?')[:2] | upper }}</span>
         <span><strong>{{ item.username if item.username else _('history.deleted_user') }}</strong><time datetime="{{ item.created_at.isoformat() }}">{{ item.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</time></span>
@@ -79,4 +90,32 @@
     {% endfor %}
   </div>
 </section>
+
+{% if current_user.has_admin_access %}
+<dialog class="modal-dialog" id="history-export-modal" aria-labelledby="history-export-title">
+  <form class="modal-form export-form" action="/history/export" method="post">
+    {{ csrf_input(request) }}
+    {% if history_folder_id is defined %}<input type="hidden" name="folder_id" value="{{ history_folder_id }}">{% endif %}
+    {% if history_project_id is defined %}<input type="hidden" name="project_id" value="{{ history_project_id }}">{% endif %}
+    {% if history_address is defined and history_address %}<input type="hidden" name="address" value="{{ history_address }}">{% endif %}
+    {% if history_query %}<input type="hidden" name="q" value="{{ history_query }}">{% endif %}
+    <div class="modal-head">
+      <h2 id="history-export-title">{{ _('history.export') }}</h2>
+      <button class="modal-close" type="button" data-modal-close aria-label="{{ _('button.cancel') }}">×</button>
+    </div>
+    <label>
+      {{ _('history.period') }}
+      <select name="period" autofocus>
+        {% for period in ['1', '7', '30', '90', 'all'] %}
+        <option value="{{ period }}"{% if period == '7' %} selected{% endif %}>{{ _('history.period.' ~ period) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="modal-actions">
+      <button class="soft-button" type="button" data-modal-close>{{ _('button.cancel') }}</button>
+      <button type="submit">{{ _('history.download_csv') }}</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
 {% endblock %}

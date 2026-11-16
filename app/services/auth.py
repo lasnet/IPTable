@@ -1,6 +1,5 @@
 import hashlib
 import secrets
-from datetime import datetime
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -49,9 +48,6 @@ def authenticate_user(db: Session, username: str, password: str) -> User | None:
     if user is None or not verify_password(password, user.password_hash):
         return None
 
-    user.last_login_at = datetime.utcnow()
-    db.commit()
-    db.refresh(user)
     return user
 
 

@@ -15,7 +15,7 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     # Nginx uses internal status 497 for HTTP sent to the TLS listener.
     error_page 497 =308 ${APP_PUBLIC_URL}$request_uri;
-    client_max_body_size 3m;
+    client_max_body_size ${MAX_REQUEST_BODY_BYTES};
 
     location / {
         # Re-resolve the web container after Compose restarts or recreates it.

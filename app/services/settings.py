@@ -64,8 +64,6 @@ def initialize(db: Session, legacy: Settings | None = None) -> None:
         db.add(AppConfigurationAudit(actor_name="system:env-import", section="initialization",
                                      old_revision=0, new_revision=1, changes={}))
         db.commit()
-    else:
-        legacy = None  # Never reimport changed env after initialization.
     # Existing running jobs retain the timeout in force when upgraded.
     row = db.get(AppConfiguration, 1)
     for job in db.scalars(select(PingJob).where(PingJob.status == "running",

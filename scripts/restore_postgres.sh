@@ -21,5 +21,6 @@ fi
 docker compose exec -T postgres sh -c 'umask 077; cat > /tmp/iptable_restore.dump' < "$backup_file"
 docker compose exec -T postgres sh -c 'pg_restore --clean --if-exists --no-owner -U "$POSTGRES_USER" -d "$POSTGRES_DB" /tmp/iptable_restore.dump'
 docker compose exec -T postgres rm -f /tmp/iptable_restore.dump
+docker compose run --rm --no-deps migrate
 
 echo "Restore completed from: $backup_file"

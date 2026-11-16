@@ -12,12 +12,12 @@ from starlette.responses import PlainTextResponse
 
 from app.api.routes import api_router
 from app.core.config import _request_settings, get_settings
-from app.core.database import SessionLocal, init_db
-from app.services.auth import bootstrap_initial_admin
+from app.core.database import SessionLocal, engine, init_db
+from app.services.database_roles import validate_runtime_role
 from app.services.i18n import html_language, make_translator, normalize_language
-from app.services.inventory import normalize_project_address_rows
-from app.services.ping import ensure_default_project_schedules, run_ping_scheduler
+from app.services.ping import run_ping_scheduler
 from app.services.security import csrf_input
+from app.services.request_limits import RequestBodyLimitMiddleware
 from app.services.settings import current
 from app.web.routes import router
 
@@ -26,34 +26,33 @@ from app.web.routes import router
 async def lifespan(app: FastAPI):
     settings = get_settings()
     init_db()
-    with SessionLocal() as db:
-        bootstrap_initial_admin(db, settings)
-        normalize_project_address_rows(db)
-        ensure_default_project_schedules(db, current(db, settings))
+    if settings.app_env == "production":
+        validate_runtime_role(engine)
     app.state.config_ready = True
 
     ping_task: asyncio.Task | None = None
     if settings.enable_ping_worker:
         ping_task = asyncio.create_task(run_ping_scheduler(settings))
 
-    yield
-
-    if ping_task:
-        ping_task.cancel()
-        try:
-            await ping_task
-        except asyncio.CancelledError:
-            pass
+    try:
+        yield
+    finally:
+        app.state.config_ready = False
+        if ping_task:
+            ping_task.cancel()
+            try:
+                await ping_task
+            except asyncio.CancelledError:
+                pass
 
 
 class RuntimeSessionMiddleware:
     def __init__(self, app, *, secret_key: str, session_cookie: str, https_only: bool,
-                 default_max_age: int, same_site: str = "lax"):
+                 same_site: str = "lax"):
         self.app = app
         self.secret_key = secret_key
         self.session_cookie = session_cookie
         self.https_only = https_only
-        self.default_max_age = default_max_age
         self.same_site = same_site
 
     async def __call__(self, scope, receive, send):
@@ -62,7 +61,7 @@ class RuntimeSessionMiddleware:
             return
         base = get_settings()
         runtime_path = scope.get("path", "")
-        if (runtime_path != "/health" and not runtime_path.startswith("/static/")
+        if (runtime_path not in {"/health", "/ready"} and not runtime_path.startswith("/static/")
                 and scope.get("app") and getattr(scope["app"].state, "config_ready", False)):
             try:
                 def load_snapshot():
@@ -105,8 +104,8 @@ def create_app() -> FastAPI:
         session_cookie="__Host-iptable_session" if secure_cookie else "iptable_http_session",
         same_site="lax",
         https_only=secure_cookie,
-        default_max_age=settings.session_idle_timeout_seconds,
     )
+    app.add_middleware(RequestBodyLimitMiddleware, max_bytes=settings.max_request_body_bytes)
 
     @app.middleware("http")
     async def add_security_headers(request: Request, call_next) -> Response:

@@ -7,7 +7,7 @@ WORKDIR /app
 
 # Keep the runtime small; NET_RAW is granted only to the separate worker.
 # hadolint ignore=DL3018
-RUN apk add --no-cache iputils-ping
+RUN apk upgrade --no-cache && apk add --no-cache iputils-ping
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --only-binary=:all: --upgrade pip==26.2.2 \

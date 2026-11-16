@@ -2,6 +2,10 @@
 set -eu
 
 fail() { echo "HTTPS configuration: $1" >&2; exit 1; }
+body_limit=${MAX_REQUEST_BODY_BYTES:-3145728}
+case "$body_limit" in ''|*[!0-9]*) fail 'MAX_REQUEST_BODY_BYTES must be an integer' ;; esac
+test "$body_limit" -ge 1024 && test "$body_limit" -le 67108864 || fail 'MAX_REQUEST_BODY_BYTES is out of range'
+export MAX_REQUEST_BODY_BYTES="$body_limit"
 case "${TLS_SERVER_NAME:-}" in
     ''|*[!A-Za-z0-9.-]*) fail 'TLS_SERVER_NAME must be a DNS name or IPv4 address' ;;
 esac

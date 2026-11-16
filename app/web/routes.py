@@ -1,33 +1,38 @@
 import time
-from collections.abc import AsyncIterator, Iterable
+from collections import Counter
+from collections.abc import AsyncIterator, Iterable, Iterator
+from datetime import UTC, datetime, timedelta
 from ipaddress import ip_network
-from typing import Annotated, Literal, get_args
+from tempfile import SpooledTemporaryFile
+from typing import Annotated, BinaryIO, Literal, get_args
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from sqlalchemy import String, cast, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 from starlette.datastructures import FormData
 
 from app.core.config import InterfaceTheme, Settings, _request_settings, get_settings
-from app.core.database import get_db
-from app.models import CustomField, Folder, IPAddress, IPAddressHistory, PingSchedule, Project, ProjectColumnVisibility, Role, User
+from app.core.database import check_database_readiness, get_db
+from app.models import CustomField, Folder, HistoryEntry, IPAddress, PingSchedule, Project, ProjectColumnVisibility, Role, User
 from app.models import AppConfiguration, AppConfigurationAudit, IntegrationCredential
 from app.services import address_locks
 from app.services.settings import GROUPS, RevisionConflict, replace_token, save_group
 from app.services.auth import authenticate_user, create_user, hash_password
 from app.services.csv_io import (
     CSVImportError,
+    ExportRow,
     build_zip_archive,
     csv_bytes,
     parse_assets_file,
     render_project_csv,
     render_project_xlsx,
     safe_export_name,
+    write_zip_archive,
 )
 from app.services.custom_fields import (
     CUSTOM_FIELD_TYPES,
@@ -38,8 +43,10 @@ from app.services.custom_fields import (
     lock_custom_field_schema,
     replace_custom_fields,
 )
-from app.services.inventory import create_custom_field, create_project_with_addresses
-from app.services.history import FieldChange, build_field_change, record_ip_address_history
+from app.services.inventory import ProjectCreationError, create_custom_field, create_project_with_addresses, lock_inventory_row
+from app.services.history import (
+    FieldChange, build_field_change, history_query, record_inventory_history, record_ip_address_history, render_history_csv,
+)
 from app.services.i18n import translate, translate_error_message
 from app.services.network import NetworkValidationError
 from app.services.ping import (
@@ -447,18 +454,57 @@ def _zip_response(filename: str, content: bytes) -> Response:
     )
 
 
-def _project_export_file(project: Project, ip_records: list[IPAddress], export_format: str) -> tuple[str, bytes, str]:
-    if export_format == "xlsx":
-        filename = safe_export_name(project.cidr.replace("/", "_"), suffix=".xlsx")
-        return filename, render_project_xlsx(project, ip_records), "xlsx"
+def _project_export_filename(cidr: str, export_format: str) -> str:
+    return safe_export_name(cidr.replace("/", "_"), suffix=f".{export_format}")
 
-    filename = safe_export_name(project.cidr.replace("/", "_"), suffix=".csv")
-    return filename, csv_bytes(render_project_csv(project, ip_records)), "csv"
+
+def _project_export_content(ip_records: Iterable[ExportRow], export_format: str) -> bytes:
+    if export_format == "xlsx":
+        return render_project_xlsx(ip_records)
+    return csv_bytes(render_project_csv(ip_records))
+
+
+def _folder_export_buffer() -> Iterator[BinaryIO]:
+    with SpooledTemporaryFile(max_size=2 * 1024 * 1024, mode="w+b") as buffer:
+        yield buffer
+
+
+def _folder_export_files(db: Session, folder_id: int, export_format: str) -> Iterator[tuple[str, bytes]]:
+    projects = db.execute(select(Project.id, Project.cidr, Project.name).where(Project.folder_id == folder_id)).all()
+    db.rollback()
+    filenames = Counter(_project_export_filename(project.cidr, export_format) for project in projects)
+    reserved_names = set(filenames)
+    for project in sorted(projects, key=lambda item: (item.name.lower(), item.id)):
+        filename = _project_export_filename(project.cidr, export_format)
+        if filenames[filename] > 1:
+            stem = filename.removesuffix(f".{export_format}")
+            stem = f"{stem}--{project.id}"
+            filename = f"{stem}.{export_format}"
+            while filename in reserved_names:
+                stem += "-"
+                filename = f"{stem}.{export_format}"
+            reserved_names.add(filename)
+        rows = db.execute(
+            select(IPAddress.address, IPAddress.hostname, IPAddress.os, IPAddress.asset_type, IPAddress.comment)
+            .where(IPAddress.project_id == project.id)
+            .order_by(IPAddress.ordinal)
+        ).all()
+        db.rollback()
+        yield filename, _project_export_content(rows, export_format)
 
 
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/ready", include_in_schema=False)
+def readiness() -> Response:
+    try:
+        check_database_readiness()
+    except (SQLAlchemyError, RuntimeError):
+        return JSONResponse({"status": "unavailable"}, status_code=503)
+    return JSONResponse({"status": "ready"})
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -515,11 +561,14 @@ def login(
             return _redirect_error("/login", _login_rate_limit_message(retry_after))
         return _redirect_error("/login", _ui("login.invalid"))
 
+    user_id, verified_password_hash = user.id, user.password_hash
     reset_login_failures(db, client_ip, username)
     revoke_session(db, request.session.get(SESSION_TOKEN_KEY))
-    session_token = issue_session(db, user, settings.session_idle_timeout_seconds)
+    session_token = issue_session(db, user_id, verified_password_hash, settings.session_idle_timeout_seconds)
     request.session.clear()
-    request.session["user_id"] = user.id
+    if session_token is None:
+        return _redirect_error("/login", _ui("login.invalid"))
+    request.session["user_id"] = user_id
     request.session[SESSION_TOKEN_KEY] = session_token
     request.session[SESSION_LAST_ACTIVITY_KEY] = int(time.time())
     return _redirect("/")
@@ -541,20 +590,21 @@ def index(
     message: Annotated[str | None, Query(max_length=240)] = None,
 ) -> Response:
     folders = _load_sidebar_folders(db)
+    addresses, active, offline, untested = db.execute(select(
+        func.count(),
+        func.count().filter(IPAddress.is_reachable.is_(True)),
+        func.count().filter(IPAddress.is_reachable.is_(False)),
+        func.count().filter(IPAddress.is_reachable.is_(None)),
+    ).select_from(IPAddress)).one()
     stats = {
         "folders": len(folders),
         "projects": sum(len(folder.projects) for folder in folders),
-        "addresses": db.scalar(select(func.count(IPAddress.id))) or 0,
-        "active": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(True))) or 0,
-        "offline": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(False))) or 0,
-        "untested": db.scalar(select(func.count(IPAddress.id)).where(IPAddress.is_reachable.is_(None))) or 0,
+        "addresses": addresses,
+        "active": active,
+        "offline": offline,
+        "untested": untested,
     }
-    recent_history = db.scalars(
-        select(IPAddressHistory)
-        .options(selectinload(IPAddressHistory.project))
-        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
-        .limit(5)
-    ).all()
+    recent_history = db.scalars(history_query().limit(5)).all()
     return _templates(request).TemplateResponse(
         request,
         "index.html",
@@ -565,6 +615,7 @@ def index(
             "current_user": current_user,
             "stats": stats,
             "recent_history": recent_history,
+            "live_projects": {project.id: project.created_at for folder in folders for project in folder.projects},
             "error": error,
             "message": message,
         },
@@ -698,15 +749,8 @@ def global_history(
     current_user: Annotated[User, Depends(require_user)],
     q: Annotated[str, Query(max_length=64)] = "",
 ) -> HTMLResponse:
-    history_query = _clean_text(q, 64)
-    history_conditions = [IPAddressHistory.address.startswith(history_query, autoescape=True)] if history_query else []
-    history_items = db.scalars(
-        select(IPAddressHistory)
-        .where(*history_conditions)
-        .options(selectinload(IPAddressHistory.project))
-        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
-        .limit(200)
-    ).all()
+    search = _clean_text(q, 64)
+    history_items = db.scalars(history_query(search=search).limit(200)).all()
     return _templates(request).TemplateResponse(
         request,
         "history.html",
@@ -715,12 +759,41 @@ def global_history(
             "history_subtitle": _ui("history.global_hint"),
             "history_back_url": "/inventory",
             "history_items": history_items,
-            "history_query": history_query,
-            "show_history_project": True,
+            "history_query": search,
             "folders": [],
             "active_project": None,
             "current_user": current_user,
         },
+    )
+
+
+@router.post("/history/export")
+def export_history(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_admin)],
+    period: Annotated[Literal["1", "7", "30", "90", "all"], Form()],
+    folder_id: Annotated[int | None, Form(ge=1)] = None,
+    project_id: Annotated[int | None, Form(ge=1)] = None,
+    address: Annotated[str, Form(max_length=64)] = "",
+    q: Annotated[str, Form(max_length=64)] = "",
+) -> StreamingResponse:
+    folder = db.get(Folder, folder_id) if folder_id is not None else None
+    project = db.get(Project, project_id) if project_id is not None else None
+    if folder_id is not None and folder is None:
+        raise HTTPException(status_code=404, detail=_ui("folder.not_found"))
+    if project_id is not None and project is None:
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
+
+    now = datetime.now(UTC).replace(tzinfo=None)
+    since = now - timedelta(days=int(period)) if period != "all" else None
+    entries = db.scalars(history_query(
+        folder=folder, project=project, address=_clean_text(address, 64), search=_clean_text(q, 64), since=since,
+    ).execution_options(yield_per=500))
+    return StreamingResponse(
+        render_history_csv(entries, language=get_settings().interface_language),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="history-{period}-{now:%Y-%m-%d}.csv"',
+                 "Cache-Control": "no-store"},
     )
 
 
@@ -742,8 +815,11 @@ def create_folder(
     if existing:
         return _redirect_error(error_path, _ui("folder.duplicate"))
 
-    db.add(Folder(name=clean_name))
+    folder = Folder(name=clean_name)
+    db.add(folder)
     try:
+        db.flush()
+        record_inventory_history(db, user=current_user, action="folder_created", folder=folder)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -762,7 +838,7 @@ def update_folder(
     if not current_user.can_edit_inventory:
         return _redirect_error("/inventory", _ui("folder.edit_denied"))
 
-    folder = db.get(Folder, folder_id)
+    folder = lock_inventory_row(db, Folder, folder_id)
     if folder is None:
         return _redirect_error("/inventory", _ui("folder.not_found"))
 
@@ -770,8 +846,10 @@ def update_folder(
     if not clean_name:
         return _redirect_error(error_path, _ui("folder.name_empty"))
 
+    change = build_field_change("name", "", folder.name, clean_name)
     folder.name = clean_name
     try:
+        record_inventory_history(db, user=current_user, action="folder_updated", folder=folder, changes=[change])
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -788,17 +866,21 @@ def delete_folder(
     if not current_user.can_delete_inventory:
         return _redirect_error("/inventory", _ui("folder.delete_denied"))
 
-    folder = db.get(Folder, folder_id)
+    folder = lock_inventory_row(db, Folder, folder_id)
     if folder is None:
         return _redirect_error("/inventory", _ui("folder.not_found"))
 
+    projects = db.scalars(select(Project).where(Project.folder_id == folder.id).order_by(Project.id).with_for_update())
+    for project in projects:
+        record_inventory_history(db, user=current_user, action="subnet_deleted", folder=folder, project=project)
+    record_inventory_history(db, user=current_user, action="folder_deleted", folder=folder)
     db.delete(folder)
     db.commit()
     return _redirect("/inventory")
 
 
 @router.post("/projects")
-async def create_project(
+def create_project(
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
@@ -823,12 +905,6 @@ async def create_project(
     if not clean_cidr:
         return _redirect_error(error_path, _ui("project.cidr_required"))
 
-    existing = db.scalar(
-        select(Project).where(Project.folder_id == folder.id, func.lower(Project.name) == clean_name.lower())
-    )
-    if existing:
-        return _redirect_error(error_path, _ui("project.duplicate"))
-
     try:
         project = create_project_with_addresses(
             db,
@@ -837,64 +913,68 @@ async def create_project(
             cidr=clean_cidr,
             description=description,
             max_addresses=settings.max_project_addresses,
+            commit=False,
         )
-    except NetworkValidationError as exc:
+        project_id = project.id
+        record_inventory_history(db, user=current_user, action="subnet_created", folder=folder, project=project)
+        ensure_project_ping_schedule(db, project_id, settings, commit=False)
+        enqueue_project_ping(db, project_id, reason="project-created", commit=False)
+        db.commit()
+    except (NetworkValidationError, ProjectCreationError) as exc:
+        db.rollback()
         return _redirect_error(error_path, _ui_error(str(exc)))
     except IntegrityError:
         db.rollback()
         return _redirect_error(error_path, _ui("project.create_failed_unique"))
 
-    ensure_project_ping_schedule(db, project.id, settings)
-    enqueue_project_ping(db, project.id, reason="project-created")
-    return _redirect(f"/projects/{project.id}?hide_empty=false")
+    return _redirect(f"/projects/{project_id}?hide_empty=false")
 
 
-@router.post("/folders/{folder_id}/projects/import")
-async def import_project_csv(
+@router.post("/folders/{folder_id}/projects/import", response_model=None)
+def import_project_csv(
     folder_id: int,
+    request: Request,
     db: Annotated[Session, Depends(get_db)],
     settings: Annotated[Settings, Depends(get_settings)],
     current_user: Annotated[User, Depends(require_user)],
     name: Annotated[str, Form(min_length=1, max_length=160)],
     description: Annotated[str, Form(max_length=2000)] = "",
+    cidr: Annotated[str, Form(max_length=64)] = "",
     csv_file: UploadFile = File(...),
-) -> RedirectResponse:
+) -> RedirectResponse | JSONResponse:
     error_path = f"/inventory?new_project_folder={folder_id}"
+    wants_json = request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+    def failure(detail: str, *, status_code: int = 422, path: str = error_path) -> RedirectResponse | JSONResponse:
+        message = _import_error_message(detail)
+        if wants_json:
+            return JSONResponse({"error": message}, status_code=status_code)
+        return _redirect_error(path, message)
+
     if not _can_import_csv(current_user):
-        return _redirect_error(
-            error_path,
-            _ui("import.denied"),
-        )
+        return failure(_ui("import.denied"), status_code=403)
 
     folder = db.get(Folder, folder_id)
     if folder is None:
-        return _redirect_error("/inventory", _ui("folder.not_found"))
+        return failure(_ui("folder.not_found"), status_code=404, path="/inventory")
 
     clean_name = _clean_text(name, 160)
     if not clean_name:
-        return _redirect_error(error_path, _import_error_message(_ui("import.name_required")))
+        return failure(_ui("import.name_required"))
 
     if not csv_file.filename:
-        return _redirect_error(error_path, _import_error_message(_ui("import.file_required")))
+        return failure(_ui("import.file_required"))
 
-    content = await csv_file.read(settings.csv_import_max_bytes + 1)
+    content = csv_file.file.read(settings.csv_import_max_bytes + 1)
     if len(content) > settings.csv_import_max_bytes:
-        return _redirect_error(
-            error_path,
-            _import_error_message(_ui("import.file_too_large", max_bytes=settings.csv_import_max_bytes)),
-        )
-
-    existing = db.scalar(
-        select(Project).where(Project.folder_id == folder.id, func.lower(Project.name) == clean_name.lower())
-    )
-    if existing:
-        return _redirect_error(error_path, _import_error_message(_ui("project.duplicate")))
+        return failure(_ui("import.file_too_large", max_bytes=settings.csv_import_max_bytes), status_code=413)
 
     try:
         import_result = parse_assets_file(
             content,
             filename=csv_file.filename,
             max_addresses=settings.max_project_addresses,
+            cidr=cidr,
         )
         project = create_project_with_addresses(
             db,
@@ -903,44 +983,35 @@ async def import_project_csv(
             cidr=import_result.cidr,
             description=description,
             max_addresses=settings.max_project_addresses,
+            imported_rows=import_result.rows,
+            commit=False,
         )
-        records_by_address = {
-            ip_record.address: ip_record
-            for ip_record in db.scalars(select(IPAddress).where(IPAddress.project_id == project.id)).all()
-        }
-        for row in import_result.rows:
-            ip_record = records_by_address.get(row.address)
-            if ip_record is None:
-                raise CSVImportError(
-                    _ui(
-                        "import.ip_outside_subnet",
-                        row=row.row_number,
-                        address=row.address,
-                        cidr=import_result.cidr,
-                    )
-                )
-            ip_record.hostname = row.hostname
-            ip_record.os = row.os
-            ip_record.asset_type = row.asset_type
-            ip_record.comment = row.comment
+        project_id = project.id
+        record_inventory_history(
+            db, user=current_user, action="subnet_imported", folder=folder, project=project,
+            source_filename=csv_file.filename,
+        )
+        ensure_project_ping_schedule(db, project_id, settings, commit=False)
+        enqueue_project_ping(db, project_id, reason="project-imported", commit=False)
         db.commit()
-    except CSVImportError as exc:
+    except (CSVImportError, NetworkValidationError) as exc:
         db.rollback()
-        return _redirect_error(error_path, _import_error_message(_ui_error(str(exc))))
-    except NetworkValidationError as exc:
+        return failure(_ui_error(str(exc)))
+    except ProjectCreationError as exc:
         db.rollback()
-        return _redirect_error(error_path, _import_error_message(_ui_error(str(exc))))
+        return failure(_ui_error(str(exc)), status_code=409)
     except IntegrityError:
         db.rollback()
-        return _redirect_error(error_path, _import_error_message(_ui("import.failed_unique")))
+        return failure(_ui("import.failed_unique"), status_code=409)
 
-    ensure_project_ping_schedule(db, project.id, settings)
-    enqueue_project_ping(db, project.id, reason="project-imported")
-
-    return _redirect_message(
-        f"/projects/{project.id}?hide_empty=true",
-        _ui("import.success", rows=len(import_result.rows), cidr=project.cidr),
-    )
+    message = _ui("import.success", rows=len(import_result.rows), cidr=import_result.cidr)
+    if import_result.skipped_reserved:
+        message += " " + _ui("import.skipped_reserved", count=import_result.skipped_reserved)
+    query = urlencode({"hide_empty": "false", "message": message})
+    location = f"/projects/{project_id}?{query}"
+    if wants_json:
+        return JSONResponse({"location": location}, status_code=201)
+    return _redirect(location)
 
 
 @router.post("/projects/{project_id}/update")
@@ -954,7 +1025,7 @@ def update_project(
     if not current_user.can_edit_inventory:
         return _redirect_error(f"/projects/{project_id}", _ui("project.edit_denied"))
 
-    project = db.get(Project, project_id)
+    project = lock_inventory_row(db, Project, project_id)
     if project is None:
         return _redirect_error("/inventory", _ui("project.not_found"))
 
@@ -962,9 +1033,17 @@ def update_project(
     if not clean_name:
         return _redirect_error(f"/projects/{project_id}", _ui("project.name_empty"))
 
+    clean_description = _clean_text(description, 2000)
+    changes = [
+        build_field_change("name", "", project.name, clean_name),
+        build_field_change("description", "", project.description, clean_description),
+    ]
     project.name = clean_name
-    project.description = _clean_text(description, 2000)
+    project.description = clean_description
     try:
+        record_inventory_history(
+            db, user=current_user, action="subnet_updated", folder=project.folder, project=project, changes=changes,
+        )
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -981,10 +1060,11 @@ def delete_project(
     if not current_user.can_delete_inventory:
         return _redirect_error(f"/projects/{project_id}", _ui("project.delete_denied"))
 
-    project = db.get(Project, project_id)
+    project = lock_inventory_row(db, Project, project_id)
     if project is None:
         return _redirect_error("/inventory", _ui("project.not_found"))
 
+    record_inventory_history(db, user=current_user, action="subnet_deleted", folder=project.folder, project=project)
     db.delete(project)
     db.commit()
     return _redirect("/inventory")
@@ -1068,7 +1148,7 @@ def project_detail(
         .where(Project.id == project_id)
     )
     if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
 
     custom_fields = db.scalars(
         select(CustomField).where(CustomField.project_id == project.id).order_by(CustomField.position.asc())
@@ -1101,7 +1181,9 @@ def project_detail(
     visible_conditions = [IPAddress.project_id == project.id, *filter_conditions]
     if hide_empty:
         visible_conditions.append(filled_condition)
-    visible_count = db.scalar(select(func.count(IPAddress.id)).where(*visible_conditions)) or 0
+    visible_count = filled_total if hide_empty and not filter_conditions else (
+        db.scalar(select(func.count(IPAddress.id)).where(*visible_conditions)) or 0
+    )
     page_size = _normalize_project_page_size(per_page, settings, current_user.project_table_page_size)
     pagination = _pagination_context(
         project.id,
@@ -1150,13 +1232,11 @@ def project_detail(
             },
         )
 
-    total_count = db.scalar(select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id)) or 0
-    online_count = db.scalar(
-        select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, IPAddress.is_reachable.is_(True))
-    ) or 0
-    offline_count = db.scalar(
-        select(func.count(IPAddress.id)).where(IPAddress.project_id == project.id, IPAddress.is_reachable.is_(False))
-    ) or 0
+    total_count, online_count, offline_count = db.execute(select(
+        func.count(),
+        func.count().filter(IPAddress.is_reachable.is_(True)),
+        func.count().filter(IPAddress.is_reachable.is_(False)),
+    ).where(IPAddress.project_id == project.id)).one()
     folders = _load_sidebar_folders(db)
     project_schedule = db.scalar(
         select(PingSchedule).where(
@@ -1212,8 +1292,6 @@ def project_detail(
         "empty_count": max(total_count - filled_total, 0),
         "online_count": online_count,
         "offline_count": offline_count,
-        "shown_count": len(ip_records),
-        "visible_count": visible_count,
     }
     return _templates(request).TemplateResponse(request, "project.html", context)
 
@@ -1283,10 +1361,8 @@ def admin_user_profile(
     if account is None:
         raise HTTPException(status_code=404, detail=_ui("admin.user_not_found"))
     activity = db.scalars(
-        select(IPAddressHistory)
-        .where(IPAddressHistory.user_id == account.id)
-        .options(selectinload(IPAddressHistory.project))
-        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
+        history_query()
+        .where(HistoryEntry.user_id == account.id, HistoryEntry.created_at >= account.created_at)
         .limit(50)
     ).all()
     return _templates(request).TemplateResponse(request, "admin_user_profile.html", {
@@ -1494,10 +1570,10 @@ def admin_update_user(
     user.is_active = protected or _checked(is_active)
     if clean_password:
         user.password_hash = hash_password(clean_password)
-    if clean_password or not user.is_active or role_changed:
-        revoke_user_sessions(db, user.id)
-
     try:
+        if clean_password or not user.is_active or role_changed:
+            db.flush()
+            revoke_user_sessions(db, user.id)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -1542,7 +1618,8 @@ def export_project(
         select(IPAddress).where(IPAddress.project_id == project.id).order_by(IPAddress.ordinal.asc())
     ).all()
     clean_format = "xlsx" if export_format == "xlsx" else "csv"
-    export_filename, export_content, clean_format = _project_export_file(project, list(ip_records), clean_format)
+    export_filename = _project_export_filename(project.cidr, clean_format)
+    export_content = _project_export_content(ip_records, clean_format)
 
     if not _checked(use_password):
         if clean_format == "xlsx":
@@ -1566,38 +1643,37 @@ def export_folder(
     folder_id: int,
     db: Annotated[Session, Depends(get_db)],
     current_user: Annotated[User, Depends(require_admin)],
+    buffer: Annotated[BinaryIO, Depends(_folder_export_buffer, scope="request")],
     export_format: Annotated[str, Form()] = "csv",
     use_password: Annotated[str | None, Form()] = None,
     password: Annotated[str, Form(max_length=200)] = "",
 ) -> Response:
-    folder = db.scalar(
-        select(Folder)
-        .where(Folder.id == folder_id)
-        .options(selectinload(Folder.projects).selectinload(Project.ip_addresses))
-    )
-    if folder is None:
+    folder_name = db.scalar(select(Folder.name).where(Folder.id == folder_id))
+    if folder_name is None:
         return _redirect_error("/inventory", _ui("folder.not_found"))
-    error_path = f"/inventory?export_folder={folder.id}"
-    if not folder.projects:
+    error_path = f"/inventory?export_folder={folder_id}"
+    if db.scalar(select(Project.id).where(Project.folder_id == folder_id).limit(1)) is None:
         return _redirect_error(error_path, _ui("export.folder_empty"))
-
-    files: dict[str, bytes] = {}
-    clean_format = "xlsx" if export_format == "xlsx" else "csv"
-    for project in sorted(folder.projects, key=lambda item: item.name.lower()):
-        ordered_records = sorted(project.ip_addresses, key=lambda item: item.ordinal)
-        filename, content, _ = _project_export_file(project, ordered_records, clean_format)
-        files[filename] = content
-
     clean_password = password.strip() if _checked(use_password) else ""
     if _checked(use_password) and not clean_password:
         return _redirect_error(error_path, _ui("export.password_required_folder"))
 
+    clean_format = "xlsx" if export_format == "xlsx" else "csv"
     try:
-        archive = build_zip_archive(files, password=clean_password or None)
-    except RuntimeError as exc:
-        return _redirect_error(error_path, _ui_error(str(exc)))
+        write_zip_archive(buffer, _folder_export_files(db, folder_id, clean_format), password=clean_password or None)
+        length = buffer.tell()
+        buffer.seek(0)
+    except (OSError, RuntimeError):
+        return _redirect_error(error_path, _ui("export.archive_failed"))
 
-    return _zip_response(safe_export_name(folder.name, suffix=".zip"), archive)
+    return StreamingResponse(
+        iter(lambda: buffer.read(65_536), b""),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_export_name(folder_name, suffix=".zip")}"',
+            "Content-Length": str(length),
+        },
+    )
 
 
 @router.post("/projects/{project_id}/fields")
@@ -1612,7 +1688,7 @@ def add_custom_field(
         return _redirect_error(f"/projects/{project_id}", _ui("field.edit_denied"))
 
     if db.get(Project, project_id) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
 
     clean_name = _clean_text(name, 120)
     if not clean_name:
@@ -1633,7 +1709,7 @@ async def save_column_visibility(
     current_user: Annotated[User, Depends(require_user)],
 ) -> RedirectResponse:
     if db.get(Project, project_id) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
     form = await request.form()
     custom_fields = db.scalars(select(CustomField).where(CustomField.project_id == project_id))
     hidden = sorted(_hideable_columns(custom_fields).intersection(form.getlist("hidden_column")))
@@ -1659,7 +1735,7 @@ async def save_global_column_visibility(
 ) -> RedirectResponse:
     project = db.get(Project, project_id)
     if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
     form = await request.form()
     custom_fields = db.scalars(select(CustomField).where(CustomField.project_id == project_id))
     project.hidden_columns = sorted(_hideable_columns(custom_fields).intersection(form.getlist("hidden_column")))
@@ -1680,7 +1756,7 @@ def configure_custom_fields(
     if not current_user.can_manage_project_columns:
         return _redirect_error(f"/projects/{project_id}", _ui("field.edit_denied"))
     if db.get(Project, project_id) is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
 
     hide_empty = form.get("hide_empty") == "true"
     page = _safe_positive_int(form.get("page"), 1)
@@ -1944,27 +2020,13 @@ def project_history(
     address: Annotated[str, Query(max_length=64)] = "",
     q: Annotated[str, Query(max_length=64)] = "",
 ) -> HTMLResponse:
-    project = db.scalar(
-        select(Project)
-        .where(Project.id == project_id)
-        .options(selectinload(Project.folder))
-    )
+    project = db.get(Project, project_id)
     if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail=_ui("project.not_found"))
 
     clean_address = _clean_text(address, 64)
-    history_query = _clean_text(q, 64)
-    history_conditions = [IPAddressHistory.project_id == project.id]
-    if clean_address:
-        history_conditions.append(IPAddressHistory.address == clean_address)
-    if history_query:
-        history_conditions.append(IPAddressHistory.address.startswith(history_query, autoescape=True))
-    history_items = db.scalars(
-        select(IPAddressHistory)
-        .where(*history_conditions)
-        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
-        .limit(200)
-    ).all()
+    search = _clean_text(q, 64)
+    history_items = db.scalars(history_query(project=project, address=clean_address, search=search).limit(200)).all()
 
     return _templates(request).TemplateResponse(
         request,
@@ -1974,12 +2036,9 @@ def project_history(
             "project": project,
             "history_subtitle": f"{project.cidr} / {clean_address}" if clean_address else project.cidr,
             "history_items": history_items,
-            "history_query": history_query,
+            "history_query": search,
             "history_address": clean_address,
-            "folders": _load_sidebar_folders(db),
-            "folder_schedules": _load_folder_schedules(db),
-            "default_ping_interval_minutes": _default_ping_interval_minutes(),
-            "active_project": project,
+            "history_project_id": project.id,
             "current_user": current_user,
         },
     )
@@ -1997,16 +2056,8 @@ def folder_history(
     if folder is None:
         raise HTTPException(status_code=404, detail="Folder not found")
 
-    history_query = _clean_text(q, 64)
-    history_conditions = [IPAddressHistory.address.startswith(history_query, autoescape=True)] if history_query else []
-    history_items = db.scalars(
-        select(IPAddressHistory)
-        .join(Project, IPAddressHistory.project_id == Project.id)
-        .where(Project.folder_id == folder.id, *history_conditions)
-        .options(selectinload(IPAddressHistory.project))
-        .order_by(IPAddressHistory.created_at.desc(), IPAddressHistory.id.desc())
-        .limit(200)
-    ).all()
+    search = _clean_text(q, 64)
+    history_items = db.scalars(history_query(folder=folder, search=search).limit(200)).all()
 
     return _templates(request).TemplateResponse(
         request,
@@ -2017,12 +2068,8 @@ def folder_history(
             "history_subtitle": folder.name,
             "history_back_url": "/inventory",
             "history_items": history_items,
-            "history_query": history_query,
-            "show_history_project": True,
-            "folders": _load_sidebar_folders(db),
-            "folder_schedules": _load_folder_schedules(db),
-            "default_ping_interval_minutes": _default_ping_interval_minutes(),
-            "active_folder_id": folder.id,
+            "history_query": search,
+            "history_folder_id": folder.id,
             "current_user": current_user,
         },
     )

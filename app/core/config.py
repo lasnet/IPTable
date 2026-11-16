@@ -1,4 +1,6 @@
 from functools import lru_cache
+import hashlib
+import hmac
 from contextvars import ContextVar
 from typing import Literal
 from urllib.parse import urlsplit
@@ -12,6 +14,19 @@ from app.services.i18n import normalize_language
 
 
 InterfaceTheme = Literal["blue", "green", "dark"]
+
+
+def runtime_database_role_name(owner: str, database: str) -> str:
+    name = owner + "_app"
+    if len(name.encode()) <= 63 and not name.startswith("pg_"):
+        return name
+    return "iptable_app_" + hashlib.sha256((owner + "\0" + database).encode()).hexdigest()[:24]
+
+
+def runtime_database_password(secret_key: str, role: str) -> str:
+    if len(secret_key.strip()) < 32:
+        raise ValueError("Runtime database role requires SECRET_KEY of at least 32 characters")
+    return hmac.new(secret_key.encode(), ("iptable-runtime-database:" + role).encode(), hashlib.sha256).hexdigest()
 
 
 class Settings(BaseSettings):
@@ -34,6 +49,7 @@ class Settings(BaseSettings):
     postgres_host: str = ""
     postgres_port: int = Field(default=5432, ge=1, le=65535)
     postgres_user: str = "iptable"
+    postgres_app_user: str = ""
     postgres_password: str = ""
     postgres_db: str = "iptable"
     ping_interval_seconds: int = Field(default=3600, ge=60)
@@ -47,6 +63,7 @@ class Settings(BaseSettings):
     project_table_default_page_size: int = Field(default=25, ge=10, le=250)
     max_project_addresses: int = Field(default=4096, ge=1)
     csv_import_max_bytes: int = Field(default=2_097_152, ge=1024)
+    max_request_body_bytes: int = Field(default=3_145_728, ge=1024, le=67_108_864)
     enable_ping_worker: bool = True
 
     # The shared dotenv also contains Docker Compose variables (ports and PostgreSQL).
@@ -80,11 +97,16 @@ class Settings(BaseSettings):
             raise ValueError("HTTPS_ENABLED requires an HTTPS APP_PUBLIC_URL")
         if not self.database_url:
             if self.postgres_host:
-                if not self.postgres_password.strip():
+                username = self.postgres_app_user or self.postgres_user
+                if self.postgres_app_user == "auto":
+                    username = runtime_database_role_name(self.postgres_user, self.postgres_db)
+                password = (runtime_database_password(self.secret_key, username)
+                            if self.postgres_app_user else self.postgres_password)
+                if not password.strip():
                     raise ValueError("Set POSTGRES_PASSWORD in docker-compose.yml or .env")
                 self.database_url = URL.create(
-                    "postgresql+psycopg", username=self.postgres_user,
-                    password=self.postgres_password, host=self.postgres_host,
+                    "postgresql+psycopg", username=username,
+                    password=password, host=self.postgres_host,
                     port=self.postgres_port, database=self.postgres_db,
                 ).render_as_string(hide_password=False)
             else:
@@ -110,6 +132,7 @@ class BootstrapSettings(Settings):
             "app_env", "app_public_url", "https_enabled", "secret_key", "session_cookie_secure",
             "initial_admin_username", "initial_admin_password", "database_url", "postgres_host",
             "postgres_port", "postgres_user", "postgres_password", "postgres_db", "enable_ping_worker",
+            "max_request_body_bytes", "postgres_app_user",
         }
         def filtered(source):
             return lambda: {key: value for key, value in source().items() if key in names}
