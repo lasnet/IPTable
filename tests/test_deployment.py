@@ -19,6 +19,20 @@ from sqlalchemy.engine import make_url
 
 
 class DeploymentTest(unittest.TestCase):
+    def test_env_template_lists_compose_and_documented_settings(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        template = (root / ".env.example").read_text(encoding="utf-8")
+        template_keys = set(re.findall(r"^(?:# )?([A-Z][A-Z0-9_]*)=", template, re.MULTILINE))
+        for name in ("docker-compose.yml", "deploy/https/true.yml"):
+            source = (root / name).read_text(encoding="utf-8")
+            keys = set(re.findall(r"(?<!\$)\$\{([A-Z][A-Z0-9_]*)", source))
+            self.assertEqual(keys - template_keys, set(), name)
+
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        for example in re.findall(r"^```dotenv\n(.*?)^```", readme, re.MULTILINE | re.DOTALL):
+            keys = set(re.findall(r"^([A-Z][A-Z0-9_]*)=", example, re.MULTILINE))
+            self.assertEqual(keys - template_keys, set(), example)
+
     def test_installation_key_is_persistent_and_private(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "secret-key"
